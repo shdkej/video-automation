@@ -1,0 +1,35 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# 입력/출력 영상
+*.mp4
+*.mov
+*.mkv
+*.webm
+*.m4a
+*.wav
+*.mp3
+
+# 파이프라인 부산물 (트랜스크립트/선정 결과 캐시)
+*.transcript.json
+*.selection.json
+
+# ffmpeg 임시 폴더
+.*_tmp/
+
+# 환경 변수
+.env
+.env.local
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Claude Code / OMC 작업 흔적
+.omc/
+.claude/
