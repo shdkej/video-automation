@@ -28,8 +28,14 @@ brew install ffmpeg
 
 ## 사용
 
+API 키는 `.env` 파일에 두거나(`cp .env.example .env` 후 편집) 환경 변수로 export하면 됩니다.
+
 ```bash
-# Anthropic 또는 OpenAI 키 중 하나만 있으면 됨
+# 방법 1: .env 파일 사용
+cp .env.example .env
+# 편집기로 열어 키 입력
+
+# 방법 2: 직접 export
 export ANTHROPIC_API_KEY=sk-ant-...
 # 또는
 export OPENAI_API_KEY=sk-...

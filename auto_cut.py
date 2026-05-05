@@ -11,6 +11,10 @@ import subprocess
 import sys
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 
 # ============================================================================
 # Domain — 외부 의존 없는 순수 함수
