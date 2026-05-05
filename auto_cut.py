@@ -50,6 +50,49 @@ def total_duration(segments: list) -> float:
     return sum(s["end"] - s["start"] for s in segments)
 
 
+def validate_transcript_quality(transcript: dict, min_chars: int = 30, min_chars_per_sec: float = 0.3) -> None:
+    """한국어 음성이 충분히 인식되었는지 검사. 부적절하면 ValueError."""
+    segs = transcript["segments"]
+    duration = transcript["duration"]
+    total_text = "".join(s["text"] for s in segs).strip()
+
+    if not segs or len(total_text) < min_chars:
+        raise ValueError(
+            f"트랜스크립트에 한국어 음성이 거의 인식되지 않았습니다 "
+            f"(영상 {duration:.0f}초, 인식 텍스트 {len(total_text)}자). "
+            f"무음 영상이거나 한국어가 아닐 수 있습니다."
+        )
+
+    char_per_sec = len(total_text) / duration if duration else 0.0
+    if char_per_sec < min_chars_per_sec:
+        raise ValueError(
+            f"트랜스크립트가 너무 희박합니다 ({char_per_sec:.2f}자/초, 임계 {min_chars_per_sec}). "
+            f"한국어 음성이 거의 없는 영상일 수 있습니다."
+        )
+
+    unique = {s["text"].strip() for s in segs if s["text"].strip()}
+    if len(unique) <= 1 and len(segs) >= 3:
+        sample = next(iter(unique), "")
+        raise ValueError(
+            f"같은 텍스트만 {len(segs)}회 반복됩니다 ({sample!r}). Whisper 환각 의심."
+        )
+
+
+def overlaps(a_start: float, a_end: float, b_start: float, b_end: float) -> bool:
+    return a_start < b_end and b_start < a_end
+
+
+def filter_grounded_segments(llm_segments: list, transcript_segments: list) -> list:
+    """LLM이 반환한 구간 중 트랜스크립트 segment 하나라도 겹치는 것만 채택."""
+    grounded = []
+    for seg in llm_segments:
+        for t in transcript_segments:
+            if overlaps(seg["start"], seg["end"], t["start"], t["end"]):
+                grounded.append(seg)
+                break
+    return grounded
+
+
 def extract_json_block(text: str) -> dict:
     start = text.find("{")
     end = text.rfind("}") + 1
@@ -114,9 +157,10 @@ def build_highlight_prompt(transcript: dict, target_minutes: float) -> str:
 응답은 반드시 아래 JSON 포맷만 (다른 설명 없이):
 {{
   "segments": [
-    {{"start": 12.3, "end": 45.6, "reason": "핵심 주장 소개"}}
+    {{"start": <시작_초>, "end": <끝_초>, "reason": <짧은_선정_이유>}}
   ]
 }}
+숫자는 반드시 위 트랜스크립트에 등장한 타임스탬프 범위 안에서 골라야 합니다.
 
 트랜스크립트:
 {transcript_text}
@@ -258,9 +302,20 @@ def main() -> None:
         transcript = transcribe_video(args.input, args.whisper_model, args.language)
         transcript_path.write_text(json.dumps(transcript, ensure_ascii=False, indent=2))
 
-    segments = select_highlights(transcript, args.target_minutes, args.llm_model)
+    try:
+        validate_transcript_quality(transcript)
+    except ValueError as e:
+        sys.exit(f"트랜스크립트 품질 미달: {e}")
+
+    raw = select_highlights(transcript, args.target_minutes, args.llm_model)
+    segments = filter_grounded_segments(raw, transcript["segments"])
     if not segments:
-        sys.exit("선택된 구간이 없습니다. 트랜스크립트나 프롬프트를 점검하세요.")
+        sys.exit(
+            "선정된 구간이 트랜스크립트와 겹치지 않습니다 (LLM 환각 의심). "
+            "원본 응답은 콘솔에서 확인하거나, --llm-model을 더 큰 모델로 바꿔보세요."
+        )
+    if len(segments) < len(raw):
+        print(f"  ⚠ LLM 응답 {len(raw)}개 중 {len(raw) - len(segments)}개를 환각으로 판단해 제외")
 
     selection_path.write_text(json.dumps(segments, ensure_ascii=False, indent=2))
 
