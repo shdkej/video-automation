@@ -79,20 +79,24 @@ def transcribe_video(video_path: Path, model_size: str, language: str) -> dict:
     }
 
 
-def select_highlights(transcript: dict, target_minutes: float, model: str) -> list:
-    from anthropic import Anthropic
+def detect_provider(model: str) -> str:
+    if model.startswith("claude"):
+        return "anthropic"
+    if model.startswith(("gpt", "o1", "o3", "o4")):
+        return "openai"
+    raise ValueError(
+        f"알 수 없는 모델: {model!r} (claude-*, gpt-*, o1/o3/o4-* 만 지원)"
+    )
 
-    print(f"[2/3] Claude로 하이라이트 선정 (목표={target_minutes}분)…")
-    client = Anthropic()
 
+def build_highlight_prompt(transcript: dict, target_minutes: float) -> str:
     transcript_text = "\n".join(
         f"[{format_timestamp(s['start'])}-{format_timestamp(s['end'])}] {s['text']}"
         for s in transcript["segments"]
     )
     target_seconds = target_minutes * 60
     duration = transcript["duration"]
-
-    prompt = f"""다음은 {duration / 60:.1f}분짜리 영상의 트랜스크립트입니다. 각 줄은 [시작-끝] 텍스트 형식입니다.
+    return f"""다음은 {duration / 60:.1f}분짜리 영상의 트랜스크립트입니다. 각 줄은 [시작-끝] 텍스트 형식입니다.
 
 이 영상에서 핵심적이고 흥미로운 부분만 골라 총 {target_minutes:.1f}분(약 {target_seconds:.0f}초) 분량의 하이라이트를 만들어주세요.
 
@@ -114,14 +118,38 @@ def select_highlights(transcript: dict, target_minutes: float, model: str) -> li
 {transcript_text}
 """
 
-    response = client.messages.create(
+
+def call_anthropic(model: str, prompt: str) -> str:
+    from anthropic import Anthropic
+
+    response = Anthropic().messages.create(
         model=model,
         max_tokens=8192,
         messages=[{"role": "user", "content": prompt}],
     )
-    text = response.content[0].text
+    return response.content[0].text
+
+
+def call_openai(model: str, prompt: str) -> str:
+    from openai import OpenAI
+
+    response = OpenAI().chat.completions.create(
+        model=model,
+        messages=[{"role": "user", "content": prompt}],
+        response_format={"type": "json_object"},
+    )
+    return response.choices[0].message.content
+
+
+def select_highlights(transcript: dict, target_minutes: float, model: str) -> list:
+    provider = detect_provider(model)
+    print(f"[2/3] {provider}/{model}로 하이라이트 선정 (목표={target_minutes}분)…")
+
+    prompt = build_highlight_prompt(transcript, target_minutes)
+    text = call_anthropic(model, prompt) if provider == "anthropic" else call_openai(model, prompt)
+
     data = extract_json_block(text)
-    return validate_segments(data.get("segments", []), duration)
+    return validate_segments(data.get("segments", []), transcript["duration"])
 
 
 def cut_video(video_path: Path, segments: list, output_path: Path) -> None:
@@ -185,8 +213,9 @@ def main() -> None:
     )
     parser.add_argument("--language", default="ko", help="언어 코드 (auto 가능)")
     parser.add_argument(
-        "--llm-model", default="claude-sonnet-4-6",
-        help="하이라이트 선정용 Claude 모델",
+        "--llm-model", default=None,
+        help="하이라이트 선정용 LLM (claude-*/gpt-*/o3-*). "
+             "기본: ANTHROPIC_API_KEY 있으면 claude-sonnet-4-6, 아니면 gpt-4o-mini",
     )
     parser.add_argument("--cache", action="store_true", help="트랜스크립트 캐시 재사용")
     parser.add_argument(
@@ -197,8 +226,22 @@ def main() -> None:
 
     if not args.input.exists():
         sys.exit(f"입력 파일 없음: {args.input}")
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        sys.exit("ANTHROPIC_API_KEY 환경 변수가 필요합니다.")
+
+    has_anthropic = bool(os.environ.get("ANTHROPIC_API_KEY"))
+    has_openai = bool(os.environ.get("OPENAI_API_KEY"))
+    if args.llm_model is None:
+        if has_anthropic:
+            args.llm_model = "claude-sonnet-4-6"
+        elif has_openai:
+            args.llm_model = "gpt-4o-mini"
+        else:
+            sys.exit("ANTHROPIC_API_KEY 또는 OPENAI_API_KEY 환경 변수가 필요합니다.")
+
+    provider = detect_provider(args.llm_model)
+    if provider == "anthropic" and not has_anthropic:
+        sys.exit(f"{args.llm_model} 사용에는 ANTHROPIC_API_KEY가 필요합니다.")
+    if provider == "openai" and not has_openai:
+        sys.exit(f"{args.llm_model} 사용에는 OPENAI_API_KEY가 필요합니다.")
 
     output = args.output or args.input.with_name(args.input.stem + "_cut.mp4")
     transcript_path = args.input.with_suffix(".transcript.json")
