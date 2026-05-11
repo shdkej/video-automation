@@ -37,6 +37,9 @@ API 키는 `.env` 파일에 두거나(`cp .env.example .env`) 환경 변수로 e
 # speech 모드 (기본) — 음성 트랜스크립트 기반
 python auto_cut.py input.mp4 -t 10
 
+# 영상에 오디오가 없고 별도 파일로 있는 경우 (자동 mux)
+python auto_cut.py video_only.mp4 --audio audio_only.m4a -t 5
+
 # scene 모드 — 컷이 명확한 영상 (API 키 불필요)
 python auto_cut.py input.mp4 --mode scene -t 5 --scene-threshold 0.3
 
@@ -57,8 +60,9 @@ python auto_cut.py input.mp4 --cache --dry-run
 | 옵션 | 기본값 | 설명 |
 |------|--------|------|
 | `--mode` | `speech` | `speech` / `scene` / `vision` |
+| `--audio` | none | 별도 오디오 파일. 영상과 자동 mux 후 `<input>_av.mp4`를 입력으로 사용 |
 | `-t, --target-minutes` | `10.0` | 목표 길이(분) |
-| `-m, --whisper-model` | `small` | speech 모드: `tiny`/`base`/`small`/`medium`/`large-v3` |
+| `-m, --whisper-model` | `medium` | speech 모드: `tiny`/`base`/`small`/`medium`/`large-v3` |
 | `--language` | `ko` | speech 모드: 언어 코드 (`auto` 가능) |
 | `--llm-model` | 자동 | `claude-*` → Anthropic, `gpt-*`/`o3-*` → OpenAI |
 | `--scene-threshold` | `0.3` | scene 모드: ffmpeg scene 점수 임계값 (0~1) |
@@ -78,7 +82,7 @@ python auto_cut.py input.mp4 --cache --dry-run
 
 ## 비용 / 속도 감각
 
-- Whisper `small`: 1시간 영상 M-시리즈 Mac 기준 5~10분 (로컬, 무료)
+- Whisper `medium` (기본): 1시간 영상 M-시리즈 Mac 기준 15~25분 (로컬, 무료). 빠르게 보려면 `-m small` (5~10분)
 - speech 모드 LLM (1시간, ~10k 입력 토큰):
   - `gpt-4o-mini` ≈ $0.005 / `gpt-4o` ≈ $0.08 / `claude-sonnet-4-6` ≈ $0.10 / `claude-opus-4-7` ≈ $0.50
 - vision 모드 LLM: 모자이크 1장(~2240×1440, 약 1500~3000 입력 토큰) + JSON 응답

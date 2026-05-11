@@ -338,6 +338,19 @@ def detect_scene_changes(video_path: Path, threshold: float) -> list:
     return parse_scene_metadata(result.stderr)
 
 
+def mux_audio_into_video(video_path: Path, audio_path: Path, output_path: Path) -> None:
+    print(f"오디오 mux: {video_path.name} + {audio_path.name} → {output_path.name}")
+    subprocess.run(
+        ["ffmpeg", "-y", "-loglevel", "error",
+         "-i", str(video_path), "-i", str(audio_path),
+         "-c:v", "copy", "-c:a", "aac",
+         "-map", "0:v:0", "-map", "1:a:0",
+         "-shortest",
+         str(output_path)],
+        check=True,
+    )
+
+
 def build_mosaic_image(video_path: Path, output_path: Path, cols: int, rows: int, interval: float) -> None:
     subprocess.run(
         ["ffmpeg", "-y", "-loglevel", "error",
@@ -534,6 +547,10 @@ def main() -> None:
         description="긴 영상을 LLM 하이라이트 기반으로 자동 컷",
     )
     parser.add_argument("input", type=Path, help="입력 영상 경로")
+    parser.add_argument(
+        "--audio", type=Path, default=None,
+        help="별도 오디오 파일. 지정하면 영상과 mux한 <input>_av.mp4를 입력으로 사용",
+    )
     parser.add_argument("-o", "--output", type=Path, help="출력 경로 (기본: <input>_cut.mp4)")
     parser.add_argument("-t", "--target-minutes", type=float, default=10.0, help="목표 길이(분)")
     parser.add_argument(
@@ -549,7 +566,7 @@ def main() -> None:
         help="scene 모드: 각 클립 길이(초)",
     )
     parser.add_argument(
-        "-m", "--whisper-model", default="small",
+        "-m", "--whisper-model", default="medium",
         help="Whisper 모델: tiny/base/small/medium/large-v3 (speech 모드)",
     )
     parser.add_argument("--language", default="ko", help="언어 코드 (auto 가능)")
@@ -567,6 +584,13 @@ def main() -> None:
 
     if not args.input.exists():
         sys.exit(f"입력 파일 없음: {args.input}")
+
+    if args.audio:
+        if not args.audio.exists():
+            sys.exit(f"오디오 파일 없음: {args.audio}")
+        muxed = args.input.with_name(args.input.stem + "_av.mp4")
+        mux_audio_into_video(args.input, args.audio, muxed)
+        args.input = muxed
 
     output = args.output or args.input.with_name(args.input.stem + "_cut.mp4")
     selection_path = args.input.with_suffix(".selection.json")
