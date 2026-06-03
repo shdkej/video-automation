@@ -1,5 +1,39 @@
 # video-automation
 
+> **영상 1개 → 롱폼 · 숏츠 · 썸네일 · 인트로 4종.**
+> 클라우드에 올리지 않고, 내 컴퓨터 안에서. `scene` 모드는 API 키 없이 무료.
+
+![REEL ROOM 웹 UI](docs/screenshot-form.png)
+
+## 30초 체험 — API 키 없이, 무료
+
+```bash
+git clone https://github.com/shdkej/video-automation
+cd video-automation
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+# ffmpeg 필요 — macOS: brew install ffmpeg / Ubuntu: apt install ffmpeg / Windows: https://ffmpeg.org
+
+python pipeline.py your_video.mp4 --mode scene   # 키 없이 4종 생성 → outputs/
+```
+
+음성 기반 자막·하이라이트(`speech`)나 비전 분석(`vision`)은 OpenAI/Anthropic 키가 필요하지만, **컷이 또렷한 영상이라면 `scene` 모드만으로 키 없이 바로** 써볼 수 있다.
+
+## 왜 클라우드 도구(Opus Clip 등) 대신?
+
+| | **video-automation** | 클라우드 SaaS |
+|---|---|---|
+| 영상 업로드 위치 | **내 컴퓨터 (안 떠남)** | 클라우드 서버 |
+| 비용 | `scene` **무료** · AI 1시간 $0.01~0.5 | 월 구독 / 워터마크 |
+| 산출물 | 롱폼+숏츠+썸네일+인트로 **4종 한 번에** | 보통 숏츠 위주 |
+| 커스터마이즈 | **코드·프롬프트 직접 수정** | 불가 |
+| 미공개 영상 | **프라이버시 보장** | 약관 의존 |
+
+> 미발표 강의·제품 데모·개인 브이로그처럼 **공개 전 영상**을 다룬다면, "내 컴퓨터를 안 떠난다"는 클라우드 도구가 약관으로도 못 주는 가치다.
+> (단, 숏츠/썸네일 선정은 LLM·scene 점수 기반 **후보 추출** 수준이다 — "바이럴 보장"이 아니라 "괜찮은 1차 컷"으로 보면 맞다.)
+
+---
+
 긴 영상을 자동으로 하이라이트 컷하는 미니멀 CLI. 영상 종류에 따라 3가지 모드 지원.
 
 진입점은 셋:
@@ -164,6 +198,7 @@ python auto_cut.py input.mp4 --cache --dry-run
 
 - 화자 분리(pyannote)로 발화자 단위 컷
 - 모드 자동 폴백 (speech 실패 시 vision)
+- 동적/애니메이션 자막 (현재는 정적 1줄 burn-in → 단어 단위 등장·키워드 강조. 숏폼 리텐션 핵심, Opus Clip 벤치마킹 — 후순위)
 - 숏츠 hook 시점 (현재는 LLM/scene 임팩트 점수로 구간 선정 + 중앙 절단 → 구간 내 정확한 hook 프레임까지 LLM 질의)
 - 썸네일 후보 랭킹 (현재는 시간 분산 → 얼굴/대비/장면전환 신호로 CTR 높은 프레임 우선)
 - BGM 자동 삽입(effects.add_bgm) pipeline 연동
