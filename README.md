@@ -30,6 +30,9 @@ python pipeline.py input.mp4
 # 여러 소스 → 순서대로 이어붙여 하나의 타임라인으로 처리
 python pipeline.py clip1.mp4 clip2.mp4 clip3.mp4
 
+# 음성 파일을 섞으면 영상에 입힐 사운드트랙으로 자동 인식 (무음 영상 + 별도 녹음)
+python pipeline.py clipA.mp4 clipB.mp4 narration.m4a
+
 # scene 모드(무료), 숏츠 3개, 세로 변환 시 흐린 배경
 python pipeline.py input.mp4 --mode scene --shorts-count 3 --shorts-blur
 
@@ -40,6 +43,10 @@ python pipeline.py input.mp4 --only shorts thumbnail
 > **여러 소스**를 주면 각 소스를 첫 소스 해상도에 맞춰 정규화(scale+pad·fps 통일·오디오 보장)한 뒤
 > 이어붙여 단일 타임라인으로 분석한다. 해상도·코덱·오디오 유무가 달라도 안전하다.
 > 합친 영상은 `outputs/_merged_source.mp4`로 남는다.
+>
+> 입력에 **오디오 파일**(`.mp3`/`.m4a`/`.wav` 등)이 섞여 있으면 이어붙이지 않고 **영상에 입힐
+> 사운드트랙으로 자동 인식**해 mux한다(`outputs/_muxed_av.mp4`). `--audio`를 명시하면 그쪽이 우선.
+> 웹에서도 영상·음성 파일을 함께 올리면 같은 규칙이 적용된다(음성은 리스트에 ♪로 표시).
 
 | 산출물 | 형태 | 비고 |
 |--------|------|------|

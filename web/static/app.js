@@ -36,9 +36,13 @@ fileInput.addEventListener("change", () => { addFiles(fileInput.files); fileInpu
 ["dragleave", "drop"].forEach((ev) =>
   dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.remove("dragging"); })
 );
+const AUDIO_RE = /\.(m4a|mp3|wav|aac|flac|ogg|opus|aiff?)$/i;
+const MEDIA_RE = /\.(mp4|mov|mkv|webm|avi|m4v|m4a|mp3|wav|aac|flac|ogg|opus|aiff?)$/i;
 dz.addEventListener("drop", (e) => {
-  const vids = [...e.dataTransfer.files].filter((f) => f.type.startsWith("video/") || /\.(mp4|mov|mkv|webm|avi)$/i.test(f.name));
-  addFiles(vids);
+  const ok = [...e.dataTransfer.files].filter(
+    (f) => f.type.startsWith("video/") || f.type.startsWith("audio/") || MEDIA_RE.test(f.name)
+  );
+  addFiles(ok);
 });
 
 function addFiles(list) {
@@ -55,10 +59,14 @@ function fmtSize(bytes) {
 function renderFileList() {
   const ul = $("file-list");
   ul.innerHTML = "";
+  let vn = 0; // 영상만 순번, 오디오는 ♪
   pickedFiles.forEach((f, i) => {
+    const isAudio = AUDIO_RE.test(f.name) || f.type.startsWith("audio/");
     const li = document.createElement("li");
-    li.className = "file-row";
-    const idx = document.createElement("span"); idx.className = "fr-idx"; idx.textContent = i + 1;
+    li.className = "file-row" + (isAudio ? " audio" : "");
+    const idx = document.createElement("span");
+    idx.className = "fr-idx" + (isAudio ? " audio" : "");
+    idx.textContent = isAudio ? "♪" : String(++vn);
     const name = document.createElement("span"); name.className = "fr-name"; name.textContent = f.name;
     const size = document.createElement("span"); size.className = "fr-size"; size.textContent = fmtSize(f.size);
     const btns = document.createElement("span"); btns.className = "fr-btns";

@@ -68,13 +68,24 @@ def _run_job(job_id: str, input_paths: list[Path], opts: dict) -> None:
         job["stage"], job["progress"] = name, pct
 
     try:
-        # 여러 소스면 먼저 공통 규격으로 정규화 후 이어붙임
-        if len(input_paths) > 1:
-            stage(f"{len(input_paths)}개 소스 이어붙이는 중", 5)
+        # 업로드 중 오디오 파일은 영상에 입힐 사운드트랙으로 분리 인식
+        videos, audios = pl.split_media(input_paths)
+        if not videos:
+            raise ValueError("영상 파일이 없습니다 (오디오만으로는 처리할 수 없습니다).")
+
+        if len(videos) > 1:
+            stage(f"{len(videos)}개 영상 이어붙이는 중", 5)
             input_path = outdir / "_merged_source.mp4"
-            pl.concat_sources(input_paths, input_path)
+            pl.concat_sources(videos, input_path)
         else:
-            input_path = input_paths[0]
+            input_path = videos[0]
+
+        if audios:
+            stage("오디오 입히는 중", 8)
+            muxed = outdir / "_muxed_av.mp4"
+            pl.mux_audio_into_video(input_path, audios[0], muxed)
+            input_path = muxed
+
         args = _args_from_opts(input_path, outdir, opts)
 
         stage("분석 (Whisper/LLM)", 10)

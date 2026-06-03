@@ -41,6 +41,20 @@ from subtitle import render_subtitled
 # Domain — 분석 결과 가공 (외부 의존 없음)
 # ============================================================================
 
+AUDIO_EXTS = {".m4a", ".mp3", ".wav", ".aac", ".flac", ".ogg", ".opus", ".aiff", ".aif"}
+
+
+def split_media(paths: list) -> tuple:
+    """입력 경로들을 (영상, 오디오)로 분류. 오디오 확장자만 오디오, 나머지는 영상.
+
+    여러 파일을 올릴 때 음성 파일이 섞여 있으면 영상에 이어붙이지 않고
+    별도 사운드트랙으로 인식하기 위함.
+    """
+    videos, audios = [], []
+    for p in paths:
+        (audios if p.suffix.lower() in AUDIO_EXTS else videos).append(p)
+    return videos, audios
+
 # 자막 앞에 붙는 한국어 추임새/필러 — 선두에서만 제거 (의미어는 보존)
 _FILLERS = {
     "어", "음", "아", "에", "오", "그", "저",
@@ -283,20 +297,31 @@ def run(args) -> None:
             sys.exit(f"입력 파일 없음: {p}")
 
     args.outdir.mkdir(parents=True, exist_ok=True)
-    if len(args.inputs) == 1:
-        args.input = args.inputs[0]
+    videos, audios = split_media(args.inputs)
+    if not videos:
+        sys.exit("영상 파일이 없습니다 (오디오만으로는 처리할 수 없습니다).")
+
+    if len(videos) == 1:
+        args.input = videos[0]
     else:
-        # 여러 소스 → 공통 규격으로 정규화 후 이어붙여 단일 타임라인으로
+        # 여러 영상 → 공통 규격으로 정규화 후 이어붙여 단일 타임라인으로
         merged = args.outdir / "_merged_source.mp4"
-        print(f"[입력] {len(args.inputs)}개 소스를 순서대로 이어붙이는 중…")
-        concat_sources(args.inputs, merged)
+        print(f"[입력] {len(videos)}개 영상 소스를 순서대로 이어붙이는 중…")
+        concat_sources(videos, merged)
         args.input = merged
 
-    if args.audio:
-        if not args.audio.exists():
-            sys.exit(f"오디오 파일 없음: {args.audio}")
-        muxed = args.input.with_name(args.input.stem + "_av.mp4")
-        mux_audio_into_video(args.input, args.audio, muxed)
+    # 오디오: --audio 명시가 우선, 없으면 업로드 파일 중 오디오를 자동 인식해 mux
+    audio_path = args.audio
+    if audio_path is None and audios:
+        audio_path = audios[0]
+        if len(audios) > 1:
+            print(f"  ⚠ 오디오 파일이 {len(audios)}개입니다. 첫 번째({audios[0].name})만 사용합니다.")
+        print(f"[입력] 오디오 파일 자동 인식: {audio_path.name} → 영상에 입힘")
+    if audio_path:
+        if not audio_path.exists():
+            sys.exit(f"오디오 파일 없음: {audio_path}")
+        muxed = args.outdir / "_muxed_av.mp4"
+        mux_audio_into_video(args.input, audio_path, muxed)
         args.input = muxed
 
     outdir = args.outdir
@@ -362,9 +387,10 @@ def main() -> None:
     )
     parser.add_argument(
         "inputs", type=Path, nargs="+",
-        help="입력 영상 경로(들). 여러 개면 순서대로 이어붙여 하나의 타임라인으로 처리",
+        help="입력 영상 경로(들). 여러 영상은 순서대로 이어붙임. "
+             "오디오 파일(.mp3/.m4a/.wav 등)을 섞으면 영상에 입힐 사운드트랙으로 자동 인식",
     )
-    parser.add_argument("--audio", type=Path, default=None, help="별도 오디오 파일(자동 mux)")
+    parser.add_argument("--audio", type=Path, default=None, help="별도 오디오 파일(자동 mux). 우선순위 높음")
     parser.add_argument("-o", "--outdir", type=Path, default=Path("outputs"), help="출력 폴더")
     parser.add_argument(
         "--only", nargs="+", choices=WANTED, default=None,
