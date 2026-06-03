@@ -3,81 +3,128 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>video-automation — 4종 산출</title>
+  <title>REEL ROOM · video-automation</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600;1,9..144,300..500&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
+  <div class="grain" aria-hidden="true"></div>
+
   <main>
-    <header>
-      <h1>video-automation</h1>
-      <p class="sub">영상 하나 → 롱폼 · 숏츠 · 썸네일 · 인트로 4종을 한 번에. 영상은 이 컴퓨터를 떠나지 않습니다.</p>
+    <!-- 헤더 -->
+    <header class="masthead">
+      <div class="kicker">
+        <span class="rec-dot"></span>
+        <span>LOCAL · 영상은 이 컴퓨터를 떠나지 않습니다</span>
+      </div>
+      <h1>Reel<span class="amp"> Room</span></h1>
+      <p class="lede">영상 하나로 <em>롱폼 · 숏츠 · 썸네일 · 인트로</em> 네 가지를 한 번에. 잘라내는 건 우리가 합니다.</p>
     </header>
 
-    <!-- 입력 폼 -->
-    <section id="form-section" class="card">
+    <!-- 입력 -->
+    <section id="form-section" class="stage">
       <form id="job-form">
-        <label class="field">
-          <span>입력 영상 <small class="muted">(여러 개 선택 시 순서대로 이어붙입니다)</small></span>
-          <input type="file" name="files" id="file" accept="video/*" multiple required>
-        </label>
+        <!-- 드롭존 -->
+        <div class="step-num" data-n="01">소스 영상</div>
+        <div id="dropzone" class="dropzone" tabindex="0" role="button" aria-label="영상 파일 추가">
+          <input type="file" name="files" id="file" accept="video/*" multiple hidden>
+          <div class="dz-inner">
+            <div class="dz-icon">⌖</div>
+            <p class="dz-title">영상을 끌어다 놓거나 <span class="dz-link">클릭해 선택</span></p>
+            <p class="dz-sub">여러 개를 올리면 <strong>순서대로 이어붙여</strong> 하나로 만듭니다</p>
+          </div>
+        </div>
+        <ul id="file-list" class="file-list"></ul>
 
-        <div class="row">
-          <label class="field">
-            <span>분석 모드</span>
-            <select name="mode" id="mode">
-              <option value="scene" selected>scene — 컷 명확한 편집 영상 (무료, 키 불필요)</option>
-              <option value="speech">speech — 음성 위주 (Whisper+LLM, 자막 생성)</option>
-              <option value="vision">vision — 정적/무음 영상 (비전 LLM)</option>
-            </select>
-          </label>
-          <label class="field narrow">
-            <span>롱폼 목표(분)</span>
-            <input type="number" name="target_minutes" id="target_minutes" value="3" min="0.1" step="0.1">
-          </label>
+        <!-- 모드 -->
+        <div class="step-num" data-n="02">분석 방식</div>
+        <div class="mode-cards" id="mode-cards">
+          <button type="button" class="mode-card selected" data-mode="scene">
+            <div class="mc-head"><span class="mc-name">scene</span><span class="badge free">무료</span></div>
+            <p class="mc-desc">컷이 또렷한 편집 영상. ffmpeg 씬 감지, API 키 불필요.</p>
+          </button>
+          <button type="button" class="mode-card" data-mode="speech">
+            <div class="mc-head"><span class="mc-name">speech</span><span class="badge key">자막</span></div>
+            <p class="mc-desc">음성 위주. Whisper+LLM이 핵심 구간 선정·한국어 자막. API 키 필요.</p>
+          </button>
+          <button type="button" class="mode-card" data-mode="vision">
+            <div class="mc-head"><span class="mc-name">vision</span><span class="badge key">비전</span></div>
+            <p class="mc-desc">정적·무음 영상. 모자이크를 비전 LLM이 분석. API 키 필요.</p>
+          </button>
+          <input type="hidden" name="mode" id="mode" value="scene">
         </div>
 
-        <div class="row">
-          <label class="field narrow">
-            <span>숏츠 개수</span>
-            <input type="number" name="shorts_count" id="shorts_count" value="2" min="0" max="10">
+        <!-- 옵션 -->
+        <div class="step-num" data-n="03">산출 옵션</div>
+        <div class="options">
+          <label class="opt">
+            <span class="opt-label">롱폼 목표<em>분</em></span>
+            <input type="number" name="target_minutes" value="3" min="0.1" step="0.1">
           </label>
-          <label class="field narrow">
-            <span>썸네일 장수</span>
-            <input type="number" name="thumbnail_count" id="thumbnail_count" value="3" min="1" max="10">
+          <label class="opt">
+            <span class="opt-label">숏츠<em>개</em></span>
+            <input type="number" name="shorts_count" value="2" min="0" max="10">
+          </label>
+          <label class="opt">
+            <span class="opt-label">썸네일<em>장</em></span>
+            <input type="number" name="thumbnail_count" value="3" min="1" max="10">
           </label>
         </div>
-
-        <div class="checks">
-          <label><input type="checkbox" name="shorts_blur" id="shorts_blur"> 숏츠 흐린 배경(좌우 안 잘림)</label>
-          <label><input type="checkbox" name="no_subtitle" id="no_subtitle"> 자막 끄기</label>
+        <div class="toggles">
+          <label class="toggle"><input type="checkbox" id="shorts_blur"><span class="tg-box"></span>숏츠 흐린 배경(좌우 안 잘림)</label>
+          <label class="toggle"><input type="checkbox" id="no_subtitle"><span class="tg-box"></span>자막 끄기</label>
         </div>
 
-        <p class="hint" id="mode-hint"></p>
-        <button type="submit" id="submit-btn">생성 시작</button>
+        <p class="mode-note" id="mode-note"></p>
+        <button type="submit" id="submit-btn" class="cta">
+          <span>네 가지 만들기</span>
+          <span class="cta-arrow">→</span>
+        </button>
       </form>
     </section>
 
-    <!-- 진행률 -->
-    <section id="progress-section" class="card hidden">
-      <h2>처리 중…</h2>
+    <!-- 진행 -->
+    <section id="progress-section" class="stage hidden">
+      <div class="proc-head">
+        <span class="rec-dot rolling"></span>
+        <h2>처리 중</h2>
+      </div>
+      <ol class="stepper" id="stepper">
+        <li data-key="분석"><span class="st-dot"></span><span class="st-label">분석</span></li>
+        <li data-key="롱폼"><span class="st-dot"></span><span class="st-label">롱폼</span></li>
+        <li data-key="숏츠"><span class="st-dot"></span><span class="st-label">숏츠</span></li>
+        <li data-key="썸네일"><span class="st-dot"></span><span class="st-label">썸네일</span></li>
+        <li data-key="인트로"><span class="st-dot"></span><span class="st-label">인트로</span></li>
+      </ol>
       <div class="bar"><div class="bar-fill" id="bar-fill"></div></div>
-      <p class="stage" id="stage-text">대기</p>
+      <p class="stage-text" id="stage-text">대기 중…</p>
     </section>
 
     <!-- 결과 -->
     <section id="result-section" class="hidden">
-      <h2>결과 <span id="seg-info" class="muted"></span></h2>
-      <div id="results"></div>
-      <button id="reset-btn" class="ghost">새로 만들기</button>
+      <div class="result-head">
+        <h2>완성</h2>
+        <span class="result-meta" id="seg-info"></span>
+      </div>
+      <div id="results" class="reel"></div>
+      <button id="reset-btn" class="ghost">새 영상으로 다시</button>
     </section>
 
     <!-- 에러 -->
-    <section id="error-section" class="card error hidden">
-      <h2>실패</h2>
+    <section id="error-section" class="stage error hidden">
+      <h2>멈췄습니다</h2>
       <p id="error-text"></p>
       <button id="error-reset-btn" class="ghost">다시 시도</button>
     </section>
   </main>
+
+  <footer class="colophon">
+    <span>video-automation</span><span class="dot">·</span><span>scene 모드는 키 없이 무료</span><span class="dot">·</span><span id="footer-mode">scene</span>
+  </footer>
+
   <script src="/app.js"></script>
 </body>
 </html>
