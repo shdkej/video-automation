@@ -13,58 +13,10 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
+from probe import has_audio_stream, has_video_stream, probe_duration, probe_resolution
 from subtitle import find_korean_font
 
-
-# ============================================================================
-# Domain — ffprobe 헬퍼
-# ============================================================================
-
-def probe_duration(path: Path) -> float:
-    result = subprocess.run(
-        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-         "-of", "default=noprint_wrappers=1:nokey=1", str(path)],
-        check=True, capture_output=True, text=True,
-    )
-    return float(result.stdout.strip())
-
-
-def has_audio_stream(path: Path) -> bool:
-    """입력에 오디오 스트림이 있는지. 무음/무오디오 영상에서 오디오 필터 회피용."""
-    probe = subprocess.run(
-        ["ffprobe", "-v", "error", "-select_streams", "a",
-         "-show_entries", "stream=codec_type", "-of", "csv=p=0", str(path)],
-        capture_output=True, text=True,
-    )
-    return bool(probe.stdout.strip())
-
-
-def has_video_stream(path: Path) -> bool:
-    """실제 동영상 스트림이 있는지. .webm/.mkv 처럼 오디오만 담길 수 있는
-    컨테이너를 영상/오디오로 정확히 가르기 위함. 정지 커버아트(attached_pic)는 영상이 아니다."""
-    probe = subprocess.run(
-        ["ffprobe", "-v", "error", "-select_streams", "v",
-         "-show_entries", "stream=codec_type:stream_disposition=attached_pic",
-         "-of", "csv=p=0", str(path)],
-        capture_output=True, text=True,
-    )
-    for line in probe.stdout.splitlines():
-        parts = line.split(",")
-        # codec_type=video 이고 attached_pic(=1)이 아니면 실제 동영상
-        if parts and parts[0] == "video" and (len(parts) < 2 or parts[1].strip() != "1"):
-            return True
-    return False
-
-
-def probe_resolution(path: Path) -> tuple[int, int]:
-    """첫 비디오 스트림의 (width, height)."""
-    out = subprocess.run(
-        ["ffprobe", "-v", "error", "-select_streams", "v:0",
-         "-show_entries", "stream=width,height", "-of", "csv=s=,:p=0", str(path)],
-        check=True, capture_output=True, text=True,
-    ).stdout.strip()
-    w, h = out.split(",")
-    return int(w), int(h)
+__all__ = ["has_audio_stream", "has_video_stream", "probe_duration", "probe_resolution"]
 
 
 # ============================================================================
@@ -493,15 +445,7 @@ def add_bgm(
     vdur = probe_duration(input_path)
     bgm_fade_start = max(0.0, vdur - fade_out)
 
-    # 영상에 오디오 트랙이 있는지 확인
-    probe = subprocess.run(
-        ["ffprobe", "-v", "error", "-select_streams", "a",
-         "-show_entries", "stream=codec_type", "-of", "csv=p=0", str(input_path)],
-        capture_output=True, text=True,
-    )
-    has_audio = bool(probe.stdout.strip())
-
-    if has_audio:
+    if has_audio_stream(input_path):
         filter_complex = (
             f"[1:a]volume={bgm_volume},"
             f"afade=out:st={bgm_fade_start:.3f}:d={fade_out},"

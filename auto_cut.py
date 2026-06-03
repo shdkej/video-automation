@@ -14,7 +14,17 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from probe import probe_duration
+
 load_dotenv()
+
+
+class PipelineError(Exception):
+    """파이프라인 치명 오류 — CLI는 종료 메시지로, 웹/임포터는 잡 격리로 처리.
+
+    sys.exit(BaseException) 대신 일반 예외라서 호출 측(web/app.py 등)이
+    except Exception으로 잡아 한 잡만 실패시키고 나머지는 살릴 수 있다.
+    """
 
 
 # ============================================================================
@@ -366,19 +376,19 @@ def select_highlights(transcript: dict, target_minutes: float, model: str) -> li
     print(f"[2/3] {provider}/{model}로 하이라이트 선정 (목표={target_minutes}분)…")
 
     prompt = build_highlight_prompt(transcript, target_minutes)
+    # LLM 비용 가드 — 긴 트랜스크립트가 입력 토큰(=비용)을 폭주시키는 것을 막는다.
+    # 자르지 않고 명시적으로 중단해, 사용자가 분할 처리/한도 조정을 선택하게 한다.
+    max_chars = int(os.environ.get("VIDAUTO_MAX_TRANSCRIPT_CHARS", "120000"))
+    if len(prompt) > max_chars:
+        raise PipelineError(
+            f"트랜스크립트가 너무 깁니다({len(prompt):,}자 > 한도 {max_chars:,}자). "
+            f"LLM 비용 폭주를 막기 위해 중단합니다. 영상을 나눠 처리하거나 "
+            f"환경변수 VIDAUTO_MAX_TRANSCRIPT_CHARS로 한도를 조정하세요."
+        )
     text = call_anthropic(model, prompt) if provider == "anthropic" else call_openai(model, prompt)
 
     data = extract_json_block(text)
     return validate_segments(data.get("segments", []), transcript["duration"])
-
-
-def get_video_duration(video_path: Path) -> float:
-    result = subprocess.run(
-        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-         "-of", "default=noprint_wrappers=1:nokey=1", str(video_path)],
-        check=True, capture_output=True, text=True,
-    )
-    return float(result.stdout.strip())
 
 
 def detect_scene_changes(video_path: Path, threshold: float) -> list:
@@ -539,23 +549,23 @@ def resolve_llm_model(args) -> None:
         elif has_openai:
             args.llm_model = "gpt-4o-mini"
         else:
-            sys.exit("ANTHROPIC_API_KEY 또는 OPENAI_API_KEY 환경 변수가 필요합니다.")
+            raise PipelineError("ANTHROPIC_API_KEY 또는 OPENAI_API_KEY 환경 변수가 필요합니다.")
     provider = detect_provider(args.llm_model)
     if provider == "anthropic" and not has_anthropic:
-        sys.exit(f"{args.llm_model} 사용에는 ANTHROPIC_API_KEY가 필요합니다.")
+        raise PipelineError(f"{args.llm_model} 사용에는 ANTHROPIC_API_KEY가 필요합니다.")
     if provider == "openai" and not has_openai:
-        sys.exit(f"{args.llm_model} 사용에는 OPENAI_API_KEY가 필요합니다.")
+        raise PipelineError(f"{args.llm_model} 사용에는 OPENAI_API_KEY가 필요합니다.")
 
 
 def run_vision_mode(args, output: Path, selection_path: Path) -> None:
     resolve_llm_model(args)
-    duration = get_video_duration(args.input)
+    duration = probe_duration(args.input)
     segments, mosaic_path = select_vision_segments(
         args.input, duration, args.llm_model,
         args.target_minutes, args.clip_seconds,
     )
     if not segments:
-        sys.exit("LLM이 선정한 장면이 없습니다. 모델을 더 큰 것으로 바꿔보세요.")
+        raise PipelineError("LLM이 선정한 장면이 없습니다. 모델을 더 큰 것으로 바꿔보세요.")
 
     selection_path.write_text(json.dumps(segments, ensure_ascii=False, indent=2))
     actual_minutes = total_duration(segments) / 60
@@ -574,20 +584,20 @@ def run_vision_mode(args, output: Path, selection_path: Path) -> None:
 def run_from_selection(args, output: Path) -> None:
     """기존 selection.json + (선택) captions.json으로 컷·자막 burn-in 까지."""
     if not args.from_selection.exists():
-        sys.exit(f"selection 파일 없음: {args.from_selection}")
+        raise PipelineError(f"selection 파일 없음: {args.from_selection}")
     segments = json.loads(args.from_selection.read_text())
     if not segments:
-        sys.exit("selection.json 이 비어 있음")
+        raise PipelineError("selection.json 이 비어 있음")
 
     cut_video(args.input, segments, output)
     print(f"컷 완료: {output} ({total_duration(segments):.1f}초)")
 
     if args.captions:
         if not args.captions.exists():
-            sys.exit(f"captions 파일 없음: {args.captions}")
+            raise PipelineError(f"captions 파일 없음: {args.captions}")
         captions = json.loads(args.captions.read_text())
         if len(captions) != len(segments):
-            sys.exit(f"captions({len(captions)}) ≠ segments({len(segments)})")
+            raise PipelineError(f"captions({len(captions)}) ≠ segments({len(segments)})")
 
         from subtitle import render_subtitled
         subbed = output.with_name(output.stem + "_subbed.mp4")
@@ -604,13 +614,13 @@ def run_from_selection(args, output: Path) -> None:
 
 
 def run_scene_mode(args, output: Path, selection_path: Path) -> None:
-    duration = get_video_duration(args.input)
+    duration = probe_duration(args.input)
     scenes = detect_scene_changes(args.input, args.scene_threshold)
     segments = pick_scene_segments(
         scenes, duration, args.target_minutes * 60, args.clip_seconds,
     )
     if not segments:
-        sys.exit(
+        raise PipelineError(
             f"씬 체인지가 감지되지 않습니다 (threshold={args.scene_threshold}). "
             f"--scene-threshold를 더 낮게 (예: 0.1) 시도해보세요."
         )
@@ -683,14 +693,14 @@ def main() -> None:
     args = parser.parse_args()
 
     if not args.input.exists():
-        sys.exit(f"입력 파일 없음: {args.input}")
+        raise PipelineError(f"입력 파일 없음: {args.input}")
 
     if args.srt and args.mode != "speech":
-        sys.exit("--srt는 speech 모드 전용입니다 (scene/vision은 트랜스크립트가 없음).")
+        raise PipelineError("--srt는 speech 모드 전용입니다 (scene/vision은 트랜스크립트가 없음).")
 
     if args.audio:
         if not args.audio.exists():
-            sys.exit(f"오디오 파일 없음: {args.audio}")
+            raise PipelineError(f"오디오 파일 없음: {args.audio}")
         muxed = args.input.with_name(args.input.stem + "_av.mp4")
         mux_audio_into_video(args.input, args.audio, muxed)
         args.input = muxed
@@ -722,7 +732,7 @@ def main() -> None:
     try:
         validate_transcript_quality(transcript)
     except ValueError as e:
-        sys.exit(f"트랜스크립트 품질 미달: {e}")
+        raise PipelineError(f"트랜스크립트 품질 미달: {e}")
 
     source_srt_path = None
     if args.srt:
@@ -732,7 +742,7 @@ def main() -> None:
     raw = select_highlights(transcript, args.target_minutes, args.llm_model)
     segments = filter_grounded_segments(raw, transcript["segments"])
     if not segments:
-        sys.exit(
+        raise PipelineError(
             "선정된 구간이 트랜스크립트와 겹치지 않습니다 (LLM 환각 의심). "
             "원본 응답은 콘솔에서 확인하거나, --llm-model을 더 큰 모델로 바꿔보세요."
         )
@@ -766,4 +776,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except PipelineError as e:
+        sys.exit(str(e))

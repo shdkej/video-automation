@@ -59,6 +59,14 @@ python web/app.py
 
 **잡 자동 정리**: 새 잡을 만들 때마다 오래됐거나(기본 24시간) 개수를 초과한(기본 20개) 잡 폴더를 삭제한다(진행 중 잡은 보호). 기준은 환경변수로 조정한다 — `VIDAUTO_JOB_MAX_AGE_H`, `VIDAUTO_JOB_MAX_COUNT`.
 
+**운영 가드**: 자원 폭주를 막는 안전장치도 환경변수로 조정한다.
+
+| 환경변수 | 기본값 | 동작 |
+|----------|--------|------|
+| `VIDAUTO_MAX_CONCURRENT_JOBS` | `2` | 동시 처리 잡 상한. 초과하면 `429`로 거부(Whisper/ffmpeg는 CPU·메모리를 많이 씀). |
+| `VIDAUTO_MAX_UPLOAD_MB` | `2048` | 잡당 업로드 총합 상한(MB). 초과하면 `413`으로 거부(스트리밍 중 차단, 디스크 보호). |
+| `VIDAUTO_MAX_TRANSCRIPT_CHARS` | `120000` | speech 모드 LLM 프롬프트 길이 상한. 초과하면 분석을 중단(긴 트랜스크립트 → 입력 토큰·비용 폭주 방지). CLI/웹 공통. |
+
 ## 4종 산출 (pipeline.py)
 
 ```bash

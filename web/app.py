@@ -41,6 +41,16 @@ JOBS: dict[str, dict] = {}
 JOB_MAX_AGE_HOURS = float(os.environ.get("VIDAUTO_JOB_MAX_AGE_H", "24"))
 JOB_MAX_COUNT = int(os.environ.get("VIDAUTO_JOB_MAX_COUNT", "20"))
 
+# 운영 가드 (환경변수로 조정 가능)
+# - 동시 잡 상한: Whisper/ffmpeg는 CPU·메모리를 많이 써 무제한 동시 실행 시 서버가 죽는다
+# - 업로드 크기 상한: 거대 파일로 디스크가 차는 것을 막는다 (잡당 총합 기준)
+MAX_CONCURRENT_JOBS = int(os.environ.get("VIDAUTO_MAX_CONCURRENT_JOBS", "2"))
+MAX_UPLOAD_MB = float(os.environ.get("VIDAUTO_MAX_UPLOAD_MB", "2048"))
+_UPLOAD_CHUNK = 1024 * 1024  # 1MB
+
+# 동시 실행 슬롯. create/rebuild에서 비블로킹 acquire, _run_job finally에서 release.
+_RUNNING = threading.Semaphore(MAX_CONCURRENT_JOBS)
+
 app = FastAPI(title="video-automation")
 
 
@@ -160,15 +170,42 @@ def _run_job(job_id: str, input_paths: list[Path], opts: dict) -> None:
 
         job["outputs"] = outputs
         job["status"], job["progress"], job["stage"] = "done", 100, "완료"
-    except SystemExit as e:  # pipeline은 치명 오류에 sys.exit를 쓴다(BaseException)
-        job["status"], job["error"] = "error", f"분석/생성 실패: {e}"
-    except Exception as e:  # noqa: BLE001 — 잡 단위 격리
+    except Exception as e:  # noqa: BLE001 — 잡 단위 격리 (PipelineError 포함)
         job["status"], job["error"] = "error", str(e)
+    finally:
+        _RUNNING.release()  # 동시 잡 슬롯 반환
 
 
 # ============================================================================
 # API
 # ============================================================================
+
+def _save_uploads(files: list[UploadFile], job_dir: Path) -> list[Path]:
+    """업로드를 청크 단위로 저장하며 잡 총합 크기를 제한한다.
+
+    메모리에 통째로 올리지 않고 스트리밍하며 누적 바이트를 센다. 한도를 넘으면
+    이미 쓴 파일까지 정리하고 413으로 거부 — 거대 파일로 디스크가 차는 것을 막는다.
+    """
+    limit = int(MAX_UPLOAD_MB * 1024 * 1024)
+    input_paths: list[Path] = []
+    total = 0
+    for idx, file in enumerate(files):
+        suffix = Path(file.filename or f"input{idx}.mp4").suffix or ".mp4"
+        p = job_dir / f"input_{idx:02d}{suffix}"
+        with p.open("wb") as f:
+            while chunk := file.file.read(_UPLOAD_CHUNK):
+                total += len(chunk)
+                if total > limit:
+                    f.close()
+                    for done in input_paths + [p]:
+                        done.unlink(missing_ok=True)
+                    raise HTTPException(
+                        413, f"업로드 총합이 한도({MAX_UPLOAD_MB:.0f}MB)를 초과했습니다."
+                    )
+                f.write(chunk)
+        input_paths.append(p)
+    return input_paths
+
 
 @app.post("/api/jobs")
 async def create_job(
@@ -184,19 +221,23 @@ async def create_job(
         raise HTTPException(400, "mode는 speech/scene/vision 중 하나")
     if not files:
         raise HTTPException(400, "영상 파일이 필요합니다")
+    # 동시 잡 상한 — 슬롯이 없으면 즉시 거부(429). 슬롯은 _run_job finally에서 반환.
+    if not _RUNNING.acquire(blocking=False):
+        raise HTTPException(
+            429, f"동시 처리 한도({MAX_CONCURRENT_JOBS}개) 초과. 진행 중인 작업이 끝나면 다시 시도하세요."
+        )
     cleanup_jobs()  # 새 잡 전에 오래된/초과 잡 폴더 정리
     job_id = uuid.uuid4().hex[:12]
     job_dir = JOBS_DIR / job_id
     job_dir.mkdir(parents=True, exist_ok=True)
 
     # 업로드 저장 — 확장자만 취해 안전한 파일명으로 (여러 개면 순서 보존)
-    input_paths = []
-    for idx, file in enumerate(files):
-        suffix = Path(file.filename or f"input{idx}.mp4").suffix or ".mp4"
-        p = job_dir / f"input_{idx:02d}{suffix}"
-        with p.open("wb") as f:
-            shutil.copyfileobj(file.file, f)
-        input_paths.append(p)
+    try:
+        input_paths = _save_uploads(files, job_dir)
+    except HTTPException:
+        _RUNNING.release()  # 저장 실패 시 슬롯 반환(스레드 시작 전이므로 여기서)
+        shutil.rmtree(job_dir, ignore_errors=True)
+        raise
 
     JOBS[job_id] = {
         "status": "running", "stage": "대기", "progress": 0,
@@ -232,6 +273,11 @@ async def rebuild_job(
     input_paths = sorted(p for p in job_dir.glob("input_*") if p.is_file())
     if not input_paths:
         raise HTTPException(404, "원본 입력이 남아있지 않습니다(정리됨). 새로 업로드해주세요.")
+    # 재생성도 _run_job 스레드를 띄우므로 동시 잡 슬롯을 확보한다(finally에서 반환).
+    if not _RUNNING.acquire(blocking=False):
+        raise HTTPException(
+            429, f"동시 처리 한도({MAX_CONCURRENT_JOBS}개) 초과. 진행 중인 작업이 끝나면 다시 시도하세요."
+        )
 
     prev = JOBS.get(job_id, {})
     mode = prev.get("mode", "scene")

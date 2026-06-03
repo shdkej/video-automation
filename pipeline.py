@@ -19,10 +19,10 @@ import sys
 from pathlib import Path
 
 from auto_cut import (
+    PipelineError,
     cut_video,
     detect_scene_changes,
     filter_grounded_segments,
-    get_video_duration,
     mux_audio_into_video,
     overlaps,
     pick_scene_segments,
@@ -33,7 +33,8 @@ from auto_cut import (
     transcribe_video,
     validate_transcript_quality,
 )
-from effects import apply_fade, concat_sources, extract_thumbnail, has_video_stream, reframe_vertical
+from effects import apply_fade, concat_sources, extract_thumbnail, reframe_vertical
+from probe import has_video_stream, probe_duration
 from subtitle import render_subtitled
 
 
@@ -172,7 +173,7 @@ def analyze(args, outdir: Path) -> tuple:
         print("[분석] 캐시된 selection.json/captions.json 재사용 (LLM/분석 생략)")
         return json.loads(sel_path.read_text()), json.loads(cap_path.read_text())
 
-    duration = get_video_duration(args.input)
+    duration = probe_duration(args.input)
 
     if args.mode == "scene":
         print(f"[분석] scene 모드 (threshold={args.scene_threshold})")
@@ -181,7 +182,7 @@ def analyze(args, outdir: Path) -> tuple:
             scenes, duration, args.target_minutes * 60, args.clip_seconds,
         )
         if not segments:
-            sys.exit(
+            raise PipelineError(
                 f"씬 체인지가 감지되지 않습니다 (threshold={args.scene_threshold}). "
                 f"--scene-threshold를 더 낮게 (예: 0.1) 시도해보세요."
             )
@@ -196,7 +197,7 @@ def analyze(args, outdir: Path) -> tuple:
         )
         mosaic_path.unlink(missing_ok=True)  # 입력 폴더에 잔존하지 않도록 정리
         if not segments:
-            sys.exit("LLM이 선정한 장면이 없습니다. 모델을 더 큰 것으로 바꿔보세요.")
+            raise PipelineError("LLM이 선정한 장면이 없습니다. 모델을 더 큰 것으로 바꿔보세요.")
         return segments, ["" for _ in segments]
 
     # speech (기본)
@@ -213,12 +214,12 @@ def analyze(args, outdir: Path) -> tuple:
     try:
         validate_transcript_quality(transcript)
     except ValueError as e:
-        sys.exit(f"트랜스크립트 품질 미달: {e}")
+        raise PipelineError(f"트랜스크립트 품질 미달: {e}")
 
     raw = select_highlights(transcript, args.target_minutes, args.llm_model)
     segments = filter_grounded_segments(raw, transcript["segments"])
     if not segments:
-        sys.exit("선정 구간이 트랜스크립트와 겹치지 않습니다 (LLM 환각 의심).")
+        raise PipelineError("선정 구간이 트랜스크립트와 겹치지 않습니다 (LLM 환각 의심).")
     captions = [caption_for_segment(s, transcript["segments"]) for s in segments]
     return segments, captions
 
@@ -311,12 +312,12 @@ WANTED = ("longform", "shorts", "thumbnail", "intro")
 def run(args) -> None:
     for p in args.inputs:
         if not p.exists():
-            sys.exit(f"입력 파일 없음: {p}")
+            raise PipelineError(f"입력 파일 없음: {p}")
 
     args.outdir.mkdir(parents=True, exist_ok=True)
     videos, audios = split_media(args.inputs)
     if not videos:
-        sys.exit("영상 파일이 없습니다 (오디오만으로는 처리할 수 없습니다).")
+        raise PipelineError("영상 파일이 없습니다 (오디오만으로는 처리할 수 없습니다).")
 
     if len(videos) == 1:
         args.input = videos[0]
@@ -336,7 +337,7 @@ def run(args) -> None:
         print(f"[입력] 오디오 파일 자동 인식: {audio_path.name} → 영상에 입힘")
     if audio_path:
         if not audio_path.exists():
-            sys.exit(f"오디오 파일 없음: {audio_path}")
+            raise PipelineError(f"오디오 파일 없음: {audio_path}")
         muxed = args.outdir / "_muxed_av.mp4"
         mux_audio_into_video(args.input, audio_path, muxed)
         args.input = muxed
@@ -453,4 +454,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except PipelineError as e:
+        sys.exit(str(e))
