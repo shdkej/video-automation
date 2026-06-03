@@ -2,6 +2,38 @@
 
 긴 영상을 자동으로 하이라이트 컷하는 미니멀 CLI. 영상 종류에 따라 3가지 모드 지원.
 
+진입점은 둘:
+
+- **`pipeline.py`** — 하나의 소스에서 **롱폼·숏츠·썸네일·인트로 4종**을 한 번에 추출 (분석 1회 재사용)
+- **`auto_cut.py`** — 하이라이트 컷 1개만 (롱폼) 뽑는 저수준 CLI. pipeline이 내부적으로 사용
+
+## 4종 산출 (pipeline.py)
+
+```bash
+# 한 줄로 4종 전체 생성 → outputs/
+python pipeline.py input.mp4
+
+# scene 모드(무료), 숏츠 3개, 세로 변환 시 흐린 배경
+python pipeline.py input.mp4 --mode scene --shorts-count 3 --shorts-blur
+
+# 일부만 — 숏츠와 썸네일만
+python pipeline.py input.mp4 --only shorts thumbnail
+```
+
+| 산출물 | 형태 | 비고 |
+|--------|------|------|
+| `longform.mp4` | 하이라이트 컷 16:9 | 클립별 자막 burn-in (**speech 모드만** — 아래 참고) |
+| `shorts_NN.mp4` | 세로 9:16 | **적정 길이(기본 25초)에 가까운** 구간 상위 N개, 길면 중앙 기준 절단(hook 당김), 자막 + fade |
+| `thumbnail_NN.jpg` | 후보 N장 | 구간을 시간축으로 분산해 N장(기본 3, 1장이면 `thumbnail.jpg`), 컬러 그레이드 |
+| `intro.mp4` | hook 클립 3~5초 | 베스트 구간 앞부분 + fade (풀스크린 타이틀 카드 안 씀) |
+
+> **자막은 speech 모드에서만 들어간다.** scene/vision은 발화 텍스트가 없어 자막을 비운다
+> (디버그용 `scene_score=…` 같은 문자열이 영상에 박히지 않도록). 자막이 필요하면 speech 모드를 쓴다.
+
+**부분 실패 격리**: 4종 중 하나가 실패해도 나머지는 생성되고, 끝에 실패한 종만 `--cache --only <종>`으로 재시도하라는 안내가 나온다. `--cache`는 `outputs/selection.json`을 재사용해 **LLM/Whisper 재호출 비용을 아낀다**.
+
+주요 옵션: `--only`, `--shorts-count`(기본 2), `--shorts-ideal-seconds`(기본 25), `--shorts-max-seconds`(기본 45), `--shorts-blur`, `--thumbnail-count`(기본 3), `--intro-seconds`(기본 4), `--cache`, `--no-subtitle`, `--no-grade`. 분석 옵션(`--mode`/`-t`/`--llm-model` 등)은 auto_cut과 동일.
+
 ## 모드
 
 | 모드 | 적합한 영상 | 신호원 | 비용 |
@@ -99,5 +131,6 @@ python auto_cut.py input.mp4 --cache --dry-run
 
 - 화자 분리(pyannote)로 발화자 단위 컷
 - 모드 자동 폴백 (speech 실패 시 vision)
-- 자막(SRT) 자동 생성
-- 9:16 변환(쇼츠)
+- 숏츠 선정 고도화 (현재는 적정 길이 휴리스틱 + 중앙 절단 → LLM에 "숏폼 virality/hook 시점" 별도 질의)
+- 썸네일 후보 랭킹 (현재는 시간 분산 → 얼굴/대비/장면전환 신호로 CTR 높은 프레임 우선)
+- BGM 자동 삽입(effects.add_bgm) pipeline 연동

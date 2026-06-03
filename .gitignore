@@ -33,3 +33,6 @@ __pycache__/
 # Claude Code / OMC 작업 흔적
 .omc/
 .claude/
+
+# 스킬 베이스라인 데이터
+.agent/
