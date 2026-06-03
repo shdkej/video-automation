@@ -28,6 +28,54 @@ def format_timestamp(seconds: float) -> str:
     return f"{h:02d}:{m:02d}:{s:06.3f}"
 
 
+def format_srt_timestamp(seconds: float) -> str:
+    total_ms = int(round(max(0.0, seconds) * 1000))
+    h, total_ms = divmod(total_ms, 3_600_000)
+    m, total_ms = divmod(total_ms, 60_000)
+    s, ms = divmod(total_ms, 1000)
+    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+
+def write_srt(segments: list, path: Path) -> None:
+    """segments: [{start, end, text}, ...]"""
+    lines = []
+    idx = 1
+    for seg in segments:
+        text = seg.get("text", "").strip()
+        if not text or seg["end"] - seg["start"] < 0.05:
+            continue
+        lines.append(str(idx))
+        lines.append(
+            f"{format_srt_timestamp(seg['start'])} --> {format_srt_timestamp(seg['end'])}"
+        )
+        lines.append(text)
+        lines.append("")
+        idx += 1
+    path.write_text("\n".join(lines), encoding="utf-8")
+
+
+def remap_transcript_to_cuts(transcript_segments: list, cut_segments: list) -> list:
+    """원본 트랜스크립트를 컷 후 새 영상 타임라인에 매핑."""
+    result = []
+    offset = 0.0
+    for cut in cut_segments:
+        cut_dur = cut["end"] - cut["start"]
+        for t in transcript_segments:
+            if t["end"] <= cut["start"] or t["start"] >= cut["end"]:
+                continue
+            clipped_start = max(t["start"], cut["start"])
+            clipped_end = min(t["end"], cut["end"])
+            if clipped_end - clipped_start < 0.1:
+                continue
+            result.append({
+                "start": clipped_start - cut["start"] + offset,
+                "end": clipped_end - cut["start"] + offset,
+                "text": t["text"],
+            })
+        offset += cut_dur
+    return result
+
+
 def validate_segments(raw_segments: list, video_duration: float) -> list:
     valid = []
     for seg in raw_segments:
@@ -517,6 +565,38 @@ def run_vision_mode(args, output: Path, selection_path: Path) -> None:
     print(f"  - 선정 결과:   {selection_path}")
 
 
+def run_from_selection(args, output: Path) -> None:
+    """기존 selection.json + (선택) captions.json으로 컷·자막 burn-in 까지."""
+    if not args.from_selection.exists():
+        sys.exit(f"selection 파일 없음: {args.from_selection}")
+    segments = json.loads(args.from_selection.read_text())
+    if not segments:
+        sys.exit("selection.json 이 비어 있음")
+
+    cut_video(args.input, segments, output)
+    print(f"컷 완료: {output} ({total_duration(segments):.1f}초)")
+
+    if args.captions:
+        if not args.captions.exists():
+            sys.exit(f"captions 파일 없음: {args.captions}")
+        captions = json.loads(args.captions.read_text())
+        if len(captions) != len(segments):
+            sys.exit(f"captions({len(captions)}) ≠ segments({len(segments)})")
+
+        from subtitle import render_subtitled
+        subbed = output.with_name(output.stem + "_subbed.mp4")
+        result = render_subtitled(
+            cut_path=output,
+            captions=captions,
+            segments=segments,
+            output=subbed,
+            font_size=args.sub_font_size,
+            margin_v=args.sub_margin_v,
+        )
+        print(f"자막 burn-in 완료: {result['output']}")
+        print(f"SRT: {result['srt']}")
+
+
 def run_scene_mode(args, output: Path, selection_path: Path) -> None:
     duration = get_video_duration(args.input)
     scenes = detect_scene_changes(args.input, args.scene_threshold)
@@ -577,13 +657,30 @@ def main() -> None:
     )
     parser.add_argument("--cache", action="store_true", help="트랜스크립트 캐시 재사용")
     parser.add_argument(
+        "--srt", action="store_true",
+        help="speech 모드: 원본 영상용 + 컷 결과용 SRT 자막 생성",
+    )
+    parser.add_argument(
         "--dry-run", action="store_true",
         help="컷 단계 생략, 트랜스크립트와 선정 결과만 저장",
     )
+    parser.add_argument(
+        "--from-selection", type=Path, default=None,
+        help="기존 selection.json을 받아 컷+(자막) 만 실행 (mode 분석 단계 생략)",
+    )
+    parser.add_argument(
+        "--captions", type=Path, default=None,
+        help="--from-selection과 함께. 캡션 JSON 리스트 파일(예: [\"a\", \"b\"])이면 자막 burn-in",
+    )
+    parser.add_argument("--sub-font-size", type=int, default=56, help="자막 폰트 크기")
+    parser.add_argument("--sub-margin-v", type=int, default=80, help="자막 하단 여백")
     args = parser.parse_args()
 
     if not args.input.exists():
         sys.exit(f"입력 파일 없음: {args.input}")
+
+    if args.srt and args.mode != "speech":
+        sys.exit("--srt는 speech 모드 전용입니다 (scene/vision은 트랜스크립트가 없음).")
 
     if args.audio:
         if not args.audio.exists():
@@ -594,6 +691,10 @@ def main() -> None:
 
     output = args.output or args.input.with_name(args.input.stem + "_cut.mp4")
     selection_path = args.input.with_suffix(".selection.json")
+
+    if args.from_selection:
+        run_from_selection(args, output)
+        return
 
     if args.mode == "scene":
         run_scene_mode(args, output, selection_path)
@@ -617,6 +718,11 @@ def main() -> None:
     except ValueError as e:
         sys.exit(f"트랜스크립트 품질 미달: {e}")
 
+    source_srt_path = None
+    if args.srt:
+        source_srt_path = args.input.with_suffix(".srt")
+        write_srt(transcript["segments"], source_srt_path)
+
     raw = select_highlights(transcript, args.target_minutes, args.llm_model)
     segments = filter_grounded_segments(raw, transcript["segments"])
     if not segments:
@@ -637,9 +743,20 @@ def main() -> None:
         return
 
     cut_video(args.input, segments, output)
+
+    cut_srt_path = None
+    if args.srt:
+        cut_srt_path = output.with_suffix(".srt")
+        cut_subs = remap_transcript_to_cuts(transcript["segments"], segments)
+        write_srt(cut_subs, cut_srt_path)
+
     print(f"\n완료: {output}")
     print(f"  - 트랜스크립트: {transcript_path}")
     print(f"  - 선정 결과:   {selection_path}")
+    if source_srt_path:
+        print(f"  - 원본 SRT:    {source_srt_path}")
+    if cut_srt_path:
+        print(f"  - 컷 SRT:      {cut_srt_path}")
 
 
 if __name__ == "__main__":
