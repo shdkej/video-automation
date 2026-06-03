@@ -21,6 +21,8 @@ python web/app.py
 
 영상을 (여러 개도 가능 — 순서대로 이어붙임) 업로드하고 모드(scene 무료 / speech 자막 / vision)·숏츠 개수·썸네일 장수를 고르면, 백그라운드 잡이 돌며 진행률이 표시되고 완료 시 4종을 브라우저에서 미리보고 다운로드한다. 잡 작업물은 `web/jobs/<id>/`에 남는다(gitignore). 단일 사용자 로컬 도구 가정 — 잡 상태는 인메모리.
 
+**옵션 바꿔 다시 만들기**: 결과 화면에서 숏츠 개수·썸네일 장수·흐린 배경·자막 여부만 바꿔 재생성할 수 있다. **분석(Whisper/LLM)은 캐시를 재사용**하고 build(ffmpeg)만 다시 돌므로 빠르다(`POST /api/jobs/{id}/rebuild`). 분석 자체(mode/길이)를 바꾸려면 새로 업로드한다.
+
 **잡 자동 정리**: 새 잡을 만들 때마다 오래됐거나(기본 24시간) 개수를 초과한(기본 20개) 잡 폴더를 삭제한다(진행 중 잡은 보호). 기준은 환경변수로 조정한다 — `VIDAUTO_JOB_MAX_AGE_H`, `VIDAUTO_JOB_MAX_COUNT`.
 
 ## 4종 산출 (pipeline.py)
@@ -162,6 +164,6 @@ python auto_cut.py input.mp4 --cache --dry-run
 
 - 화자 분리(pyannote)로 발화자 단위 컷
 - 모드 자동 폴백 (speech 실패 시 vision)
-- 숏츠 선정 고도화 (현재는 적정 길이 휴리스틱 + 중앙 절단 → LLM에 "숏폼 virality/hook 시점" 별도 질의)
+- 숏츠 hook 시점 (현재는 LLM/scene 임팩트 점수로 구간 선정 + 중앙 절단 → 구간 내 정확한 hook 프레임까지 LLM 질의)
 - 썸네일 후보 랭킹 (현재는 시간 분산 → 얼굴/대비/장면전환 신호로 CTR 높은 프레임 우선)
 - BGM 자동 삽입(effects.add_bgm) pipeline 연동

@@ -126,7 +126,9 @@ function updateStepper(progress) {
   });
 }
 
+let currentJobId = null;
 function startPolling(jobId) {
+  currentJobId = jobId;
   pollTimer = setInterval(async () => {
     try {
       const res = await fetch(`/api/jobs/${jobId}`);
@@ -172,7 +174,35 @@ function renderResults(jobId, job) {
   if (o.intro) html += cut(jobId, o.intro, "인트로", "hook");
   (o.thumbnail || []).forEach((n, i) => (html += cut(jobId, n, `썸네일 ${i + 1}`, "JPG", { image: true })));
   $("results").innerHTML = html || "<p>생성된 산출물이 없습니다.</p>";
+
+  // 재생성 폼을 직전 옵션으로 초기화
+  $("rb_shorts").value = $("job-form").shorts_count.value;
+  $("rb_thumb").value = $("job-form").thumbnail_count.value;
+  $("rb_blur").checked = $("shorts_blur").checked;
+  $("rb_nosub").checked = $("no_subtitle").checked;
 }
+
+// 분석 재사용 재생성 — 산출 옵션만 바꿔 다시
+$("rebuild-btn").addEventListener("click", async () => {
+  if (!currentJobId) return;
+  const fd = new FormData();
+  fd.append("shorts_count", $("rb_shorts").value);
+  fd.append("thumbnail_count", $("rb_thumb").value);
+  fd.append("shorts_blur", $("rb_blur").checked);
+  fd.append("no_subtitle", $("rb_nosub").checked);
+
+  hide($("result-section"));
+  show($("progress-section"));
+  $("bar-fill").style.width = "0%";
+  $("stage-text").textContent = "재생성 준비…";
+  try {
+    const res = await fetch(`/api/jobs/${currentJobId}/rebuild`, { method: "POST", body: fd });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || res.statusText);
+    startPolling(currentJobId);
+  } catch (err) {
+    showError(err.message);
+  }
+});
 
 function showError(msg) {
   if (pollTimer) clearInterval(pollTimer);

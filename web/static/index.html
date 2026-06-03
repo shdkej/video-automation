@@ -110,6 +110,18 @@
         <span class="result-meta" id="seg-info"></span>
       </div>
       <div id="results" class="reel"></div>
+
+      <details id="rebuild" class="rebuild">
+        <summary>옵션 바꿔 다시 만들기 <small>분석 재사용 — 업로드·인식 없이 빠르게</small></summary>
+        <div class="rebuild-opts">
+          <label class="rb-num">숏츠<input type="number" id="rb_shorts" min="0" max="10" value="2"></label>
+          <label class="rb-num">썸네일<input type="number" id="rb_thumb" min="1" max="10" value="3"></label>
+          <label class="toggle"><input type="checkbox" id="rb_blur"><span class="tg-box"></span>흐린 배경</label>
+          <label class="toggle"><input type="checkbox" id="rb_nosub"><span class="tg-box"></span>자막 끄기</label>
+          <button type="button" id="rebuild-btn" class="cta-sm">다시 만들기 →</button>
+        </div>
+      </details>
+
       <button id="reset-btn" class="ghost">새 영상으로 다시</button>
     </section>
 

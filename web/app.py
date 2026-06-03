@@ -212,6 +212,43 @@ async def create_job(
     return {"job_id": job_id}
 
 
+@app.post("/api/jobs/{job_id}/rebuild")
+async def rebuild_job(
+    job_id: str,
+    target_minutes: float = Form(3.0),
+    shorts_count: int = Form(2),
+    thumbnail_count: int = Form(3),
+    shorts_blur: bool = Form(False),
+    no_subtitle: bool = Form(False),
+):
+    """기존 잡의 분석(selection.json)을 재사용해 산출 옵션만 바꿔 다시 생성.
+
+    Whisper/LLM 같은 비싼 분석은 cache=True로 재활용되고 build(ffmpeg)만 다시 돈다.
+    mode 등 분석 자체를 바꾸려면 새로 업로드해야 한다.
+    """
+    job_dir = JOBS_DIR / job_id
+    if not job_dir.is_dir():
+        raise HTTPException(404, "잡 없음")
+    input_paths = sorted(p for p in job_dir.glob("input_*") if p.is_file())
+    if not input_paths:
+        raise HTTPException(404, "원본 입력이 남아있지 않습니다(정리됨). 새로 업로드해주세요.")
+
+    prev = JOBS.get(job_id, {})
+    mode = prev.get("mode", "scene")
+    JOBS[job_id] = {
+        "status": "running", "stage": "재생성 대기", "progress": 0,
+        "outputs": None, "error": None, "mode": mode,
+        "source_count": prev.get("source_count", len(input_paths)),
+    }
+    opts = {
+        "mode": mode, "target_minutes": target_minutes,
+        "shorts_count": shorts_count, "thumbnail_count": thumbnail_count,
+        "shorts_blur": shorts_blur, "no_subtitle": no_subtitle,
+    }
+    threading.Thread(target=_run_job, args=(job_id, input_paths, opts), daemon=True).start()
+    return {"job_id": job_id}
+
+
 @app.get("/api/jobs/{job_id}")
 async def get_job(job_id: str):
     job = JOBS.get(job_id)

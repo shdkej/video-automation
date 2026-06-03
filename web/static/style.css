@@ -363,6 +363,33 @@ h1 .amp {
 .dl::before { content: "↓"; color: var(--amber); }
 .dl:hover { color: var(--amber); }
 
+/* ---------- rebuild ---------- */
+.rebuild {
+  margin-top: 22px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 4px 18px;
+}
+.rebuild summary {
+  cursor: pointer; padding: 12px 0; font-size: 14px; color: var(--paper-dim);
+  font-family: var(--body); list-style-position: inside;
+}
+.rebuild summary small { color: var(--muted); font-family: var(--film); font-size: 11px; margin-left: 6px; }
+.rebuild summary::marker { color: var(--amber); }
+.rebuild-opts {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 18px;
+  padding: 8px 0 18px;
+}
+.rb-num { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--paper-dim); font-family: var(--film); }
+.rb-num input { width: 66px; padding: 8px 10px; font-size: 14px; }
+.cta-sm {
+  background: var(--amber); color: var(--black); border: none; border-radius: 9px;
+  padding: 10px 18px; font-family: var(--body); font-weight: 700; font-size: 14px; cursor: pointer;
+  transition: transform .15s, background .2s; margin-left: auto;
+}
+.cta-sm:hover { background: var(--amber-soft); transform: translateY(-1px); }
+
 /* ---------- ghost / error ---------- */
 .ghost {
   margin-top: 26px;
