@@ -92,8 +92,8 @@ def _args_from_opts(input_path: Path, outdir: Path, opts: dict) -> SimpleNamespa
         input=input_path, audio=None, outdir=outdir,
         mode=opts["mode"], target_minutes=float(opts["target_minutes"]),
         scene_threshold=0.3, clip_seconds=6.0,
-        whisper_model=opts.get("whisper_model", "small"), language="ko",
-        llm_model=None, cache=False,
+        whisper_model=opts.get("whisper_model", "medium"), language="ko",
+        llm_model=None, cache=True,  # 같은 잡 폴더의 트랜스크립트/selection 재사용(재생성 대비)
         shorts_count=int(opts["shorts_count"]), shorts_max_seconds=45.0,
         shorts_ideal_seconds=25.0, shorts_blur=bool(opts.get("shorts_blur")),
         thumbnail_count=int(opts["thumbnail_count"]),

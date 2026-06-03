@@ -86,11 +86,16 @@ def validate_segments(raw_segments: list, video_duration: float) -> list:
             continue
         if start < 0 or end > video_duration + 0.5 or start >= end:
             continue
-        valid.append({
+        item = {
             "start": start,
             "end": min(end, video_duration),
             "reason": str(seg.get("reason", "")),
-        })
+        }
+        try:
+            item["score"] = float(seg["score"])  # 숏폼 임팩트 점수(있으면)
+        except (KeyError, TypeError, ValueError):
+            pass
+        valid.append(item)
     valid.sort(key=lambda s: s["start"])
     return valid
 
@@ -180,7 +185,7 @@ def pick_scene_segments(
             continue
         if any(overlaps(start, end, p["start"], p["end"]) for p in picked):
             continue
-        picked.append({"start": start, "end": end, "reason": f"scene_score={score:.3f}"})
+        picked.append({"start": start, "end": end, "score": score * 100, "reason": f"scene_score={score:.3f}"})
         total += end - start
     picked.sort(key=lambda s: s["start"])
     return picked
@@ -319,11 +324,12 @@ def build_highlight_prompt(transcript: dict, target_minutes: float) -> str:
 - 시간순으로 자연스럽게 이어지도록
 - 각 구간은 최소 5초 이상, 너무 잘게 자르지 말 것
 - start/end는 트랜스크립트의 타임스탬프(초)를 그대로 사용
+- score: 이 구간을 숏폼(릴스/쇼츠)으로 떼어냈을 때의 임팩트를 0~100으로. 강한 훅·펀치라인·감정·반전·놀라움이 클수록 높게. 맥락 설명·도입부는 낮게.
 
 응답은 반드시 아래 JSON 포맷만 (다른 설명 없이):
 {{
   "segments": [
-    {{"start": <시작_초>, "end": <끝_초>, "reason": <짧은_선정_이유>}}
+    {{"start": <시작_초>, "end": <끝_초>, "score": <0~100 숏폼 임팩트>, "reason": <짧은_선정_이유>}}
   ]
 }}
 숫자는 반드시 위 트랜스크립트에 등장한 타임스탬프 범위 안에서 골라야 합니다.
@@ -336,7 +342,7 @@ def build_highlight_prompt(transcript: dict, target_minutes: float) -> str:
 def call_anthropic(model: str, prompt: str) -> str:
     from anthropic import Anthropic
 
-    response = Anthropic().messages.create(
+    response = Anthropic(timeout=120.0, max_retries=4).messages.create(
         model=model,
         max_tokens=8192,
         messages=[{"role": "user", "content": prompt}],
@@ -347,7 +353,7 @@ def call_anthropic(model: str, prompt: str) -> str:
 def call_openai(model: str, prompt: str) -> str:
     from openai import OpenAI
 
-    response = OpenAI().chat.completions.create(
+    response = OpenAI(timeout=120.0, max_retries=4).chat.completions.create(
         model=model,
         messages=[{"role": "user", "content": prompt}],
         response_format={"type": "json_object"},
@@ -415,7 +421,7 @@ def call_anthropic_vision(model: str, prompt: str, image_path: Path) -> str:
     from anthropic import Anthropic
 
     image_data = base64.b64encode(image_path.read_bytes()).decode("utf-8")
-    response = Anthropic().messages.create(
+    response = Anthropic(timeout=120.0, max_retries=4).messages.create(
         model=model,
         max_tokens=4096,
         messages=[{
@@ -436,7 +442,7 @@ def call_openai_vision(model: str, prompt: str, image_path: Path) -> str:
     from openai import OpenAI
 
     image_data = base64.b64encode(image_path.read_bytes()).decode("utf-8")
-    response = OpenAI().chat.completions.create(
+    response = OpenAI(timeout=120.0, max_retries=4).chat.completions.create(
         model=model,
         messages=[{
             "role": "user",

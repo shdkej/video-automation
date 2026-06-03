@@ -100,14 +100,21 @@ def rank_for_shorts(
 ) -> list:
     """숏츠 후보 선정.
 
-    선정: 숏폼 적정 길이(ideal_sec)에 가까운 구간 우선 (너무 길면 늘어지고,
-          너무 짧으면 빈약 — '길이 최대'가 아니라 '적정 길이'가 임팩트 프록시).
+    선정: 구간에 임팩트 점수(score, speech=LLM·scene=scene_score)가 있으면 그걸 우선.
+          점수가 없으면(vision 등) 숏폼 적정 길이(ideal_sec) 근접으로 폴백.
     절단: max_short_sec를 넘으면 앞부분(맥락)을 버리고 구간 중앙 기준으로 윈도우
           (숏폼 생존은 도입부가 아니라 펀치라인에 달림 → hook을 앞으로 당김).
     return: [{"start", "end", "reason", "caption"}, ...] (시간순)
     """
+    def rank_key(item):
+        _, seg = item
+        score = seg.get("score")
+        if score is not None:
+            return (0, -float(score))  # 점수 그룹 우선, 높은 점수 먼저
+        return (1, abs((seg["end"] - seg["start"]) - ideal_sec))  # 폴백: 적정 길이 근접
+
     indexed = list(enumerate(segments))
-    indexed.sort(key=lambda x: abs((x[1]["end"] - x[1]["start"]) - ideal_sec))
+    indexed.sort(key=rank_key)
     chosen = indexed[:top_k]
     chosen.sort(key=lambda x: x[1]["start"])
 
