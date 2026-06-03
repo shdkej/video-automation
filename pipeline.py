@@ -33,7 +33,7 @@ from auto_cut import (
     transcribe_video,
     validate_transcript_quality,
 )
-from effects import apply_fade, concat_sources, extract_thumbnail, reframe_vertical
+from effects import apply_fade, concat_sources, extract_thumbnail, has_video_stream, reframe_vertical
 from subtitle import render_subtitled
 
 
@@ -42,17 +42,27 @@ from subtitle import render_subtitled
 # ============================================================================
 
 AUDIO_EXTS = {".m4a", ".mp3", ".wav", ".aac", ".flac", ".ogg", ".opus", ".aiff", ".aif"}
+VIDEO_EXTS = {".mp4", ".mov", ".avi", ".m4v", ".flv", ".wmv", ".mpg", ".mpeg"}
+# .webm/.mkv/.ogv 등은 오디오만 담길 수도 있어 확장자로 못 가른다 → 스트림 검사
 
 
 def split_media(paths: list) -> tuple:
-    """입력 경로들을 (영상, 오디오)로 분류. 오디오 확장자만 오디오, 나머지는 영상.
+    """입력 경로들을 (영상, 오디오)로 분류.
 
+    명백한 확장자는 즉시 분류하고, .webm/.mkv 처럼 양쪽 다 가능한 컨테이너는
+    실제 비디오 스트림 유무로 판정한다 (음성만 담긴 .webm을 영상으로 오인하지 않도록).
     여러 파일을 올릴 때 음성 파일이 섞여 있으면 영상에 이어붙이지 않고
     별도 사운드트랙으로 인식하기 위함.
     """
     videos, audios = [], []
     for p in paths:
-        (audios if p.suffix.lower() in AUDIO_EXTS else videos).append(p)
+        ext = p.suffix.lower()
+        if ext in AUDIO_EXTS:
+            audios.append(p)
+        elif ext in VIDEO_EXTS:
+            videos.append(p)
+        else:
+            (videos if has_video_stream(p) else audios).append(p)
     return videos, audios
 
 # 자막 앞에 붙는 한국어 추임새/필러 — 선두에서만 제거 (의미어는 보존)

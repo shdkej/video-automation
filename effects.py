@@ -39,6 +39,23 @@ def has_audio_stream(path: Path) -> bool:
     return bool(probe.stdout.strip())
 
 
+def has_video_stream(path: Path) -> bool:
+    """실제 동영상 스트림이 있는지. .webm/.mkv 처럼 오디오만 담길 수 있는
+    컨테이너를 영상/오디오로 정확히 가르기 위함. 정지 커버아트(attached_pic)는 영상이 아니다."""
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v",
+         "-show_entries", "stream=codec_type:stream_disposition=attached_pic",
+         "-of", "csv=p=0", str(path)],
+        capture_output=True, text=True,
+    )
+    for line in probe.stdout.splitlines():
+        parts = line.split(",")
+        # codec_type=video 이고 attached_pic(=1)이 아니면 실제 동영상
+        if parts and parts[0] == "video" and (len(parts) < 2 or parts[1].strip() != "1"):
+            return True
+    return False
+
+
 def probe_resolution(path: Path) -> tuple[int, int]:
     """첫 비디오 스트림의 (width, height)."""
     out = subprocess.run(
