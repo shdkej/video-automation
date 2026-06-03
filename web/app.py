@@ -11,9 +11,11 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import sys
 import threading
+import time
 import uuid
 from pathlib import Path
 from types import SimpleNamespace
@@ -35,7 +37,49 @@ STATIC_DIR = BASE / "static"
 # 단일 사용자 로컬 도구 가정 — 인메모리 잡 스토어로 충분
 JOBS: dict[str, dict] = {}
 
+# 잡 폴더 자동 정리 기준 (환경변수로 조정 가능)
+JOB_MAX_AGE_HOURS = float(os.environ.get("VIDAUTO_JOB_MAX_AGE_H", "24"))
+JOB_MAX_COUNT = int(os.environ.get("VIDAUTO_JOB_MAX_COUNT", "20"))
+
 app = FastAPI(title="video-automation")
+
+
+def cleanup_jobs() -> None:
+    """오래됐거나 개수를 초과한 잡 폴더를 삭제. 진행 중(running) 잡은 보호.
+
+    새 잡 생성 시점에 호출 — 별도 스케줄러 없이 디스크 누적을 막는다.
+    서버 재시작으로 JOBS(인메모리)가 비어도 디스크 폴더는 mtime으로 정리된다.
+    """
+    try:
+        dirs = [d for d in JOBS_DIR.iterdir() if d.is_dir()]
+    except FileNotFoundError:
+        return
+
+    def is_running(name: str) -> bool:
+        job = JOBS.get(name)
+        return bool(job and job.get("status") == "running")
+
+    def drop(d: Path) -> None:
+        shutil.rmtree(d, ignore_errors=True)
+        JOBS.pop(d.name, None)
+
+    now = time.time()
+    # 1) 나이 초과
+    for d in dirs:
+        if is_running(d.name):
+            continue
+        try:
+            age_h = (now - d.stat().st_mtime) / 3600
+        except OSError:
+            continue
+        if age_h > JOB_MAX_AGE_HOURS:
+            drop(d)
+
+    # 2) 개수 초과 (최신 우선 보존, 오래된 것부터 삭제)
+    survivors = [d for d in JOBS_DIR.iterdir() if d.is_dir() and not is_running(d.name)]
+    survivors.sort(key=lambda d: d.stat().st_mtime, reverse=True)
+    for d in survivors[JOB_MAX_COUNT:]:
+        drop(d)
 
 
 # ============================================================================
@@ -140,6 +184,7 @@ async def create_job(
         raise HTTPException(400, "mode는 speech/scene/vision 중 하나")
     if not files:
         raise HTTPException(400, "영상 파일이 필요합니다")
+    cleanup_jobs()  # 새 잡 전에 오래된/초과 잡 폴더 정리
     job_id = uuid.uuid4().hex[:12]
     job_dir = JOBS_DIR / job_id
     job_dir.mkdir(parents=True, exist_ok=True)
