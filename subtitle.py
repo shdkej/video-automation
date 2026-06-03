@@ -39,6 +39,25 @@ def find_korean_font() -> str:
     raise RuntimeError("한글 폰트를 찾지 못함. AppleSDGothicNeo 또는 fc-list :lang=ko 결과 필요.")
 
 
+def wrap_text(text: str, font: ImageFont.FreeTypeFont, max_width: int) -> list[str]:
+    """어절(공백) 단위로 max_width(px)를 넘지 않게 줄바꿈. 세로 숏츠 자막 잘림 방지."""
+    words = text.split()
+    if not words:
+        return [text]
+    lines, cur = [], ""
+    for w in words:
+        trial = f"{cur} {w}".strip()
+        bbox = font.getbbox(trial)
+        if (bbox[2] - bbox[0]) <= max_width or not cur:
+            cur = trial
+        else:
+            lines.append(cur)
+            cur = w
+    if cur:
+        lines.append(cur)
+    return lines
+
+
 def render_caption_png(
     text: str,
     out_path: Path,
@@ -49,20 +68,35 @@ def render_caption_png(
     bg_rgba: tuple = (0, 0, 0, 200),
     fg_rgba: tuple = (255, 255, 255, 255),
     font_index: int = 8,
+    max_width: int | None = None,
+    line_gap: int = 10,
 ) -> None:
-    """한 줄 캡션을 검은 반투명 박스 + 흰 글씨 PNG로 저장."""
+    """캡션을 검은 반투명 박스 + 흰 글씨 PNG로 저장.
+
+    max_width(px)를 주면 어절 단위로 자동 줄바꿈(여러 줄)한다.
+    세로 9:16 숏츠처럼 폭이 좁은 화면에서 자막이 좌우로 잘리는 것을 막는다.
+    """
     try:
         font = ImageFont.truetype(font_path, font_size, index=font_index)
     except (OSError, IndexError):
         font = ImageFont.truetype(font_path, font_size)
-    bbox = font.getbbox(text)
-    text_w = bbox[2] - bbox[0]
-    text_h = bbox[3] - bbox[1]
+
+    lines = wrap_text(text, font, max_width) if max_width else [text]
+    metrics = [font.getbbox(ln) for ln in lines]
+    line_hs = [b[3] - b[1] for b in metrics]
+    text_w = max((b[2] - b[0]) for b in metrics)
+    total_text_h = sum(line_hs) + line_gap * (len(lines) - 1)
+
     W = text_w + pad_x * 2
-    H = text_h + pad_y * 2 + 8
+    H = total_text_h + pad_y * 2 + 8
     img = Image.new("RGBA", (W, H), bg_rgba)
     draw = ImageDraw.Draw(img)
-    draw.text((pad_x - bbox[0], pad_y - bbox[1]), text, font=font, fill=fg_rgba)
+    y = pad_y
+    for ln, b, lh in zip(lines, metrics, line_hs):
+        lw = b[2] - b[0]
+        x = (W - lw) // 2 - b[0]  # 줄마다 가운데 정렬
+        draw.text((x, y - b[1]), ln, font=font, fill=fg_rgba)
+        y += lh + line_gap
     img.save(out_path)
 
 
@@ -82,6 +116,7 @@ def render_subtitled(
     fg_rgba: tuple = (255, 255, 255, 255),
     pad_x: int = 32,
     pad_y: int = 18,
+    max_caption_width: int | None = None,
     work_dir: Path | None = None,
 ) -> dict:
     """컷 영상에 클립별 캡션을 overlay로 burn-in.
@@ -114,6 +149,7 @@ def render_subtitled(
                 cap, p, font_path,
                 font_size=font_size, pad_x=pad_x, pad_y=pad_y,
                 bg_rgba=bg_rgba, fg_rgba=fg_rgba,
+                max_width=max_caption_width,
             )
             png_paths.append(p)
 

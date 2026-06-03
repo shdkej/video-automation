@@ -41,14 +41,30 @@ from subtitle import render_subtitled
 # Domain — 분석 결과 가공 (외부 의존 없음)
 # ============================================================================
 
+# 자막 앞에 붙는 한국어 추임새/필러 — 선두에서만 제거 (의미어는 보존)
+_FILLERS = {
+    "어", "음", "아", "에", "오", "그", "저",
+    "어음", "으음", "음음", "그그",
+    "그러니까", "그래서", "그러면", "그리고", "그냥", "뭐", "막", "이제", "자", "근데",
+}
+
+
+def strip_leading_fillers(text: str) -> str:
+    """문장 선두의 추임새를 연속으로 제거. '어음 그러니까 가장…' → '가장…'."""
+    words = text.split()
+    while words and words[0] in _FILLERS:
+        words.pop(0)
+    return " ".join(words)
+
+
 def caption_for_segment(seg: dict, transcript_segments: list, max_len: int = 24) -> str:
-    """speech 구간 → 겹치는 트랜스크립트 텍스트를 모아 한 줄 캡션(축약)."""
+    """speech 구간 → 겹치는 트랜스크립트 텍스트를 모아 한 줄 캡션(추임새 제거 + 축약)."""
     texts = [
         t["text"].strip()
         for t in transcript_segments
         if overlaps(seg["start"], seg["end"], t["start"], t["end"])
     ]
-    cap = " ".join(x for x in texts if x).strip()
+    cap = strip_leading_fillers(" ".join(x for x in texts if x).strip())
     if len(cap) > max_len:
         cap = cap[:max_len].rstrip() + "…"
     return cap
@@ -215,9 +231,11 @@ def build_one_short(args, spec: dict, stem: str, outdir: Path) -> Path:
             faded_src = vert
         else:
             # 단일 클립이라 자막 window는 0~dur. segments는 길이만 맞으면 됨.
+            # 세로 9:16(폭 1080)에서 자막이 좌우로 잘리지 않도록 줄바꿈 폭 지정.
             render_subtitled(
                 cut_path=vert, captions=[cap], segments=[seg], output=subbed,
                 font_size=args.sub_font_size + 8, margin_v=args.sub_margin_v + 120,
+                max_caption_width=960,
             )
             faded_src = subbed
         apply_fade(faded_src, final, fade_in=0.3, fade_out=0.3)
