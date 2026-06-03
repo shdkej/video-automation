@@ -33,7 +33,7 @@ from auto_cut import (
     transcribe_video,
     validate_transcript_quality,
 )
-from effects import apply_fade, extract_thumbnail, reframe_vertical
+from effects import apply_fade, concat_sources, extract_thumbnail, reframe_vertical
 from subtitle import render_subtitled
 
 
@@ -278,8 +278,19 @@ WANTED = ("longform", "shorts", "thumbnail", "intro")
 
 
 def run(args) -> None:
-    if not args.input.exists():
-        sys.exit(f"입력 파일 없음: {args.input}")
+    for p in args.inputs:
+        if not p.exists():
+            sys.exit(f"입력 파일 없음: {p}")
+
+    args.outdir.mkdir(parents=True, exist_ok=True)
+    if len(args.inputs) == 1:
+        args.input = args.inputs[0]
+    else:
+        # 여러 소스 → 공통 규격으로 정규화 후 이어붙여 단일 타임라인으로
+        merged = args.outdir / "_merged_source.mp4"
+        print(f"[입력] {len(args.inputs)}개 소스를 순서대로 이어붙이는 중…")
+        concat_sources(args.inputs, merged)
+        args.input = merged
 
     if args.audio:
         if not args.audio.exists():
@@ -349,7 +360,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="하나의 입력 영상에서 롱폼/숏츠/썸네일/인트로 4종을 생성",
     )
-    parser.add_argument("input", type=Path, help="입력 영상 경로")
+    parser.add_argument(
+        "inputs", type=Path, nargs="+",
+        help="입력 영상 경로(들). 여러 개면 순서대로 이어붙여 하나의 타임라인으로 처리",
+    )
     parser.add_argument("--audio", type=Path, default=None, help="별도 오디오 파일(자동 mux)")
     parser.add_argument("-o", "--outdir", type=Path, default=Path("outputs"), help="출력 폴더")
     parser.add_argument(

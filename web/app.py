@@ -59,16 +59,24 @@ def _args_from_opts(input_path: Path, outdir: Path, opts: dict) -> SimpleNamespa
     )
 
 
-def _run_job(job_id: str, input_path: Path, opts: dict) -> None:
+def _run_job(job_id: str, input_paths: list[Path], opts: dict) -> None:
     job = JOBS[job_id]
     outdir = JOBS_DIR / job_id / "outputs"
     outdir.mkdir(parents=True, exist_ok=True)
-    args = _args_from_opts(input_path, outdir, opts)
 
     def stage(name: str, pct: int) -> None:
         job["stage"], job["progress"] = name, pct
 
     try:
+        # 여러 소스면 먼저 공통 규격으로 정규화 후 이어붙임
+        if len(input_paths) > 1:
+            stage(f"{len(input_paths)}개 소스 이어붙이는 중", 5)
+            input_path = outdir / "_merged_source.mp4"
+            pl.concat_sources(input_paths, input_path)
+        else:
+            input_path = input_paths[0]
+        args = _args_from_opts(input_path, outdir, opts)
+
         stage("분석 (Whisper/LLM)", 10)
         segments, captions = pl.analyze(args, outdir)
         (outdir / "selection.json").write_text(json.dumps(segments, ensure_ascii=False, indent=2))
@@ -109,7 +117,7 @@ def _run_job(job_id: str, input_path: Path, opts: dict) -> None:
 
 @app.post("/api/jobs")
 async def create_job(
-    file: UploadFile,
+    files: list[UploadFile],
     mode: str = Form("scene"),
     target_minutes: float = Form(3.0),
     shorts_count: int = Form(2),
@@ -119,26 +127,32 @@ async def create_job(
 ):
     if mode not in ("speech", "scene", "vision"):
         raise HTTPException(400, "mode는 speech/scene/vision 중 하나")
+    if not files:
+        raise HTTPException(400, "영상 파일이 필요합니다")
     job_id = uuid.uuid4().hex[:12]
     job_dir = JOBS_DIR / job_id
     job_dir.mkdir(parents=True, exist_ok=True)
 
-    # 업로드 저장 — 확장자만 취해 안전한 파일명으로
-    suffix = Path(file.filename or "input.mp4").suffix or ".mp4"
-    input_path = job_dir / f"input{suffix}"
-    with input_path.open("wb") as f:
-        shutil.copyfileobj(file.file, f)
+    # 업로드 저장 — 확장자만 취해 안전한 파일명으로 (여러 개면 순서 보존)
+    input_paths = []
+    for idx, file in enumerate(files):
+        suffix = Path(file.filename or f"input{idx}.mp4").suffix or ".mp4"
+        p = job_dir / f"input_{idx:02d}{suffix}"
+        with p.open("wb") as f:
+            shutil.copyfileobj(file.file, f)
+        input_paths.append(p)
 
     JOBS[job_id] = {
         "status": "running", "stage": "대기", "progress": 0,
         "outputs": None, "error": None, "mode": mode,
+        "source_count": len(input_paths),
     }
     opts = {
         "mode": mode, "target_minutes": target_minutes,
         "shorts_count": shorts_count, "thumbnail_count": thumbnail_count,
         "shorts_blur": shorts_blur, "no_subtitle": no_subtitle,
     }
-    threading.Thread(target=_run_job, args=(job_id, input_path, opts), daemon=True).start()
+    threading.Thread(target=_run_job, args=(job_id, input_paths, opts), daemon=True).start()
     return {"job_id": job_id}
 
 

@@ -19,7 +19,7 @@ python web/app.py
 # 또는: uvicorn web.app:app --reload
 ```
 
-영상을 업로드하고 모드(scene 무료 / speech 자막 / vision)·숏츠 개수·썸네일 장수를 고르면, 백그라운드 잡이 돌며 진행률이 표시되고 완료 시 4종을 브라우저에서 미리보고 다운로드한다. 잡 작업물은 `web/jobs/<id>/`에 남는다(gitignore). 단일 사용자 로컬 도구 가정 — 잡 상태는 인메모리.
+영상을 (여러 개도 가능 — 순서대로 이어붙임) 업로드하고 모드(scene 무료 / speech 자막 / vision)·숏츠 개수·썸네일 장수를 고르면, 백그라운드 잡이 돌며 진행률이 표시되고 완료 시 4종을 브라우저에서 미리보고 다운로드한다. 잡 작업물은 `web/jobs/<id>/`에 남는다(gitignore). 단일 사용자 로컬 도구 가정 — 잡 상태는 인메모리.
 
 ## 4종 산출 (pipeline.py)
 
@@ -27,12 +27,19 @@ python web/app.py
 # 한 줄로 4종 전체 생성 → outputs/
 python pipeline.py input.mp4
 
+# 여러 소스 → 순서대로 이어붙여 하나의 타임라인으로 처리
+python pipeline.py clip1.mp4 clip2.mp4 clip3.mp4
+
 # scene 모드(무료), 숏츠 3개, 세로 변환 시 흐린 배경
 python pipeline.py input.mp4 --mode scene --shorts-count 3 --shorts-blur
 
 # 일부만 — 숏츠와 썸네일만
 python pipeline.py input.mp4 --only shorts thumbnail
 ```
+
+> **여러 소스**를 주면 각 소스를 첫 소스 해상도에 맞춰 정규화(scale+pad·fps 통일·오디오 보장)한 뒤
+> 이어붙여 단일 타임라인으로 분석한다. 해상도·코덱·오디오 유무가 달라도 안전하다.
+> 합친 영상은 `outputs/_merged_source.mp4`로 남는다.
 
 | 산출물 | 형태 | 비고 |
 |--------|------|------|

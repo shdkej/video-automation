@@ -7,6 +7,7 @@ ffmpeg 자체 필터만 사용 (libass/libfreetype 불필요).
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -36,6 +37,80 @@ def has_audio_stream(path: Path) -> bool:
         capture_output=True, text=True,
     )
     return bool(probe.stdout.strip())
+
+
+def probe_resolution(path: Path) -> tuple[int, int]:
+    """첫 비디오 스트림의 (width, height)."""
+    out = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=width,height", "-of", "csv=s=,:p=0", str(path)],
+        check=True, capture_output=True, text=True,
+    ).stdout.strip()
+    w, h = out.split(",")
+    return int(w), int(h)
+
+
+# ============================================================================
+# Multi-source concat — 여러 소스를 공통 규격으로 정규화 후 이어붙임
+# ============================================================================
+
+def concat_sources(inputs: list[Path], output: Path, fps: int = 30) -> None:
+    """여러 영상 소스를 순서대로 이어붙인다.
+
+    소스마다 해상도/fps/코덱/오디오 유무가 달라도 안전하도록, 각 소스를
+    첫 소스 해상도에 맞춰 scale+pad·fps 통일·오디오 보장(없으면 무음 트랙)으로
+    정규화한 뒤 concat demuxer로 합친다.
+    """
+    if len(inputs) == 1:
+        shutil.copy(inputs[0], output)
+        return
+
+    w, h = probe_resolution(inputs[0])
+    w -= w % 2  # libx264 yuv420p는 짝수 해상도 필요
+    h -= h % 2
+
+    tmpdir = output.parent / f".{output.stem}_src_tmp"
+    tmpdir.mkdir(parents=True, exist_ok=True)
+    try:
+        vf = (
+            f"scale={w}:{h}:force_original_aspect_ratio=decrease,"
+            f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,fps={fps},setsar=1"
+        )
+        norm_paths = []
+        for i, src in enumerate(inputs):
+            norm = tmpdir / f"norm_{i:03d}.mp4"
+            if has_audio_stream(src):
+                cmd = [
+                    "ffmpeg", "-y", "-loglevel", "error",
+                    "-i", str(src), "-vf", vf,
+                    "-c:v", "libx264", "-preset", "fast", "-crf", "20",
+                    "-c:a", "aac", "-ar", "48000", "-ac", "2",
+                    str(norm),
+                ]
+            else:
+                cmd = [
+                    "ffmpeg", "-y", "-loglevel", "error",
+                    "-i", str(src),
+                    "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000",
+                    "-vf", vf,
+                    "-c:v", "libx264", "-preset", "fast", "-crf", "20",
+                    "-c:a", "aac", "-shortest",
+                    str(norm),
+                ]
+            subprocess.run(cmd, check=True)
+            norm_paths.append(norm)
+
+        # 모두 동일 규격이라 재인코딩 없이 concat
+        list_file = tmpdir / "concat.txt"
+        list_file.write_text("\n".join(f"file '{p.resolve()}'" for p in norm_paths))
+        subprocess.run(
+            ["ffmpeg", "-y", "-loglevel", "error",
+             "-f", "concat", "-safe", "0", "-i", str(list_file),
+             "-c", "copy", str(output)],
+            check=True,
+        )
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
 
 
 # ============================================================================
