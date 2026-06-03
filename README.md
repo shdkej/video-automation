@@ -2,10 +2,24 @@
 
 긴 영상을 자동으로 하이라이트 컷하는 미니멀 CLI. 영상 종류에 따라 3가지 모드 지원.
 
-진입점은 둘:
+진입점은 셋:
 
+- **`web/app.py`** — 브라우저 UI. 업로드 → 옵션 → 진행률 → 4종 미리보기·다운로드 (FastAPI)
 - **`pipeline.py`** — 하나의 소스에서 **롱폼·숏츠·썸네일·인트로 4종**을 한 번에 추출 (분석 1회 재사용)
 - **`auto_cut.py`** — 하이라이트 컷 1개만 (롱폼) 뽑는 저수준 CLI. pipeline이 내부적으로 사용
+
+## 웹 UI
+
+```bash
+# 웹 전용 의존성 설치 (CLI만 쓰면 불필요)
+pip install -r requirements-web.txt
+
+# 서버 실행 후 http://127.0.0.1:8000 접속
+python web/app.py
+# 또는: uvicorn web.app:app --reload
+```
+
+영상을 업로드하고 모드(scene 무료 / speech 자막 / vision)·숏츠 개수·썸네일 장수를 고르면, 백그라운드 잡이 돌며 진행률이 표시되고 완료 시 4종을 브라우저에서 미리보고 다운로드한다. 잡 작업물은 `web/jobs/<id>/`에 남는다(gitignore). 단일 사용자 로컬 도구 가정 — 잡 상태는 인메모리.
 
 ## 4종 산출 (pipeline.py)
 

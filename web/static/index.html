@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>video-automation — 4종 산출</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main>
+    <header>
+      <h1>video-automation</h1>
+      <p class="sub">영상 하나 → 롱폼 · 숏츠 · 썸네일 · 인트로 4종을 한 번에. 영상은 이 컴퓨터를 떠나지 않습니다.</p>
+    </header>
+
+    <!-- 입력 폼 -->
+    <section id="form-section" class="card">
+      <form id="job-form">
+        <label class="field">
+          <span>입력 영상</span>
+          <input type="file" name="file" id="file" accept="video/*" required>
+        </label>
+
+        <div class="row">
+          <label class="field">
+            <span>분석 모드</span>
+            <select name="mode" id="mode">
+              <option value="scene" selected>scene — 컷 명확한 편집 영상 (무료, 키 불필요)</option>
+              <option value="speech">speech — 음성 위주 (Whisper+LLM, 자막 생성)</option>
+              <option value="vision">vision — 정적/무음 영상 (비전 LLM)</option>
+            </select>
+          </label>
+          <label class="field narrow">
+            <span>롱폼 목표(분)</span>
+            <input type="number" name="target_minutes" id="target_minutes" value="3" min="0.1" step="0.1">
+          </label>
+        </div>
+
+        <div class="row">
+          <label class="field narrow">
+            <span>숏츠 개수</span>
+            <input type="number" name="shorts_count" id="shorts_count" value="2" min="0" max="10">
+          </label>
+          <label class="field narrow">
+            <span>썸네일 장수</span>
+            <input type="number" name="thumbnail_count" id="thumbnail_count" value="3" min="1" max="10">
+          </label>
+        </div>
+
+        <div class="checks">
+          <label><input type="checkbox" name="shorts_blur" id="shorts_blur"> 숏츠 흐린 배경(좌우 안 잘림)</label>
+          <label><input type="checkbox" name="no_subtitle" id="no_subtitle"> 자막 끄기</label>
+        </div>
+
+        <p class="hint" id="mode-hint"></p>
+        <button type="submit" id="submit-btn">생성 시작</button>
+      </form>
+    </section>
+
+    <!-- 진행률 -->
+    <section id="progress-section" class="card hidden">
+      <h2>처리 중…</h2>
+      <div class="bar"><div class="bar-fill" id="bar-fill"></div></div>
+      <p class="stage" id="stage-text">대기</p>
+    </section>
+
+    <!-- 결과 -->
+    <section id="result-section" class="hidden">
+      <h2>결과 <span id="seg-info" class="muted"></span></h2>
+      <div id="results"></div>
+      <button id="reset-btn" class="ghost">새로 만들기</button>
+    </section>
+
+    <!-- 에러 -->
+    <section id="error-section" class="card error hidden">
+      <h2>실패</h2>
+      <p id="error-text"></p>
+      <button id="error-reset-btn" class="ghost">다시 시도</button>
+    </section>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>

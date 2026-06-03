@@ -36,3 +36,9 @@ __pycache__/
 
 # 스킬 베이스라인 데이터
 .agent/
+
+# 웹 UI 잡 작업물
+web/jobs/
+
+# Playwright 작업물
+.playwright-mcp/

@@ -1,0 +1,5 @@
+# 웹 UI(web/app.py) 전용 추가 의존성. CLI만 쓰면 불필요.
+# pip install -r requirements.txt -r requirements-web.txt
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.9
