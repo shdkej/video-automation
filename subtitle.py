@@ -13,30 +13,41 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
+from probe import probe_resolution
+
 
 # ============================================================================
 # Domain — 자막 한 장 그리기
 # ============================================================================
 
-def find_korean_font() -> str:
-    """시스템 한글 폰트 경로 반환. macOS → AppleSDGothicNeo, 그 외 → fc-list."""
+FONT_DIR = Path(__file__).parent / "assets" / "fonts"
+
+
+def find_korean_font() -> tuple[str, int]:
+    """자막 폰트 (경로, ttc 인덱스). 프로젝트 동봉 Pretendard 우선.
+
+    Pretendard ExtraBold(단일 otf, index 0)를 1순위로 쓰고, 없으면 시스템 폰트로
+    폴백한다. AppleSDGothicNeo.ttc는 index 6=Bold (0=Regular라 자막엔 약함)."""
+    bundled = FONT_DIR / "Pretendard-ExtraBold.otf"
+    if bundled.exists():
+        return str(bundled), 0
     candidates = [
-        "/System/Library/Fonts/AppleSDGothicNeo.ttc",
-        "/System/Library/Fonts/Supplemental/AppleGothic.ttf",
+        ("/System/Library/Fonts/AppleSDGothicNeo.ttc", 6),
+        ("/System/Library/Fonts/Supplemental/AppleGothic.ttf", 0),
     ]
-    for p in candidates:
+    for p, idx in candidates:
         if Path(p).exists():
-            return p
+            return p, idx
     try:
         out = subprocess.run(
             ["fc-list", ":lang=ko", "file"],
             capture_output=True, text=True, check=True,
         ).stdout.strip().splitlines()
         if out:
-            return out[0].split(":")[0].strip()
+            return out[0].split(":")[0].strip(), 0
     except (subprocess.CalledProcessError, FileNotFoundError):
         pass
-    raise RuntimeError("한글 폰트를 찾지 못함. AppleSDGothicNeo 또는 fc-list :lang=ko 결과 필요.")
+    raise RuntimeError("한글 폰트를 찾지 못함. Pretendard 동봉 또는 fc-list :lang=ko 결과 필요.")
 
 
 def wrap_text(text: str, font: ImageFont.FreeTypeFont, max_width: int) -> list[str]:
@@ -65,14 +76,19 @@ def render_caption_png(
     font_size: int = 56,
     pad_x: int = 32,
     pad_y: int = 18,
-    bg_rgba: tuple = (0, 0, 0, 200),
+    bg_rgba: tuple = (0, 0, 0, 0),
     fg_rgba: tuple = (255, 255, 255, 255),
-    font_index: int = 8,
+    stroke_width: int = 4,
+    stroke_rgba: tuple = (0, 0, 0, 255),
+    shadow_offset: tuple = (2, 3),
+    shadow_rgba: tuple = (0, 0, 0, 140),
+    font_index: int = 0,  # 폰트 weight는 find_korean_font가 결정해 넘긴다
     max_width: int | None = None,
     line_gap: int = 10,
 ) -> None:
-    """캡션을 검은 반투명 박스 + 흰 글씨 PNG로 저장.
+    """캡션을 흰 글씨 + 검은 외곽선 + 그림자 PNG로 저장 (유튜브 숏츠풍).
 
+    bg_rgba 알파를 0보다 크게 주면 글자 뒤 박스도 함께 그린다(둥근 박스 옵션 등).
     max_width(px)를 주면 어절 단위로 자동 줄바꿈(여러 줄)한다.
     세로 9:16 숏츠처럼 폭이 좁은 화면에서 자막이 좌우로 잘리는 것을 막는다.
     """
@@ -87,15 +103,26 @@ def render_caption_png(
     text_w = max((b[2] - b[0]) for b in metrics)
     total_text_h = sum(line_hs) + line_gap * (len(lines) - 1)
 
-    W = text_w + pad_x * 2
-    H = total_text_h + pad_y * 2 + 8
+    # 외곽선·그림자가 캔버스 밖으로 잘리지 않도록 여백 확보
+    sx = stroke_width + max(0, shadow_offset[0])
+    sy = stroke_width + max(0, shadow_offset[1])
+    W = text_w + pad_x * 2 + sx * 2
+    H = total_text_h + pad_y * 2 + 8 + sy * 2
     img = Image.new("RGBA", (W, H), bg_rgba)
     draw = ImageDraw.Draw(img)
-    y = pad_y
+    y = pad_y + sy
     for ln, b, lh in zip(lines, metrics, line_hs):
         lw = b[2] - b[0]
         x = (W - lw) // 2 - b[0]  # 줄마다 가운데 정렬
-        draw.text((x, y - b[1]), ln, font=font, fill=fg_rgba)
+        if shadow_rgba[3] > 0:
+            draw.text(
+                (x + shadow_offset[0], y - b[1] + shadow_offset[1]),
+                ln, font=font, fill=shadow_rgba,
+            )
+        draw.text(
+            (x, y - b[1]), ln, font=font, fill=fg_rgba,
+            stroke_width=stroke_width, stroke_fill=stroke_rgba,
+        )
         y += lh + line_gap
     img.save(out_path)
 
@@ -112,7 +139,7 @@ def render_subtitled(
     font_path: str | None = None,
     font_size: int = 56,
     margin_v: int = 80,
-    bg_rgba: tuple = (0, 0, 0, 200),
+    bg_rgba: tuple = (0, 0, 0, 0),
     fg_rgba: tuple = (255, 255, 255, 255),
     pad_x: int = 32,
     pad_y: int = 18,
@@ -135,7 +162,13 @@ def render_subtitled(
     if len(captions) != len(segments):
         raise ValueError(f"captions({len(captions)}) ≠ segments({len(segments)})")
     if font_path is None:
-        font_path = find_korean_font()
+        font_path, font_index = find_korean_font()
+    else:
+        font_index = 0
+    # 줄바꿈 폭 미지정 시 영상 폭의 88%로 자동 설정 (긴 자막이 화면 밖으로 잘리는 것 방지)
+    if max_caption_width is None:
+        video_w, _ = probe_resolution(cut_path)
+        max_caption_width = int(video_w * 0.88)
 
     work_dir = work_dir or Path(f"/tmp/vc_subs_{output.stem}")
     work_dir.mkdir(parents=True, exist_ok=True)
@@ -149,6 +182,7 @@ def render_subtitled(
                 cap, p, font_path,
                 font_size=font_size, pad_x=pad_x, pad_y=pad_y,
                 bg_rgba=bg_rgba, fg_rgba=fg_rgba,
+                font_index=font_index,
                 max_width=max_caption_width,
             )
             png_paths.append(p)

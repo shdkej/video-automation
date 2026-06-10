@@ -184,9 +184,9 @@ def make_text_card(
     fps: int = 30,
 ) -> None:
     """텍스트만 있는 풀스크린 카드 mp4 생성."""
-    font_path = find_korean_font()
+    font_path, font_index = find_korean_font()
     try:
-        font = ImageFont.truetype(font_path, font_size, index=8)
+        font = ImageFont.truetype(font_path, font_size, index=font_index)
     except (OSError, IndexError):
         font = ImageFont.truetype(font_path, font_size)
 
@@ -202,7 +202,7 @@ def make_text_card(
 
     if subtitle:
         try:
-            sfont = ImageFont.truetype(font_path, sub_font_size, index=8)
+            sfont = ImageFont.truetype(font_path, sub_font_size, index=font_index)
         except (OSError, IndexError):
             sfont = ImageFont.truetype(font_path, sub_font_size)
         sbbox = sfont.getbbox(subtitle)

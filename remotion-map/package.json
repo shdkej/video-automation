@@ -1,0 +1,25 @@
+{
+  "name": "remotion-map",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Berlin -> Budapest 지도 경로 애니메이션 (Remotion + Mapbox Static)",
+  "scripts": {
+    "prepare:map": "node prepare.mjs",
+    "studio": "remotion studio",
+    "render": "remotion render src/index.ts MapRoute out/berlin-budapest.mp4",
+    "prepare:fly": "node prepare-fly.mjs",
+    "render:fly": "remotion render src/index.ts MapFly out/berlin-budapest-fly.mp4",
+    "render:subs": "remotion render src/index.ts SubtitleOverlay out/subs.webm --codec=vp8 --image-format=png --pixel-format=yuva420p"
+  },
+  "dependencies": {
+    "@remotion/cli": "^4.0.0",
+    "mapbox-gl": "^3.24.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "remotion": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.0",
+    "typescript": "^5.4.0"
+  }
+}

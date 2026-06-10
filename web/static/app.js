@@ -12,6 +12,14 @@ const MODE_NOTES = {
 let pickedFiles = []; // 업로드 순서 = 타임라인 순서
 let pollTimer = null;
 
+// 자막 select(off/pil/fade/kinetic) → 백엔드 옵션 3종으로 분해
+function appendSubOpts(fd, subMode) {
+  const animated = subMode === "fade" || subMode === "kinetic";
+  fd.append("no_subtitle", subMode === "off");
+  fd.append("sub_engine", animated ? "remotion" : "pil");
+  fd.append("sub_style", subMode === "kinetic" ? "kinetic" : "fade");
+}
+
 // ---------- 모드 카드 ----------
 const cards = document.querySelectorAll(".mode-card");
 function selectMode(mode) {
@@ -94,7 +102,7 @@ $("job-form").addEventListener("submit", async (e) => {
   fd.append("shorts_count", $("job-form").shorts_count.value);
   fd.append("thumbnail_count", $("job-form").thumbnail_count.value);
   fd.append("shorts_blur", $("shorts_blur").checked);
-  fd.append("no_subtitle", $("no_subtitle").checked);
+  appendSubOpts(fd, $("sub_mode").value);
 
   $("submit-btn").disabled = true;
   try {
@@ -179,7 +187,7 @@ function renderResults(jobId, job) {
   $("rb_shorts").value = $("job-form").shorts_count.value;
   $("rb_thumb").value = $("job-form").thumbnail_count.value;
   $("rb_blur").checked = $("shorts_blur").checked;
-  $("rb_nosub").checked = $("no_subtitle").checked;
+  $("rb_sub").value = $("sub_mode").value;
 }
 
 // 분석 재사용 재생성 — 산출 옵션만 바꿔 다시
@@ -189,7 +197,7 @@ $("rebuild-btn").addEventListener("click", async () => {
   fd.append("shorts_count", $("rb_shorts").value);
   fd.append("thumbnail_count", $("rb_thumb").value);
   fd.append("shorts_blur", $("rb_blur").checked);
-  fd.append("no_subtitle", $("rb_nosub").checked);
+  appendSubOpts(fd, $("rb_sub").value);
 
   hide($("result-section"));
   show($("progress-section"));

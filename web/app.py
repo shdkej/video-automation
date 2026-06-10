@@ -109,7 +109,9 @@ def _args_from_opts(input_path: Path, outdir: Path, opts: dict) -> SimpleNamespa
         thumbnail_count=int(opts["thumbnail_count"]),
         intro_seconds=4.0,
         no_subtitle=bool(opts.get("no_subtitle")), no_grade=False,
-        sub_font_size=56, sub_margin_v=80, only=None,
+        sub_font_size=44, sub_margin_v=80, only=None,
+        sub_engine=opts.get("sub_engine", "pil"),
+        sub_style=opts.get("sub_style", "fade"),
     )
 
 
@@ -216,9 +218,15 @@ async def create_job(
     thumbnail_count: int = Form(3),
     shorts_blur: bool = Form(False),
     no_subtitle: bool = Form(False),
+    sub_engine: str = Form("pil"),
+    sub_style: str = Form("fade"),
 ):
     if mode not in ("speech", "scene", "vision"):
         raise HTTPException(400, "mode는 speech/scene/vision 중 하나")
+    if sub_engine not in ("pil", "remotion"):
+        raise HTTPException(400, "sub_engine은 pil/remotion 중 하나")
+    if sub_style not in ("fade", "kinetic"):
+        raise HTTPException(400, "sub_style은 fade/kinetic 중 하나")
     if not files:
         raise HTTPException(400, "영상 파일이 필요합니다")
     # 동시 잡 상한 — 슬롯이 없으면 즉시 거부(429). 슬롯은 _run_job finally에서 반환.
@@ -248,6 +256,7 @@ async def create_job(
         "mode": mode, "target_minutes": target_minutes,
         "shorts_count": shorts_count, "thumbnail_count": thumbnail_count,
         "shorts_blur": shorts_blur, "no_subtitle": no_subtitle,
+        "sub_engine": sub_engine, "sub_style": sub_style,
     }
     threading.Thread(target=_run_job, args=(job_id, input_paths, opts), daemon=True).start()
     return {"job_id": job_id}
@@ -261,6 +270,8 @@ async def rebuild_job(
     thumbnail_count: int = Form(3),
     shorts_blur: bool = Form(False),
     no_subtitle: bool = Form(False),
+    sub_engine: str = Form("pil"),
+    sub_style: str = Form("fade"),
 ):
     """기존 잡의 분석(selection.json)을 재사용해 산출 옵션만 바꿔 다시 생성.
 
@@ -270,7 +281,11 @@ async def rebuild_job(
     job_dir = JOBS_DIR / job_id
     if not job_dir.is_dir():
         raise HTTPException(404, "잡 없음")
-    input_paths = sorted(p for p in job_dir.glob("input_*") if p.is_file())
+    # input_* 글롭은 사이드카 캐시(input_NN.transcript.json)까지 잡으므로 미디어만 추린다.
+    input_paths = sorted(
+        p for p in job_dir.glob("input_*")
+        if p.is_file() and not p.name.endswith(".transcript.json")
+    )
     if not input_paths:
         raise HTTPException(404, "원본 입력이 남아있지 않습니다(정리됨). 새로 업로드해주세요.")
     # 재생성도 _run_job 스레드를 띄우므로 동시 잡 슬롯을 확보한다(finally에서 반환).
@@ -290,6 +305,7 @@ async def rebuild_job(
         "mode": mode, "target_minutes": target_minutes,
         "shorts_count": shorts_count, "thumbnail_count": thumbnail_count,
         "shorts_blur": shorts_blur, "no_subtitle": no_subtitle,
+        "sub_engine": sub_engine, "sub_style": sub_style,
     }
     threading.Thread(target=_run_job, args=(job_id, input_paths, opts), daemon=True).start()
     return {"job_id": job_id}

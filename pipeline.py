@@ -34,8 +34,9 @@ from auto_cut import (
     validate_transcript_quality,
 )
 from effects import apply_fade, concat_sources, extract_thumbnail, reframe_vertical
-from probe import has_video_stream, probe_duration
+from probe import has_audio_stream, has_video_stream, probe_duration
 from subtitle import render_subtitled
+from subtitle_remotion import render_subtitled_remotion
 
 
 # ============================================================================
@@ -62,8 +63,11 @@ def split_media(paths: list) -> tuple:
             audios.append(p)
         elif ext in VIDEO_EXTS:
             videos.append(p)
-        else:
-            (videos if has_video_stream(p) else audios).append(p)
+        elif has_video_stream(p):
+            videos.append(p)
+        elif has_audio_stream(p):
+            audios.append(p)
+        # 미디어 스트림이 전혀 없는 파일(.json 사이드카 등)은 입력에서 무시
     return videos, audios
 
 # 자막 앞에 붙는 한국어 추임새/필러 — 선두에서만 제거 (의미어는 보존)
@@ -238,10 +242,17 @@ def build_longform(args, segments: list, captions: list, outdir: Path) -> Path:
             raw.replace(final)
             return final
         safe_caps = [c.strip() or " " for c in captions]
-        render_subtitled(
-            cut_path=raw, captions=safe_caps, segments=segments, output=final,
-            font_size=args.sub_font_size, margin_v=args.sub_margin_v,
-        )
+        if args.sub_engine == "remotion":
+            render_subtitled_remotion(
+                cut_path=raw, captions=safe_caps, segments=segments, output=final,
+                font_size=args.sub_font_size, margin_bottom=args.sub_margin_v,
+                style=args.sub_style,
+            )
+        else:
+            render_subtitled(
+                cut_path=raw, captions=safe_caps, segments=segments, output=final,
+                font_size=args.sub_font_size, margin_v=args.sub_margin_v,
+            )
         return final
     finally:
         raw.unlink(missing_ok=True)
@@ -264,11 +275,18 @@ def build_one_short(args, spec: dict, stem: str, outdir: Path) -> Path:
         else:
             # 단일 클립이라 자막 window는 0~dur. segments는 길이만 맞으면 됨.
             # 세로 9:16(폭 1080)에서 자막이 좌우로 잘리지 않도록 줄바꿈 폭 지정.
-            render_subtitled(
-                cut_path=vert, captions=[cap], segments=[seg], output=subbed,
-                font_size=args.sub_font_size + 8, margin_v=args.sub_margin_v + 120,
-                max_caption_width=960,
-            )
+            if args.sub_engine == "remotion":
+                render_subtitled_remotion(
+                    cut_path=vert, captions=[cap], segments=[seg], output=subbed,
+                    font_size=args.sub_font_size + 8, margin_bottom=args.sub_margin_v + 120,
+                    style=args.sub_style,
+                )
+            else:
+                render_subtitled(
+                    cut_path=vert, captions=[cap], segments=[seg], output=subbed,
+                    font_size=args.sub_font_size + 8, margin_v=args.sub_margin_v + 120,
+                    max_caption_width=960,
+                )
             faded_src = subbed
         apply_fade(faded_src, final, fade_in=0.3, fade_out=0.3)
         return final
@@ -448,6 +466,14 @@ def main() -> None:
     parser.add_argument("--no-grade", action="store_true", help="썸네일 컬러 그레이드 생략")
     parser.add_argument("--sub-font-size", type=int, default=56, help="자막 폰트 크기")
     parser.add_argument("--sub-margin-v", type=int, default=80, help="자막 하단 여백")
+    parser.add_argument(
+        "--sub-engine", choices=["pil", "remotion"], default="pil",
+        help="자막 엔진. pil: PIL PNG 정적(기본), remotion: 투명 애니메이션(키네틱/화자색)",
+    )
+    parser.add_argument(
+        "--sub-style", choices=["fade", "kinetic"], default="fade",
+        help="remotion 엔진 자막 스타일. fade: 전체 페이드, kinetic: 단어별 순차 등장",
+    )
 
     args = parser.parse_args()
     run(args)

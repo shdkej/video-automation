@@ -1,0 +1,7 @@
+node_modules/
+out/
+public/map-bg.png
+public/fly/
+src/data.json
+src/data-fly.json
+.env
