@@ -41,7 +41,7 @@ export const RemotionRoot: React.FC = () => {
         width={SUB_W}
         height={SUB_H}
         durationInFrames={1}
-        defaultProps={{ events: SAMPLE_EVENTS, fontSize: 44, marginBottom: 72, width: SUB_W, height: SUB_H, fps: SUB_FPS, style: 'kinetic', palette: SAMPLE_PALETTE }}
+        defaultProps={{ events: SAMPLE_EVENTS, fontSize: 44, marginBottom: 72, width: SUB_W, height: SUB_H, fps: SUB_FPS, style: 'kinetic', palette: SAMPLE_PALETTE, hook: undefined, mode: 'longform' }}
         calculateMetadata={({ props }) => {
           const fps = props.fps || SUB_FPS;
           const lastEnd = props.events.length ? Math.max(...props.events.map((e) => e.end)) : 1;

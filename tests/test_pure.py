@@ -15,12 +15,16 @@ from auto_cut import (  # noqa: E402
     PipelineError,
     filter_grounded_segments,
     overlaps,
+    remap_transcript_to_cuts,
     total_duration,
     validate_segments,
 )
+from effects import compute_xfade_windows  # noqa: E402
 from pipeline import (  # noqa: E402
     caption_for_segment,
+    longform_events,
     rank_for_shorts,
+    shorts_events,
     split_media,
     strip_leading_fillers,
 )
@@ -56,6 +60,16 @@ def test_validate_segments_clamps_end_within_tolerance():
     out = validate_segments([{"start": 0, "end": 100.4}], video_duration=100)
     assert len(out) == 1
     assert out[0]["end"] == 100
+
+
+def test_validate_segments_preserves_hook_and_omits_when_absent():
+    raw = [
+        {"start": 0, "end": 10, "hook": "충격 한 줄"},
+        {"start": 20, "end": 30},  # hook 없음 → 키 자체가 없어야(구캐시 호환)
+    ]
+    out = validate_segments(raw, video_duration=100)
+    assert out[0]["hook"] == "충격 한 줄"
+    assert "hook" not in out[1]
 
 
 # ---------------------------------------------------------------------------
@@ -155,6 +169,153 @@ def test_rank_for_shorts_truncates_around_center():
     # 중앙(50) 기준이라 도입부(0~30)는 버려짐
     assert out[0]["start"] == pytest.approx(30)
     assert out[0]["caption"] == "cap"
+
+
+# ---------------------------------------------------------------------------
+# rank_for_shorts — hook 전달/폴백
+# ---------------------------------------------------------------------------
+
+def test_rank_for_shorts_passes_hook_through():
+    segments = [{"start": 0, "end": 20, "score": 90, "reason": "r", "hook": "충격 한 줄"}]
+    out = rank_for_shorts(segments, ["cap"], top_k=1, max_short_sec=45)
+    assert out[0]["hook"] == "충격 한 줄"
+
+
+def test_rank_for_shorts_hook_falls_back_to_caption():
+    # 구캐시(hook 없음) → caption으로 폴백
+    segments = [{"start": 0, "end": 20, "score": 90, "reason": "r"}]
+    out = rank_for_shorts(segments, ["폴백캡션"], top_k=1, max_short_sec=45)
+    assert out[0]["hook"] == "폴백캡션"
+
+
+# ---------------------------------------------------------------------------
+# shorts_events — transcript remap (다중 이벤트) vs caption 폴백
+# ---------------------------------------------------------------------------
+
+def test_shorts_events_remaps_transcript_to_multiple_events():
+    # 숏츠 윈도우 30~50초, 그 안에 발화 3개 → 0기준 다중 이벤트
+    transcript = {"segments": [
+        {"start": 10, "end": 20, "text": "구간 밖 발화"},
+        {"start": 31, "end": 34, "text": "첫 발화"},
+        {"start": 36, "end": 40, "text": "둘째 발화"},
+        {"start": 44, "end": 48, "text": "셋째 발화"},
+    ]}
+    spec = {"start": 30, "end": 50, "caption": "c"}
+    events = shorts_events(spec, transcript)
+    assert len(events) == 3                       # 윈도우 밖 발화는 제외
+    assert events[0]["start"] == pytest.approx(1) # 31-30=1 (0기준 remap)
+    assert [e["text"] for e in events] == ["첫 발화", "둘째 발화", "셋째 발화"]
+    # 마지막 이벤트 end는 숏츠 끝(dur=20)까지 패딩되어 배너 상시성 보장
+    assert events[-1]["end"] >= 20 - 0.1
+
+
+def test_shorts_events_falls_back_to_caption_without_transcript():
+    spec = {"start": 0, "end": 15, "caption": "단일 캡션"}
+    events = shorts_events(spec, None)
+    assert events == [{"text": "단일 캡션", "start": 0.0, "end": 15.0}]
+
+
+def test_shorts_events_empty_when_no_transcript_and_no_caption():
+    # scene/vision 구간(캡션 없음) → 빈 이벤트(자막 생략, 크래시 금지)
+    assert shorts_events({"start": 0, "end": 10, "caption": ""}, None) == []
+
+
+def test_shorts_events_falls_back_when_transcript_has_no_overlap():
+    # transcript는 있으나 윈도우와 안 겹치면 caption 폴백
+    transcript = {"segments": [{"start": 100, "end": 110, "text": "먼 발화"}]}
+    spec = {"start": 0, "end": 10, "caption": "폴백"}
+    events = shorts_events(spec, transcript)
+    assert events == [{"text": "폴백", "start": 0.0, "end": 10.0}]
+
+
+# ---------------------------------------------------------------------------
+# longform_events — 발화별 매핑(다중) vs 24자 캡션 폴백, xfade 윈도우 clamp
+# ---------------------------------------------------------------------------
+
+def test_longform_events_splits_transcript_per_utterance():
+    # 두 하이라이트 segment, 각 segment 안에 발화 2개씩 → 4개 이벤트로 흐름
+    segments = [{"start": 100, "end": 110}, {"start": 200, "end": 210}]
+    windows = compute_xfade_windows(segments, tdur=0.3)  # (0,10), (9.7,19.7)
+    transcript = {"segments": [
+        {"start": 101, "end": 104, "text": "첫 발화"},
+        {"start": 105, "end": 108, "text": "둘째 발화"},
+        {"start": 201, "end": 204, "text": "셋째 발화"},
+        {"start": 205, "end": 208, "text": "넷째 발화"},
+        {"start": 500, "end": 502, "text": "구간 밖"},  # 어느 segment와도 안 겹침
+    ]}
+    events = longform_events(segments, ["폴백캡션"], transcript, windows)
+    assert len(events) == 4  # segment보다 훨씬 많은 발화 단위
+    assert [e["text"] for e in events] == ["첫 발화", "둘째 발화", "셋째 발화", "넷째 발화"]
+    # 첫 발화: W_start(0) + (101-100) = 1.0
+    assert events[0]["start"] == pytest.approx(1.0)
+    assert events[0]["end"] == pytest.approx(4.0)
+    # 셋째 발화는 둘째 segment(W_start=9.7) 기준: 9.7 + (201-200) = 10.7
+    assert events[2]["start"] == pytest.approx(10.7)
+    # 단조 증가
+    starts = [e["start"] for e in events]
+    assert starts == sorted(starts)
+    # … 잘림 없음
+    assert all("…" not in e["text"] for e in events)
+
+
+def test_longform_events_falls_back_to_captions_without_transcript():
+    segments = [{"start": 0, "end": 10}, {"start": 20, "end": 30}]
+    windows = compute_xfade_windows(segments, tdur=0.3)
+    captions = ["캡션1", "캡션2"]
+    events = longform_events(segments, captions, None, windows)
+    assert [e["text"] for e in events] == ["캡션1", "캡션2"]
+    assert events[0]["start"] == pytest.approx(windows[0][0])
+    assert events[1]["start"] == pytest.approx(windows[1][0])
+
+
+def test_longform_events_clamps_utterance_to_window():
+    # 발화가 segment 경계를 넘어가도 [W_start, W_end] 안으로 clamp
+    segments = [{"start": 100, "end": 110}]
+    windows = [(0.0, 10.0)]
+    transcript = {"segments": [
+        {"start": 95, "end": 105, "text": "앞으로 넘침"},   # start<seg.start → 0으로 clamp
+        {"start": 108, "end": 120, "text": "뒤로 넘침"},    # end>seg.end → 10으로 clamp
+    ]}
+    events = longform_events(segments, ["x"], transcript, windows)
+    assert len(events) == 2
+    assert events[0]["start"] == pytest.approx(0.0)   # max(0, -5) = 0
+    assert events[1]["end"] == pytest.approx(10.0)    # min(10, 20) = 10
+    assert all(0.0 <= e["start"] < e["end"] <= 10.0 for e in events)
+
+
+# ---------------------------------------------------------------------------
+# remap_transcript_to_cuts — 단일 컷 0기준 정렬
+# ---------------------------------------------------------------------------
+
+def test_remap_transcript_clips_and_offsets():
+    transcript = [
+        {"start": 5, "end": 8, "text": "A"},
+        {"start": 12, "end": 15, "text": "B"},
+    ]
+    cut = [{"start": 10, "end": 20}]
+    out = remap_transcript_to_cuts(transcript, cut)
+    assert len(out) == 1                          # A는 컷 밖
+    assert out[0]["start"] == pytest.approx(2)    # 12-10
+    assert out[0]["end"] == pytest.approx(5)      # 15-10
+    assert out[0]["text"] == "B"
+
+
+# ---------------------------------------------------------------------------
+# compute_xfade_windows — 겹침만큼 윈도우가 당겨짐
+# ---------------------------------------------------------------------------
+
+def test_compute_xfade_windows_overlap_pulls_later_clips():
+    segments = [{"start": 0, "end": 10}, {"start": 0, "end": 8}]
+    windows = compute_xfade_windows(segments, tdur=0.3)
+    assert windows[0] == (0.0, 10.0)
+    # 둘째 클립 가시 시작 = 첫 클립 길이 - tdur = 9.7
+    assert windows[1][0] == pytest.approx(9.7)
+    assert windows[1][1] == pytest.approx(17.7)   # 9.7 + 8
+
+
+def test_compute_xfade_windows_single_clip():
+    windows = compute_xfade_windows([{"start": 0, "end": 12}], tdur=0.3)
+    assert windows == [(0.0, 12.0)]
 
 
 # ---------------------------------------------------------------------------

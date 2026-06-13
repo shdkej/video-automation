@@ -26,6 +26,7 @@ from auto_cut import (
     mux_audio_into_video,
     overlaps,
     pick_scene_segments,
+    remap_transcript_to_cuts,
     resolve_llm_model,
     select_highlights,
     select_vision_segments,
@@ -33,7 +34,14 @@ from auto_cut import (
     transcribe_video,
     validate_transcript_quality,
 )
-from effects import apply_fade, concat_sources, extract_thumbnail, reframe_vertical
+from effects import (
+    apply_fade,
+    compute_xfade_windows,
+    concat_sources,
+    cut_with_xfade,
+    extract_thumbnail,
+    reframe_vertical,
+)
 from probe import has_audio_stream, has_video_stream, probe_duration
 from subtitle import render_subtitled
 from subtitle_remotion import render_subtitled_remotion
@@ -109,7 +117,8 @@ def rank_for_shorts(
           점수가 없으면(vision 등) 숏폼 적정 길이(ideal_sec) 근접으로 폴백.
     절단: max_short_sec를 넘으면 앞부분(맥락)을 버리고 구간 중앙 기준으로 윈도우
           (숏폼 생존은 도입부가 아니라 펀치라인에 달림 → hook을 앞으로 당김).
-    return: [{"start", "end", "reason", "caption"}, ...] (시간순)
+    return: [{"start", "end", "reason", "caption", "hook"}, ...] (시간순)
+            hook은 LLM이 준 후킹 문구(구캐시는 없어서 caption 폴백).
     """
     def rank_key(item):
         _, seg = item
@@ -132,11 +141,13 @@ def rank_for_shorts(
             mid = (seg["start"] + seg["end"]) / 2
             start = max(seg["start"], mid - max_short_sec / 2)
             end = start + max_short_sec
+        cap = captions[i] if i < len(captions) else ""
         out.append({
             "start": start,
             "end": end,
             "reason": seg.get("reason", ""),
-            "caption": captions[i] if i < len(captions) else "",
+            "caption": cap,
+            "hook": seg.get("hook") or cap,  # 후킹 문구(구캐시는 caption 폴백)
         })
     return out
 
@@ -165,17 +176,23 @@ def pick_intro_segment(segments: list, intro_sec: float) -> dict:
 # ============================================================================
 
 def analyze(args, outdir: Path) -> tuple:
-    """입력 영상 → (segments, captions). 산출 4종이 공유하는 단일 분석.
+    """입력 영상 → (segments, captions, transcript). 산출 4종이 공유하는 단일 분석.
 
     captions는 '자막으로 burn-in할 텍스트'다. scene/vision은 의미 있는 발화
     텍스트가 없으므로 빈 문자열로 둔다 (디버그 reason이 화면에 박히지 않도록).
+    transcript는 speech 모드만 dict, scene/vision은 None (숏츠 발화별 자막용).
     각 구간의 reason은 selection.json에 그대로 보존된다.
     """
     sel_path = outdir / "selection.json"
     cap_path = outdir / "captions.json"
     if args.cache and sel_path.exists() and cap_path.exists():
         print("[분석] 캐시된 selection.json/captions.json 재사용 (LLM/분석 생략)")
-        return json.loads(sel_path.read_text()), json.loads(cap_path.read_text())
+        transcript = None
+        if args.mode == "speech":
+            tpath = args.input.with_suffix(".transcript.json")
+            if tpath.exists():
+                transcript = json.loads(tpath.read_text())
+        return json.loads(sel_path.read_text()), json.loads(cap_path.read_text()), transcript
 
     duration = probe_duration(args.input)
 
@@ -190,7 +207,7 @@ def analyze(args, outdir: Path) -> tuple:
                 f"씬 체인지가 감지되지 않습니다 (threshold={args.scene_threshold}). "
                 f"--scene-threshold를 더 낮게 (예: 0.1) 시도해보세요."
             )
-        return segments, ["" for _ in segments]
+        return segments, ["" for _ in segments], None
 
     if args.mode == "vision":
         print("[분석] vision 모드 (모자이크 + 비전 LLM)")
@@ -202,7 +219,7 @@ def analyze(args, outdir: Path) -> tuple:
         mosaic_path.unlink(missing_ok=True)  # 입력 폴더에 잔존하지 않도록 정리
         if not segments:
             raise PipelineError("LLM이 선정한 장면이 없습니다. 모델을 더 큰 것으로 바꿔보세요.")
-        return segments, ["" for _ in segments]
+        return segments, ["" for _ in segments], None
 
     # speech (기본)
     print("[분석] speech 모드 (Whisper + LLM)")
@@ -225,41 +242,129 @@ def analyze(args, outdir: Path) -> tuple:
     if not segments:
         raise PipelineError("선정 구간이 트랜스크립트와 겹치지 않습니다 (LLM 환각 의심).")
     captions = [caption_for_segment(s, transcript["segments"]) for s in segments]
-    return segments, captions
+    return segments, captions, transcript
 
 
 # ============================================================================
 # Service — 산출물 4종 (각자 try/finally로 임시파일 정리)
 # ============================================================================
 
-def build_longform(args, segments: list, captions: list, outdir: Path) -> Path:
-    """하이라이트 컷 16:9 본편. 자막 있으면 클립별 burn-in."""
+_XFADE_TDUR = 0.3  # 롱폼 클립 간 크로스페이드 길이(초)
+
+
+def longform_events(
+    segments: list, captions: list, transcript: dict | None, windows: list,
+) -> list:
+    """하이라이트 컷의 최종 타임라인에 발화별 자막 이벤트를 매핑.
+
+    transcript가 있으면 각 segment의 원본 구간과 겹치는 발화를 찾아, 그 발화의
+    상대 위치를 xfade 윈도우 [W_start, W_end] 안으로 옮겨 다중 이벤트를 만든다
+    (말하는 순서대로 자막이 흐름, 24자 제한 없음).
+    없으면(scene/vision/구캐시 transcript 없음) 기존 segment별 24자 캡션으로 폴백한다.
+    어느 쪽도 크래시하지 않는다 — shorts_events와 같은 철학.
+    """
+    tsegs = transcript.get("segments") if transcript else None
+    if tsegs:
+        events = []
+        for seg, (w_start, w_end) in zip(segments, windows):
+            for t in tsegs:
+                if not overlaps(seg["start"], seg["end"], t["start"], t["end"]):
+                    continue
+                text = strip_leading_fillers(t["text"].strip())
+                if not text:
+                    continue
+                start = max(w_start, w_start + (t["start"] - seg["start"]))
+                end = min(w_end, w_start + (t["end"] - seg["start"]))
+                if end <= start:
+                    continue
+                events.append({"text": text, "start": round(start, 3), "end": round(end, 3)})
+        if events:
+            events.sort(key=lambda e: e["start"])
+            return events
+    # 폴백: segment별 24자 캡션 (구캐시/무음 구간)
+    return [
+        {"text": cap, "start": round(s, 3), "end": round(e, 3)}
+        for cap, (s, e) in zip((c.strip() or " " for c in captions), windows)
+    ]
+
+
+def build_longform(
+    args, segments: list, captions: list, outdir: Path, transcript=None,
+) -> Path:
+    """하이라이트 컷 16:9 본편. 클립 2개+면 xfade로 부드럽게 잇고 자막은 발화별로 흐른다.
+
+    xfade는 클립을 tdur만큼 겹쳐 총길이를 줄이므로, 자막 타이밍을 단순 누적이 아니라
+    compute_xfade_windows로 계산해야 싱크가 맞는다. 클립 1개면 xfade 생략.
+    transcript가 있으면 발화 단위로 자막이 교체되고, 없으면 24자 캡션으로 폴백한다.
+    """
     raw = outdir / "longform_raw.mp4"
     final = outdir / "longform.mp4"
     try:
-        cut_video(args.input, segments, raw)
-        if args.no_subtitle or not any(c.strip() for c in captions):
+        if len(segments) >= 2:
+            cut_with_xfade(args.input, segments, raw, tdur=_XFADE_TDUR)
+        else:
+            cut_video(args.input, segments, raw)
+        windows = compute_xfade_windows(segments, tdur=_XFADE_TDUR)
+
+        events = longform_events(segments, captions, transcript, windows)
+        if args.no_subtitle or not any(e["text"].strip() for e in events):
             raw.replace(final)
             return final
-        safe_caps = [c.strip() or " " for c in captions]
         if args.sub_engine == "remotion":
             render_subtitled_remotion(
-                cut_path=raw, captions=safe_caps, segments=segments, output=final,
+                cut_path=raw, captions=[], segments=[], events=events, output=final,
                 font_size=args.sub_font_size, margin_bottom=args.sub_margin_v,
-                style=args.sub_style,
+                style=args.sub_style, mode="longform",
             )
         else:
+            # PIL 엔진: events의 text/window 리스트로 변환해 발화별 자막 교체.
+            # segments는 길이 검증·SRT 폴백용 더미(타이밍은 windows가 결정).
+            ev_caps = [e["text"].strip() or " " for e in events]
+            ev_windows = [(e["start"], e["end"]) for e in events]
+            ev_segs = [{"start": s, "end": e} for s, e in ev_windows]
             render_subtitled(
-                cut_path=raw, captions=safe_caps, segments=segments, output=final,
+                cut_path=raw, captions=ev_caps, segments=ev_segs, output=final,
                 font_size=args.sub_font_size, margin_v=args.sub_margin_v,
+                windows=ev_windows,
             )
         return final
     finally:
         raw.unlink(missing_ok=True)
 
 
-def build_one_short(args, spec: dict, stem: str, outdir: Path) -> Path:
-    """단일 숏츠: 컷 → 세로 9:16 → (자막) → fade. 중간 임시파일 정리."""
+# 숏츠 말 자막: 세로 1920 기준 65% 지점 = 하단 여백 ≈ 화면 높이의 30%
+_SHORTS_FONT_SIZE = 56
+_SHORTS_MARGIN_BOTTOM = 576  # 1920 * 0.30
+_SHORTS_PADDED_TAIL = 0.05   # 마지막 발화 end가 숏츠 끝에 닿도록 보정
+
+
+def shorts_events(spec: dict, transcript: dict | None) -> list:
+    """숏츠 윈도우와 겹치는 발화를 0기준 타임라인 events로 remap.
+
+    transcript가 있으면 발화별 다중 이벤트(말 자막 pop용). 없으면(scene/vision/
+    구캐시) caption 단일 이벤트로 폴백한다 — 어느 쪽도 크래시하지 않는다.
+    """
+    dur = spec["end"] - spec["start"]
+    if transcript and transcript.get("segments"):
+        cut = {"start": spec["start"], "end": spec["end"]}
+        remapped = remap_transcript_to_cuts(transcript["segments"], [cut])
+        events = [
+            {"text": strip_leading_fillers(r["text"].strip()),
+             "start": round(r["start"], 3), "end": round(r["end"], 3)}
+            for r in remapped if r["text"].strip()
+        ]
+        if events:
+            # 마지막 발화 end를 숏츠 끝까지 늘려 배너가 전 구간 상시 표시되게.
+            events[-1]["end"] = max(events[-1]["end"], dur - _SHORTS_PADDED_TAIL)
+            return events
+    cap = spec.get("caption", "").strip()
+    if cap:
+        return [{"text": cap, "start": 0.0, "end": round(dur, 3)}]
+    return []
+
+
+def build_one_short(args, spec: dict, stem: str, outdir: Path, transcript=None) -> Path:
+    """단일 숏츠: 컷 → 세로 9:16 → (자막+hook 배너) → fade. 중간 임시파일 정리."""
     seg = {"start": spec["start"], "end": spec["end"]}
     raw = outdir / f".{stem}_raw.mp4"
     vert = outdir / f".{stem}_vert.mp4"
@@ -269,24 +374,26 @@ def build_one_short(args, spec: dict, stem: str, outdir: Path) -> Path:
         cut_video(args.input, [seg], raw)
         reframe_vertical(raw, vert, blur_bg=args.shorts_blur)
 
-        cap = spec.get("caption", "").strip()
-        if args.no_subtitle or not cap:
+        events = shorts_events(spec, transcript)
+        hook = (spec.get("hook") or spec.get("caption", "")).strip() or None
+        if args.no_subtitle or not events:
             faded_src = vert
+        elif args.sub_engine == "remotion":
+            render_subtitled_remotion(
+                cut_path=vert, output=subbed, captions=[], segments=[],
+                events=events, hook=hook, mode="shorts",
+                font_size=_SHORTS_FONT_SIZE, margin_bottom=_SHORTS_MARGIN_BOTTOM,
+            )
+            faded_src = subbed
         else:
-            # 단일 클립이라 자막 window는 0~dur. segments는 길이만 맞으면 됨.
-            # 세로 9:16(폭 1080)에서 자막이 좌우로 잘리지 않도록 줄바꿈 폭 지정.
-            if args.sub_engine == "remotion":
-                render_subtitled_remotion(
-                    cut_path=vert, captions=[cap], segments=[seg], output=subbed,
-                    font_size=args.sub_font_size + 8, margin_bottom=args.sub_margin_v + 120,
-                    style=args.sub_style,
-                )
-            else:
-                render_subtitled(
-                    cut_path=vert, captions=[cap], segments=[seg], output=subbed,
-                    font_size=args.sub_font_size + 8, margin_v=args.sub_margin_v + 120,
-                    max_caption_width=960,
-                )
+            # PIL+숏츠는 신규 스타일 미지원 — 현행 정적 캡션 그대로(첫 이벤트 텍스트).
+            print("  ⚠ PIL 엔진은 숏츠 펀치 자막/hook 배너를 지원하지 않습니다(정적 캡션).")
+            cap = events[0]["text"]
+            render_subtitled(
+                cut_path=vert, captions=[cap], segments=[seg], output=subbed,
+                font_size=args.sub_font_size + 8, margin_v=args.sub_margin_v + 120,
+                max_caption_width=960,
+            )
             faded_src = subbed
         apply_fade(faded_src, final, fade_in=0.3, fade_out=0.3)
         return final
@@ -364,7 +471,7 @@ def run(args) -> None:
     outdir.mkdir(parents=True, exist_ok=True)
     wanted = list(args.only) if args.only else list(WANTED)
 
-    segments, captions = analyze(args, outdir)
+    segments, captions, transcript = analyze(args, outdir)
     (outdir / "selection.json").write_text(json.dumps(segments, ensure_ascii=False, indent=2))
     (outdir / "captions.json").write_text(json.dumps(captions, ensure_ascii=False, indent=2))
     print(f"  → {len(segments)}개 구간, 총 {total_duration(segments):.1f}초 선정")
@@ -391,9 +498,9 @@ def run(args) -> None:
             failed.append(key)
 
     step("[1/4] 롱폼 생성…", "longform",
-         lambda: build_longform(args, segments, captions, outdir))
+         lambda: build_longform(args, segments, captions, outdir, transcript=transcript))
     step(f"[2/4] 숏츠 생성 (적정 길이 우선 상위 {args.shorts_count}개)…", "shorts",
-         lambda: [build_one_short(args, s, f"shorts_{n:02d}", outdir)
+         lambda: [build_one_short(args, s, f"shorts_{n:02d}", outdir, transcript=transcript)
                   for n, s in enumerate(
                       rank_for_shorts(segments, captions, args.shorts_count,
                                       args.shorts_max_seconds, args.shorts_ideal_seconds), 1)])
@@ -464,11 +571,11 @@ def main() -> None:
     # 자막/효과
     parser.add_argument("--no-subtitle", action="store_true", help="자막 burn-in 생략")
     parser.add_argument("--no-grade", action="store_true", help="썸네일 컬러 그레이드 생략")
-    parser.add_argument("--sub-font-size", type=int, default=56, help="자막 폰트 크기")
+    parser.add_argument("--sub-font-size", type=int, default=44, help="자막 폰트 크기")
     parser.add_argument("--sub-margin-v", type=int, default=80, help="자막 하단 여백")
     parser.add_argument(
-        "--sub-engine", choices=["pil", "remotion"], default="pil",
-        help="자막 엔진. pil: PIL PNG 정적(기본), remotion: 투명 애니메이션(키네틱/화자색)",
+        "--sub-engine", choices=["pil", "remotion"], default="remotion",
+        help="자막 엔진. remotion: 투명 애니메이션(기본, 숏츠 펀치+hook 배너), pil: PIL PNG 정적",
     )
     parser.add_argument(
         "--sub-style", choices=["fade", "kinetic"], default="fade",

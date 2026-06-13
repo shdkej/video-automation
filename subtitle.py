@@ -73,7 +73,7 @@ def render_caption_png(
     text: str,
     out_path: Path,
     font_path: str,
-    font_size: int = 56,
+    font_size: int = 44,
     pad_x: int = 32,
     pad_y: int = 18,
     bg_rgba: tuple = (0, 0, 0, 0),
@@ -137,7 +137,7 @@ def render_subtitled(
     segments: list[dict],
     output: Path,
     font_path: str | None = None,
-    font_size: int = 56,
+    font_size: int = 44,
     margin_v: int = 80,
     bg_rgba: tuple = (0, 0, 0, 0),
     fg_rgba: tuple = (255, 255, 255, 255),
@@ -145,14 +145,17 @@ def render_subtitled(
     pad_y: int = 18,
     max_caption_width: int | None = None,
     work_dir: Path | None = None,
+    windows: list[tuple[float, float]] | None = None,
 ) -> dict:
     """컷 영상에 클립별 캡션을 overlay로 burn-in.
 
     segments는 selection.json 그대로 (start/end는 원본 시점, 합치면 컷 영상 타임라인).
     captions는 segments와 같은 길이.
+    windows를 직접 주면 누적 계산을 생략하고 그 (start,end)를 자막 표시 구간으로 쓴다
+    (xfade로 클립이 겹쳐 단순 누적과 어긋나는 경우).
 
     스타일 옵션:
-    - font_size: 폰트 크기 (1080p 기준 56 적당)
+    - font_size: 폰트 크기 (1080p 기준 44 적당)
     - margin_v: 하단 여백
     - bg_rgba/fg_rgba: 박스/글씨 색 (RGBA)
     - pad_x/pad_y: 글씨 주위 박스 패딩
@@ -187,13 +190,14 @@ def render_subtitled(
             )
             png_paths.append(p)
 
-        # 2) 컷 영상 타임라인 window 계산
-        durations = [seg["end"] - seg["start"] for seg in segments]
-        windows = []
-        t = 0.0
-        for d in durations:
-            windows.append((t, t + d))
-            t += d
+        # 2) 컷 영상 타임라인 window 계산 (직접 주어지면 그대로 사용)
+        if windows is None:
+            windows = []
+            t = 0.0
+            for seg in segments:
+                d = seg["end"] - seg["start"]
+                windows.append((t, t + d))
+                t += d
 
         # 3) filter_complex 체인 구성
         inputs = ["-i", str(cut_path)]
@@ -254,7 +258,7 @@ if __name__ == "__main__":
     parser.add_argument("selection_json", type=Path, help="selection.json 경로")
     parser.add_argument("captions_json", type=Path, help='["캡션1", "캡션2", ...] 형식 JSON')
     parser.add_argument("-o", "--output", type=Path, default=None)
-    parser.add_argument("--font-size", type=int, default=56)
+    parser.add_argument("--font-size", type=int, default=44)
     args = parser.parse_args()
 
     segments = json.loads(args.selection_json.read_text())

@@ -109,8 +109,8 @@ def _args_from_opts(input_path: Path, outdir: Path, opts: dict) -> SimpleNamespa
         thumbnail_count=int(opts["thumbnail_count"]),
         intro_seconds=4.0,
         no_subtitle=bool(opts.get("no_subtitle")), no_grade=False,
-        sub_font_size=44, sub_margin_v=80, only=None,
-        sub_engine=opts.get("sub_engine", "pil"),
+        sub_font_size=36, sub_margin_v=80, only=None,
+        sub_engine=opts.get("sub_engine", "remotion"),
         sub_style=opts.get("sub_style", "fade"),
     )
 
@@ -145,14 +145,14 @@ def _run_job(job_id: str, input_paths: list[Path], opts: dict) -> None:
         args = _args_from_opts(input_path, outdir, opts)
 
         stage("분석 (Whisper/LLM)", 10)
-        segments, captions = pl.analyze(args, outdir)
+        segments, captions, transcript = pl.analyze(args, outdir)
         (outdir / "selection.json").write_text(json.dumps(segments, ensure_ascii=False, indent=2))
         (outdir / "captions.json").write_text(json.dumps(captions, ensure_ascii=False, indent=2))
         job["segment_count"] = len(segments)
 
         outputs: dict = {}
         stage("롱폼 생성", 30)
-        outputs["longform"] = pl.build_longform(args, segments, captions, outdir).name
+        outputs["longform"] = pl.build_longform(args, segments, captions, outdir, transcript=transcript).name
 
         stage("숏츠 생성", 55)
         specs = pl.rank_for_shorts(
@@ -160,7 +160,7 @@ def _run_job(job_id: str, input_paths: list[Path], opts: dict) -> None:
             args.shorts_max_seconds, args.shorts_ideal_seconds,
         )
         outputs["shorts"] = [
-            pl.build_one_short(args, s, f"shorts_{n:02d}", outdir).name
+            pl.build_one_short(args, s, f"shorts_{n:02d}", outdir, transcript=transcript).name
             for n, s in enumerate(specs, 1)
         ]
 
@@ -218,7 +218,7 @@ async def create_job(
     thumbnail_count: int = Form(3),
     shorts_blur: bool = Form(False),
     no_subtitle: bool = Form(False),
-    sub_engine: str = Form("pil"),
+    sub_engine: str = Form("remotion"),
     sub_style: str = Form("fade"),
 ):
     if mode not in ("speech", "scene", "vision"):
@@ -270,7 +270,7 @@ async def rebuild_job(
     thumbnail_count: int = Form(3),
     shorts_blur: bool = Form(False),
     no_subtitle: bool = Form(False),
-    sub_engine: str = Form("pil"),
+    sub_engine: str = Form("remotion"),
     sub_style: str = Form("fade"),
 ):
     """기존 잡의 분석(selection.json)을 재사용해 산출 옵션만 바꿔 다시 생성.

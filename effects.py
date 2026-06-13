@@ -397,30 +397,34 @@ def cut_with_xfade(
             )
             clip_paths.append(cp)
 
-        # filter_complex로 xfade chain
+        # filter_complex로 xfade(영상) + acrossfade(오디오) chain.
+        # 클립은 cut_video와 동일하게 모두 오디오 트랙을 갖는다(aac 192k).
         inputs = []
         for cp in clip_paths:
             inputs += ["-i", str(cp)]
         n = len(clip_paths)
         clip_durs = [s["end"] - s["start"] for s in segments]
         chain = []
-        prev = "[0:v]"
+        vprev, aprev = "[0:v]", "[0:a]"
         offset = clip_durs[0] - tdur
         for i in range(1, n):
-            out = f"[v{i}]" if i < n - 1 else "[vout]"
+            vout = f"[v{i}]" if i < n - 1 else "[vout]"
+            aout = f"[a{i}]" if i < n - 1 else "[aout]"
             chain.append(
-                f"{prev}[{i}:v]xfade=transition={transition}:duration={tdur}:offset={offset:.3f}{out}"
+                f"{vprev}[{i}:v]xfade=transition={transition}:duration={tdur}:offset={offset:.3f}{vout}"
             )
-            prev = out
+            # acrossfade는 두 입력 경계를 겹쳐 크로스페이드 → 영상 xfade와 총길이 일치
+            chain.append(f"{aprev}[{i}:a]acrossfade=d={tdur}{aout}")
+            vprev, aprev = vout, aout
             offset += clip_durs[i] - tdur
 
         subprocess.run(
             ["ffmpeg", "-y", "-loglevel", "error",
              *inputs,
              "-filter_complex", ";".join(chain),
-             "-map", "[vout]",
-             "-an",
+             "-map", "[vout]", "-map", "[aout]",
              "-c:v", "libx264", "-preset", "fast", "-crf", "20",
+             "-c:a", "aac", "-b:a", "192k",
              str(output_path)],
             check=True,
         )

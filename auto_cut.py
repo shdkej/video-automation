@@ -105,6 +105,9 @@ def validate_segments(raw_segments: list, video_duration: float) -> list:
             item["score"] = float(seg["score"])  # 숏폼 임팩트 점수(있으면)
         except (KeyError, TypeError, ValueError):
             pass
+        hook = seg.get("hook")
+        if hook:  # 숏폼 후킹 문구(있으면) — 구캐시 호환 위해 optional
+            item["hook"] = str(hook)
         valid.append(item)
     valid.sort(key=lambda s: s["start"])
     return valid
@@ -335,11 +338,12 @@ def build_highlight_prompt(transcript: dict, target_minutes: float) -> str:
 - 각 구간은 최소 5초 이상, 너무 잘게 자르지 말 것
 - start/end는 트랜스크립트의 타임스탬프(초)를 그대로 사용
 - score: 이 구간을 숏폼(릴스/쇼츠)으로 떼어냈을 때의 임팩트를 0~100으로. 강한 훅·펀치라인·감정·반전·놀라움이 클수록 높게. 맥락 설명·도입부는 낮게.
+- hook: 이 구간을 숏폼으로 만들 때 화면 상단에 띄울 후킹 문구. 15자 이내, 시청자가 스크롤을 멈추게 하는 한 줄(의문형/숫자/반전). 구간의 핵심을 압축.
 
 응답은 반드시 아래 JSON 포맷만 (다른 설명 없이):
 {{
   "segments": [
-    {{"start": <시작_초>, "end": <끝_초>, "score": <0~100 숏폼 임팩트>, "reason": <짧은_선정_이유>}}
+    {{"start": <시작_초>, "end": <끝_초>, "score": <0~100 숏폼 임팩트>, "hook": <15자 이내 후킹 문구>, "reason": <짧은_선정_이유>}}
   ]
 }}
 숫자는 반드시 위 트랜스크립트에 등장한 타임스탬프 범위 안에서 골라야 합니다.

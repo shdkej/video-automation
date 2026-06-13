@@ -5,7 +5,25 @@ import {
   useVideoConfig,
   interpolate,
   spring,
+  staticFile,
+  delayRender,
+  continueRender,
 } from 'remotion';
+
+// 동봉 Pretendard ExtraBold를 헤드리스 Chromium에 등록 (PIL 엔진과 동일 폰트).
+const pretendardHandle = delayRender('load-pretendard');
+const pretendard = new FontFace(
+  'Pretendard',
+  `url(${staticFile('Pretendard-ExtraBold.otf')}) format('opentype')`,
+  { weight: '800' },
+);
+pretendard
+  .load()
+  .then((f) => {
+    document.fonts.add(f);
+    continueRender(pretendardHandle);
+  })
+  .catch(() => continueRender(pretendardHandle));
 
 // 컷 영상 타임라인(초) 기준 자막 이벤트.
 export type SubEvent = {
@@ -24,9 +42,21 @@ export type SubtitleProps = {
   fps: number;
   style: 'fade' | 'kinetic'; // 전역 기본 스타일
   palette: Record<string, string>; // 화자 → hex
+  hook?: string; // 숏츠 상단 후킹 배너 문구
+  mode?: 'shorts' | 'longform'; // shorts: 펀치 자막+배너, longform: fade+키워드강조
 };
 
-const FONT = '"Apple SD Gothic Neo", "AppleGothic", -apple-system, sans-serif';
+const FONT = 'Pretendard, "Apple SD Gothic Neo", "AppleGothic", -apple-system, sans-serif';
+
+// 강조 키컬러 — 숫자/따옴표 토큰을 노랗게 띄운다 (배너·자막 공통).
+const ACCENT = '#FFE14D';
+
+// 배경 박스 없이 가독성을 내는 외곽선(stroke). PIL 엔진(stroke_width≈4, 검정)과 룩을 맞춘다.
+const STROKE = '#000';
+const STROKE_SHADOW = [
+  '-3px 0 0', '3px 0 0', '0 -3px 0', '0 3px 0',
+  '-2px -2px 0', '2px -2px 0', '-2px 2px 0', '2px 2px 0',
+].map((o) => `${o} ${STROKE}`).join(', ') + ', 0 2px 6px rgba(0,0,0,0.85)';
 
 // 팔레트에 없는 화자도 안정적으로 구분되는 색을 받도록 폴백
 const DEFAULT_COLORS = ['#ffd166', '#4cc9f0', '#f72585', '#80ed99', '#ff9f1c', '#c77dff'];
@@ -38,32 +68,106 @@ function colorFor(speaker: string | undefined, palette: Record<string, string>):
   return DEFAULT_COLORS[h % DEFAULT_COLORS.length];
 }
 
+// 숫자(단위 포함)와 따옴표 안 토큰을 강조 대상으로 식별. 화면당 최대 maxHits개만.
+const NUMBER_RE = /\d/;
+const QUOTE_RE = /[""'']/;
+function isAccentToken(token: string): boolean {
+  return NUMBER_RE.test(token) || QUOTE_RE.test(token);
+}
+
+// 텍스트를 공백 토큰으로 쪼개 강조 span 배열로. 강조는 앞에서부터 maxHits개까지만.
+function highlightSpans(text: string, maxHits: number): { word: string; accent: boolean }[] {
+  const words = text.split(/(\s+)/); // 공백 보존(롱폼은 단어 stagger 없음)
+  let hits = 0;
+  return words.map((word) => {
+    if (word.trim() && isAccentToken(word) && hits < maxHits) {
+      hits += 1;
+      return { word, accent: true };
+    }
+    return { word, accent: false };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// HookBanner — 숏츠 상단 후킹 배너 (전체 길이 상시 표시, 시작 시 1회 슬라이드 인)
+// ---------------------------------------------------------------------------
+
+// 노랑 띠 타이틀 위에서는 노랑 ACCENT가 죽으므로 강조를 레드로 (배너 전용).
+const BANNER_HIGHLIGHT = '#E11D2A';
+
+const HookBanner: React.FC<{ hook: string; fontSize: number; height: number }> = ({
+  hook, fontSize, height,
+}) => {
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  const slideIn = spring({ frame, fps, config: { damping: 18, mass: 0.7 }, durationInFrames: 14 });
+  const top = Math.round(height * 0.13); // 상단 10% 세이프존 비우고 13% 지점
+  const lineHeight = 1.2;
+  return (
+    <AbsoluteFill style={{ justifyContent: 'flex-start', alignItems: 'center' }}>
+      <div
+        style={{
+          position: 'absolute',
+          top,
+          opacity: slideIn,
+          transform: `translateY(${interpolate(slideIn, [0, 1], [-40, 0])}px)`,
+          maxWidth: 'calc(100% - 100px)',
+          background: '#FFE14D',
+          borderRadius: 16,
+          padding: '18px 32px',
+          color: '#111',
+          fontFamily: FONT,
+          fontSize,
+          fontWeight: 800,
+          lineHeight,
+          textAlign: 'center',
+          boxShadow: '0 6px 20px rgba(0,0,0,0.35)',
+        }}
+      >
+        <span
+          style={{
+            display: '-webkit-box',
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: 'vertical',
+            overflow: 'hidden',
+            maxHeight: `${Math.round(fontSize * lineHeight * 2)}px`,
+          }}
+        >
+          {highlightSpans(hook, 99).map((s, i) => (
+            <span key={i} style={s.accent ? { color: BANNER_HIGHLIGHT, whiteSpace: 'nowrap' } : undefined}>{s.word}</span>
+          ))}
+        </span>
+      </div>
+    </AbsoluteFill>
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Caption container — 하단 자막 박스 없는 외곽선 룩
+// ---------------------------------------------------------------------------
+
 const Pill: React.FC<{
   children: React.ReactNode;
   fontSize: number;
   marginBottom: number;
-  accent: string | null;
   containerOpacity: number;
   containerY: number;
-}> = ({ children, fontSize, marginBottom, accent, containerOpacity, containerY }) => (
+}> = ({ children, fontSize, marginBottom, containerOpacity, containerY }) => (
   <AbsoluteFill style={{ justifyContent: 'flex-end', alignItems: 'center', paddingBottom: marginBottom }}>
     <div
       style={{
         opacity: containerOpacity,
         transform: `translateY(${containerY}px)`,
-        maxWidth: '82%',
-        padding: '14px 30px',
-        borderRadius: 16,
-        ...(accent ? { borderLeft: `6px solid ${accent}` } : {}),
-        background: 'rgba(0,0,0,0.62)',
-        boxShadow: accent ? `0 6px 24px rgba(0,0,0,0.45), 0 0 0 1px ${accent}55` : '0 6px 24px rgba(0,0,0,0.45)',
+        maxWidth: '88%',
         color: '#fff',
         fontFamily: FONT,
         fontSize,
-        fontWeight: 700,
+        fontWeight: 800,
         lineHeight: 1.3,
         textAlign: 'center',
-        textShadow: '0 2px 8px rgba(0,0,0,0.8)',
+        WebkitTextStroke: `3px ${STROKE}`,
+        paintOrder: 'stroke fill',
+        textShadow: STROKE_SHADOW,
         whiteSpace: 'pre-wrap',
       }}
     >
@@ -78,11 +182,11 @@ const Caption: React.FC<{
   fontSize: number;
   marginBottom: number;
   defaultStyle: 'fade' | 'kinetic';
+  mode: 'shorts' | 'longform';
   palette: Record<string, string>;
-}> = ({ ev, durationInFrames, fontSize, marginBottom, defaultStyle, palette }) => {
+}> = ({ ev, durationInFrames, fontSize, marginBottom, defaultStyle, mode, palette }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
-  const style = ev.style ?? defaultStyle;
   const accent = colorFor(ev.speaker, palette);
 
   // 공통 퇴장 페이드(끝 6프레임)
@@ -90,13 +194,46 @@ const Caption: React.FC<{
     extrapolateLeft: 'clamp', extrapolateRight: 'clamp',
   });
 
-  if (style === 'kinetic') {
-    // 컨테이너는 빠르게 등장, 단어는 순차 등장
+  // 숏츠: 단어 stagger + 스케일 펀치(overshoot). sub_style 무관 강제.
+  if (mode === 'shorts') {
     const boxIn = spring({ frame, fps, config: { damping: 20, mass: 0.5 }, durationInFrames: 8 });
     const words = ev.text.split(/\s+/).filter(Boolean);
-    const stagger = 2; // 단어 간 프레임 간격
+    const stagger = 2;
     return (
-      <Pill fontSize={fontSize} marginBottom={marginBottom} accent={accent}
+      <Pill fontSize={fontSize} marginBottom={marginBottom}
+        containerOpacity={Math.min(boxIn, exit)} containerY={interpolate(boxIn, [0, 1], [20, 0])}>
+        {words.map((w, i) => {
+          const wf = frame - i * stagger;
+          // 스케일 펀치: 0.7 → 1.06 → 1.0 안착 (~8프레임), 1.1배 초과 금지
+          const sc = interpolate(wf, [0, 5, 8], [0.7, 1.06, 1.0], {
+            extrapolateLeft: 'clamp', extrapolateRight: 'clamp',
+          });
+          const op = interpolate(wf, [0, 4], [0, 1], {
+            extrapolateLeft: 'clamp', extrapolateRight: 'clamp',
+          });
+          const hot = isAccentToken(w);
+          return (
+            <span key={i} style={{
+              display: 'inline-block', marginRight: '0.28em',
+              opacity: op, transform: `scale(${Math.min(sc, 1.1)})`,
+              ...(hot ? { color: ACCENT } : accent ? { color: accent } : {}),
+            }}>
+              {w}
+            </span>
+          );
+        })}
+      </Pill>
+    );
+  }
+
+  const style = ev.style ?? defaultStyle;
+
+  if (style === 'kinetic') {
+    const boxIn = spring({ frame, fps, config: { damping: 20, mass: 0.5 }, durationInFrames: 8 });
+    const words = ev.text.split(/\s+/).filter(Boolean);
+    const stagger = 2;
+    return (
+      <Pill fontSize={fontSize} marginBottom={marginBottom}
         containerOpacity={Math.min(boxIn, exit)} containerY={interpolate(boxIn, [0, 1], [20, 0])}>
         {words.map((w, i) => {
           const wf = frame - i * stagger;
@@ -115,19 +252,28 @@ const Caption: React.FC<{
     );
   }
 
-  // fade: 전체가 한 번에 페이드+슬라이드
+  // 롱폼 fade: 전체가 한 번에 페이드+슬라이드, 숫자·따옴표 토큰만 노란 강조(화면당 2개)
   const enter = spring({ frame, fps, config: { damping: 18, mass: 0.6 }, durationInFrames: 14 });
   return (
-    <Pill fontSize={fontSize} marginBottom={marginBottom} accent={accent}
+    <Pill fontSize={fontSize} marginBottom={marginBottom}
       containerOpacity={Math.min(enter, exit)} containerY={interpolate(enter, [0, 1], [26, 0])}>
-      {ev.text}
+      {highlightSpans(ev.text, 2).map((s, i) => (
+        <span key={i} style={s.accent ? { color: ACCENT } : accent ? { color: accent } : undefined}>
+          {s.word}
+        </span>
+      ))}
     </Pill>
   );
 };
 
 // 투명 배경 자막 오버레이. alpha 코덱(vp8)으로 렌더 → ffmpeg overlay로 실사 위에 합성.
-export const SubtitleOverlay: React.FC<SubtitleProps> = ({ events, fontSize, marginBottom, style, palette }) => {
-  const { fps } = useVideoConfig();
+export const SubtitleOverlay: React.FC<SubtitleProps> = ({
+  events, fontSize, marginBottom, style, palette, hook, mode,
+}) => {
+  const { fps, height } = useVideoConfig();
+  const resolvedMode = mode ?? 'longform';
+  // 배너는 타이틀 위계로 말 자막의 1.43배(숏츠 기준 ≈80px)
+  const bannerFontSize = Math.round(fontSize * 1.43);
   return (
     <AbsoluteFill>
       {events.map((e, i) => {
@@ -136,10 +282,13 @@ export const SubtitleOverlay: React.FC<SubtitleProps> = ({ events, fontSize, mar
         return (
           <Sequence key={i} from={from} durationInFrames={dur}>
             <Caption ev={e} durationInFrames={dur} fontSize={fontSize} marginBottom={marginBottom}
-              defaultStyle={style} palette={palette} />
+              defaultStyle={style} mode={resolvedMode} palette={palette} />
           </Sequence>
         );
       })}
+      {resolvedMode === 'shorts' && hook ? (
+        <HookBanner hook={hook} fontSize={bannerFontSize} height={height} />
+      ) : null}
     </AbsoluteFill>
   );
 };

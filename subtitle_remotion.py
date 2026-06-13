@@ -89,6 +89,8 @@ def render_overlay_webm(
     margin_bottom: int = 72,
     style: str = "fade",
     palette: dict[str, str] | None = None,
+    hook: str | None = None,
+    mode: str = "longform",
 ) -> None:
     """Remotion으로 투명 자막 오버레이 webm(VP8 알파) 렌더."""
     props = {
@@ -100,7 +102,10 @@ def render_overlay_webm(
         "fps": round(fps),
         "style": style,
         "palette": palette or {},
+        "mode": mode,
     }
+    if hook:
+        props["hook"] = hook
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as f:
         json.dump(props, f, ensure_ascii=False)
         props_path = f.name
@@ -126,12 +131,19 @@ def render_subtitled_remotion(
     speakers: list[str] | None = None,
     palette: dict[str, str] | None = None,
     work_dir: Path | None = None,
+    hook: str | None = None,
+    mode: str = "longform",
+    events: list[dict] | None = None,
 ) -> dict:
     """컷 영상에 Remotion 애니메이션 자막을 합성. subtitle.render_subtitled 대체.
 
     style: "fade"(전체 페이드) | "kinetic"(단어별 순차 등장)
+    mode: "longform"(fade+키워드강조) | "shorts"(펀치 자막+상단 hook 배너)
     speakers: captions와 같은 길이의 화자 키 목록(옵션) → palette로 색 매핑
     palette: 화자 키 → hex (없는 화자는 이름 해시로 자동 배색)
+    hook: 숏츠 상단 후킹 배너 문구(mode='shorts'에서만 표시)
+    events: 자막 이벤트를 직접 주면 captions/segments로부터의 build_events를 생략.
+            (숏츠 발화별 다중 이벤트처럼 1:1 매핑이 아닌 경우에 사용)
 
     Returns: {"output", "overlay", "events"}
     """
@@ -140,7 +152,8 @@ def render_subtitled_remotion(
 
     w, h = probe_resolution(cut_path)
     fps = probe_fps(cut_path)
-    events = build_events(captions, segments, speakers=speakers)
+    if events is None:
+        events = build_events(captions, segments, speakers=speakers)
 
     work_dir = work_dir or Path(tempfile.mkdtemp(prefix="vc_subs_remotion_"))
     work_dir.mkdir(parents=True, exist_ok=True)
@@ -148,14 +161,16 @@ def render_subtitled_remotion(
 
     # 1) Remotion 투명 오버레이 렌더 (footage 해상도/fps에 맞춤)
     render_overlay_webm(events, w, h, fps, overlay, font_size=font_size, margin_bottom=margin_bottom,
-                        style=style, palette=palette)
+                        style=style, palette=palette, hook=hook, mode=mode)
 
-    # 2) ffmpeg overlay 합성 (VP8 알파 디코딩 위해 입력 앞에 -c:v libvpx, 오디오 보존)
+    # 2) ffmpeg overlay 합성 (VP8 알파 디코딩 위해 입력 앞에 -c:v libvpx, 오디오 보존).
+    # 오버레이 webm은 calculateMetadata의 +0.3 패딩 탓에 footage보다 길 수 있으므로
+    # 합성 길이를 footage(첫 입력)에 고정한다 — overlay=shortest=1로 비디오를 자른다.
     cmd = [
         "ffmpeg", "-y", "-loglevel", "error",
         "-i", str(cut_path),
         "-c:v", "libvpx", "-i", str(overlay),
-        "-filter_complex", "[0:v][1:v]overlay=format=auto",
+        "-filter_complex", "[0:v][1:v]overlay=format=auto:shortest=1",
         "-map", "0:a?", "-c:a", "copy",
         str(output),
     ]
