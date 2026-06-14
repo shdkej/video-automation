@@ -10,12 +10,12 @@ import {
   continueRender,
 } from 'remotion';
 
-// 동봉 Pretendard ExtraBold를 헤드리스 Chromium에 등록 (PIL 엔진과 동일 폰트).
+// 동봉 Pretendard Bold를 헤드리스 Chromium에 등록 (PIL 엔진과 동일 폰트).
 const pretendardHandle = delayRender('load-pretendard');
 const pretendard = new FontFace(
   'Pretendard',
-  `url(${staticFile('Pretendard-ExtraBold.otf')}) format('opentype')`,
-  { weight: '800' },
+  `url(${staticFile('Pretendard-Bold.otf')}) format('opentype')`,
+  { weight: '700' },
 );
 pretendard
   .load()
@@ -118,7 +118,7 @@ const HookBanner: React.FC<{ hook: string; fontSize: number; height: number }> =
           color: '#111',
           fontFamily: FONT,
           fontSize,
-          fontWeight: 800,
+          fontWeight: 700,
           lineHeight,
           textAlign: 'center',
           boxShadow: '0 6px 20px rgba(0,0,0,0.35)',
@@ -162,7 +162,7 @@ const Pill: React.FC<{
         color: '#fff',
         fontFamily: FONT,
         fontSize,
-        fontWeight: 800,
+        fontWeight: 700,
         lineHeight: 1.3,
         textAlign: 'center',
         WebkitTextStroke: `3px ${STROKE}`,

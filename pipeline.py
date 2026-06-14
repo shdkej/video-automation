@@ -42,8 +42,8 @@ from effects import (
     extract_thumbnail,
     reframe_vertical,
 )
-from probe import has_audio_stream, has_video_stream, probe_duration
-from subtitle import render_subtitled
+from probe import has_audio_stream, has_video_stream, probe_duration, probe_resolution
+from subtitle import build_ass_from_events, build_srt_from_events, render_subtitled
 from subtitle_remotion import render_subtitled_remotion
 
 
@@ -288,6 +288,26 @@ def longform_events(
     ]
 
 
+def _write_sub_sidecars(
+    video_path: Path, events: list, width: int, height: int,
+    font_size: int, margin_v: int,
+) -> None:
+    """영상 옆에 자막 사이드카를 쓴다(longform.mp4 → longform.srt / .ass).
+
+    - .srt: 순수 텍스트(범용, 어디서나 임포트)
+    - .ass: 폰트·색·외곽선·위치 스타일 포함(캡컷/Premiere에서 룩 유지 편집)
+
+    텍스트 있는 이벤트가 없으면 만들지 않는다. burn-in 여부와 무관하게 호출한다.
+    """
+    if not any((e.get("text") or "").strip() for e in events):
+        return
+    video_path.with_suffix(".srt").write_text(
+        build_srt_from_events(events), encoding="utf-8")
+    video_path.with_suffix(".ass").write_text(
+        build_ass_from_events(events, width, height, font_size, margin_v),
+        encoding="utf-8")
+
+
 def build_longform(
     args, segments: list, captions: list, outdir: Path, transcript=None,
 ) -> Path:
@@ -298,7 +318,8 @@ def build_longform(
     transcript가 있으면 발화 단위로 자막이 교체되고, 없으면 24자 캡션으로 폴백한다.
     """
     raw = outdir / "longform_raw.mp4"
-    final = outdir / "longform.mp4"
+    final = outdir / "longform.mp4"        # 미리보기용: 자막 박힘
+    clean = outdir / "longform.clean.mp4"  # 다운로드용: 자막 없는 깨끗본
     try:
         if len(segments) >= 2:
             cut_with_xfade(args.input, segments, raw, tdur=_XFADE_TDUR)
@@ -307,7 +328,11 @@ def build_longform(
         windows = compute_xfade_windows(segments, tdur=_XFADE_TDUR)
 
         events = longform_events(segments, captions, transcript, windows)
+        # 자막 burn-in 여부·엔진과 무관하게 자막 사이드카(.srt/.ass)를 별도 export
+        lf_w, lf_h = probe_resolution(raw)
+        _write_sub_sidecars(final, events, lf_w, lf_h, args.sub_font_size, args.sub_margin_v)
         if args.no_subtitle or not any(e["text"].strip() for e in events):
+            # 자막을 안 박으므로 final 자체가 깨끗본 — clean 별도 생성 불필요
             raw.replace(final)
             return final
         if args.sub_engine == "remotion":
@@ -327,6 +352,8 @@ def build_longform(
                 font_size=args.sub_font_size, margin_v=args.sub_margin_v,
                 windows=ev_windows,
             )
+        # 자막 입히기 전 raw가 곧 깨끗본 — 추가 렌더 없이 보존(다운로드용)
+        raw.replace(clean)
         return final
     finally:
         raw.unlink(missing_ok=True)
@@ -369,12 +396,15 @@ def build_one_short(args, spec: dict, stem: str, outdir: Path, transcript=None) 
     raw = outdir / f".{stem}_raw.mp4"
     vert = outdir / f".{stem}_vert.mp4"
     subbed = outdir / f".{stem}_sub.mp4"
-    final = outdir / f"{stem}.mp4"
+    final = outdir / f"{stem}.mp4"            # 미리보기용: 자막 박힘
+    clean = outdir / f"{stem}.clean.mp4"      # 다운로드용: 자막 없는 깨끗본
     try:
         cut_video(args.input, [seg], raw)
         reframe_vertical(raw, vert, blur_bg=args.shorts_blur)
 
         events = shorts_events(spec, transcript)
+        # 자막 사이드카(.srt/.ass) — 세로 9:16(1080x1920) 기준
+        _write_sub_sidecars(final, events, 1080, 1920, _SHORTS_FONT_SIZE, _SHORTS_MARGIN_BOTTOM)
         hook = (spec.get("hook") or spec.get("caption", "")).strip() or None
         if args.no_subtitle or not events:
             faded_src = vert
@@ -396,6 +426,9 @@ def build_one_short(args, spec: dict, stem: str, outdir: Path, transcript=None) 
             )
             faded_src = subbed
         apply_fade(faded_src, final, fade_in=0.3, fade_out=0.3)
+        # 자막을 박은 경우, 자막 없는 깨끗본도 동일하게 fade만 입혀 다운로드용으로 보존
+        if faded_src is not vert:
+            apply_fade(vert, clean, fade_in=0.3, fade_out=0.3)
         return final
     finally:
         for tmp in (raw, vert, subbed):

@@ -154,15 +154,24 @@ function startPolling(jobId) {
 // ---------- 결과 ----------
 const fileUrl = (jobId, name) => `/api/jobs/${jobId}/file/${encodeURIComponent(name)}`;
 
-function cut(jobId, name, label, fmt, { vertical = false, image = false } = {}) {
-  const url = fileUrl(jobId, name);
+function cut(jobId, name, label, fmt, { vertical = false, image = false, srt = null, ass = null, clean = null } = {}) {
+  const previewUrl = fileUrl(jobId, name); // 미리보기: 자막 박힌 영상
   const media = image
-    ? `<img src="${url}" alt="${label}">`
-    : `<video src="${url}" controls preload="metadata"></video>`;
+    ? `<img src="${previewUrl}" alt="${label}">`
+    : `<video src="${previewUrl}" controls preload="metadata"></video>`;
+  // 다운로드: 깨끗본이 있으면 자막 없는 영상, 없으면(=이미지/인트로) 원본
+  const dlName = clean || name;
+  const dlLabel = clean ? "영상 (자막 없음)" : name;
+  const srtLink = srt
+    ? `<a class="dl srt" href="${fileUrl(jobId, srt)}" download>.srt</a>`
+    : "";
+  const assLink = ass
+    ? `<a class="dl ass" href="${fileUrl(jobId, ass)}" download>.ass (스타일)</a>`
+    : "";
   return `<div class="cut ${vertical ? "vertical" : ""}">
     <div class="cut-label"><span>${label}</span><span class="fmt">${fmt}</span></div>
     ${media}
-    <a class="dl" href="${url}" download>${name}</a>
+    <div class="dl-row"><a class="dl" href="${fileUrl(jobId, dlName)}" download>${dlLabel}</a>${srtLink}${assLink}</div>
   </div>`;
 }
 
@@ -176,12 +185,25 @@ function renderResults(jobId, job) {
   $("seg-info").textContent = bits.join(" · ");
 
   const o = job.outputs || {};
+  const subs = o.subtitles || {};
+  const ass = o.subtitles_ass || {};
+  const clean = o.clean || {};
   let html = "";
-  if (o.longform) html += cut(jobId, o.longform, "롱폼", "16:9");
-  (o.shorts || []).forEach((n, i) => (html += cut(jobId, n, `숏츠 ${i + 1}`, "9:16", { vertical: true })));
+  if (o.longform) html += cut(jobId, o.longform, "롱폼", "16:9", { srt: subs[o.longform], ass: ass[o.longform], clean: clean[o.longform] });
+  (o.shorts || []).forEach((n, i) => (html += cut(jobId, n, `숏츠 ${i + 1}`, "9:16", { vertical: true, srt: subs[n], ass: ass[n], clean: clean[n] })));
   if (o.intro) html += cut(jobId, o.intro, "인트로", "hook");
   (o.thumbnail || []).forEach((n, i) => (html += cut(jobId, n, `썸네일 ${i + 1}`, "JPG", { image: true })));
   $("results").innerHTML = html || "<p>생성된 산출물이 없습니다.</p>";
+
+  // 편집툴용 타임라인(FCPXML) — 잡당 1개, 컷 결정을 통째로 편집툴로 넘김
+  if (o.fcpxml) {
+    $("timeline-dl").innerHTML =
+      `<a class="dl xml" href="${fileUrl(jobId, o.fcpxml)}" download>타임라인 .fcpxml</a>` +
+      `<span class="timeline-hint">캡컷·DaVinci·Premiere에서 열면 컷 구간이 그대로 들어옵니다 (원본 영상은 이 PC 경로 기준)</span>`;
+    show($("timeline-dl"));
+  } else {
+    hide($("timeline-dl"));
+  }
 
   // 재생성 폼을 직전 옵션으로 초기화
   $("rb_shorts").value = $("job-form").shorts_count.value;

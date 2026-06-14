@@ -26,11 +26,12 @@ FONT_DIR = Path(__file__).parent / "assets" / "fonts"
 def find_korean_font() -> tuple[str, int]:
     """자막 폰트 (경로, ttc 인덱스). 프로젝트 동봉 Pretendard 우선.
 
-    Pretendard ExtraBold(단일 otf, index 0)를 1순위로 쓰고, 없으면 시스템 폰트로
+    Pretendard Bold(단일 otf, index 0)를 1순위로 쓰고, 없으면 시스템 폰트로
     폴백한다. AppleSDGothicNeo.ttc는 index 6=Bold (0=Regular라 자막엔 약함)."""
-    bundled = FONT_DIR / "Pretendard-ExtraBold.otf"
-    if bundled.exists():
-        return str(bundled), 0
+    for fname in ("Pretendard-Bold.otf", "Pretendard-ExtraBold.otf"):
+        bundled = FONT_DIR / fname
+        if bundled.exists():
+            return str(bundled), 0
     candidates = [
         ("/System/Library/Fonts/AppleSDGothicNeo.ttc", 6),
         ("/System/Library/Fonts/Supplemental/AppleGothic.ttf", 0),
@@ -232,18 +233,95 @@ def render_subtitled(
         shutil.rmtree(work_dir, ignore_errors=True)
 
 
-def _build_srt(windows: list[tuple[float, float]], captions: list[str]) -> str:
-    def fmt(s: float) -> str:
-        ms = int(s * 1000)
-        h, ms = divmod(ms, 3_600_000)
-        m, ms = divmod(ms, 60_000)
-        sec, ms = divmod(ms, 1000)
-        return f"{h:02d}:{m:02d}:{sec:02d},{ms:03d}"
+def _fmt_srt_ts(s: float) -> str:
+    ms = int(s * 1000)
+    h, ms = divmod(ms, 3_600_000)
+    m, ms = divmod(ms, 60_000)
+    sec, ms = divmod(ms, 1000)
+    return f"{h:02d}:{m:02d}:{sec:02d},{ms:03d}"
 
+
+def _build_srt(windows: list[tuple[float, float]], captions: list[str]) -> str:
     lines = []
     for i, ((start, end), cap) in enumerate(zip(windows, captions), 1):
-        lines += [str(i), f"{fmt(start)} --> {fmt(end)}", cap, ""]
+        lines += [str(i), f"{_fmt_srt_ts(start)} --> {_fmt_srt_ts(end)}", cap, ""]
     return "\n".join(lines)
+
+
+def build_srt_from_events(events: list[dict]) -> str:
+    """events([{text, start, end}], 0기준 타임라인) → SRT 문자열.
+
+    자막을 영상에 burn-in하지 않아도(또는 remotion 엔진이어도) 동일 타이밍의
+    자막 파일을 영상과 별도로 export하기 위한 공용 빌더.
+    """
+    lines = []
+    n = 0
+    for e in events:
+        text = (e.get("text") or "").strip()
+        if not text:
+            continue
+        n += 1
+        lines += [str(n), f"{_fmt_srt_ts(e['start'])} --> {_fmt_srt_ts(e['end'])}", text, ""]
+    return "\n".join(lines)
+
+
+def _fmt_ass_ts(s: float) -> str:
+    """ASS 시간포맷 H:MM:SS.cs (centiseconds)."""
+    cs = int(round(s * 100))
+    h, cs = divmod(cs, 360_000)
+    m, cs = divmod(cs, 6_000)
+    sec, cs = divmod(cs, 100)
+    return f"{h:d}:{m:02d}:{sec:02d}.{cs:02d}"
+
+
+def build_ass_from_events(
+    events: list[dict],
+    width: int,
+    height: int,
+    font_size: int = 44,
+    margin_v: int = 80,
+    font_name: str = "Pretendard",
+    outline: int = 4,
+) -> str:
+    """events → ASS(Advanced SubStation) 문자열.
+
+    SRT와 달리 폰트·색·외곽선·위치 스타일을 담아 캡컷/Premiere에서 룩을 유지한 채
+    편집할 수 있다. burn-in이 아니라 export 전용(ffmpeg libass 불요).
+    PIL/remotion 자막 룩(흰 글씨·검정 외곽선·하단중앙)과 맞춘다.
+
+    색은 ASS의 &HAABBGGRR 표기: PrimaryColour 흰색, OutlineColour 검정.
+    Alignment 2 = 하단중앙, MarginV = 하단여백.
+    """
+    header = (
+        "[Script Info]\n"
+        "ScriptType: v4.00+\n"
+        "WrapStyle: 2\n"
+        "ScaledBorderAndShadow: yes\n"
+        f"PlayResX: {width}\n"
+        f"PlayResY: {height}\n\n"
+        "[V4+ Styles]\n"
+        "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, "
+        "OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, "
+        "ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
+        "Alignment, MarginL, MarginR, MarginV, Encoding\n"
+        f"Style: Default,{font_name},{font_size},&H00FFFFFF,&H000000FF,"
+        f"&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,{outline},1,2,"
+        f"60,60,{margin_v},1\n\n"
+        "[Events]\n"
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+    )
+    lines = [header]
+    for e in events:
+        text = (e.get("text") or "").strip()
+        if not text:
+            continue
+        # ASS 줄바꿈은 \N, 원치 않는 줄바꿈 문자는 정리
+        text = text.replace("\n", "\\N")
+        lines.append(
+            f"Dialogue: 0,{_fmt_ass_ts(e['start'])},{_fmt_ass_ts(e['end'])},"
+            f"Default,,0,0,0,,{text}"
+        )
+    return "\n".join(lines) + "\n"
 
 
 # ============================================================================

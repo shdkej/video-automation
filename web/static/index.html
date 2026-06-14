@@ -77,11 +77,12 @@
             <select id="sub_mode">
               <option value="fade" selected>애니메이션·페이드 (기본)</option>
               <option value="kinetic">애니메이션·키네틱</option>
-              <option value="pil">정적 (PIL)</option>
-              <option value="off">끄기</option>
+              <option value="pil">정적 PIL</option>
+              <option value="off">자막 없이</option>
             </select>
           </label>
         </div>
+        <p class="opt-hint">자막 스타일은 <b>미리보기 표시용</b>입니다. 다운로드는 항상 <b>자막 없는 영상 + .srt 파일</b>로 제공되어, 캡컷 등에서 자막을 직접 수정할 수 있습니다.</p>
         <div class="toggles">
           <label class="toggle"><input type="checkbox" id="shorts_blur"><span class="tg-box"></span>숏츠 흐린 배경(좌우 안 잘림)</label>
         </div>
@@ -119,6 +120,8 @@
       </div>
       <div id="results" class="reel"></div>
 
+      <div id="timeline-dl" class="timeline-dl hidden"></div>
+
       <details id="rebuild" class="rebuild">
         <summary>옵션 바꿔 다시 만들기 <small>분석 재사용 — 업로드·인식 없이 빠르게</small></summary>
         <div class="rebuild-opts">
@@ -130,7 +133,7 @@
               <option value="fade" selected>페이드</option>
               <option value="kinetic">키네틱</option>
               <option value="pil">정적</option>
-              <option value="off">끄기</option>
+              <option value="off">자막 없이</option>
             </select>
           </label>
           <button type="button" id="rebuild-btn" class="cta-sm">다시 만들기 →</button>

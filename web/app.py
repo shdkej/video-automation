@@ -28,6 +28,7 @@ from fastapi.staticfiles import StaticFiles
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 import pipeline as pl  # noqa: E402
+from fcpxml_export import export_fcpxml  # noqa: E402
 
 BASE = Path(__file__).resolve().parent
 JOBS_DIR = BASE / "jobs"
@@ -151,6 +152,13 @@ def _run_job(job_id: str, input_paths: list[Path], opts: dict) -> None:
         job["segment_count"] = len(segments)
 
         outputs: dict = {}
+        # 편집툴용 타임라인(컷 결정을 데이터로 export) — 부가물이라 실패해도 잡은 계속
+        if segments:
+            try:
+                export_fcpxml(input_path, segments, outdir / "timeline.fcpxml")
+                outputs["fcpxml"] = "timeline.fcpxml"
+            except Exception as e:  # noqa: BLE001
+                print(f"  ⚠ FCPXML export 실패(무시): {e}")
         stage("롱폼 생성", 30)
         outputs["longform"] = pl.build_longform(args, segments, captions, outdir, transcript=transcript).name
 
@@ -169,6 +177,27 @@ def _run_job(job_id: str, input_paths: list[Path], opts: dict) -> None:
 
         stage("인트로 생성", 92)
         outputs["intro"] = pl.build_intro(args, segments, outdir).name
+
+        # 영상별 사이드카 매핑(존재하는 것만):
+        # - subtitles: 자막 .srt (캡컷 등 편집용)
+        # - clean: 자막 안 박힌 깨끗본 (미리보기는 박힌 영상, 다운로드는 깨끗본)
+        subtitles: dict = {}   # 영상 → .srt (범용 텍스트)
+        subtitles_ass: dict = {}  # 영상 → .ass (스타일 포함, 캡컷/Premiere 편집용)
+        clean: dict = {}
+        for name in [outputs.get("longform"), *outputs.get("shorts", [])]:
+            if not name:
+                continue
+            stem = Path(name)
+            if (outdir / stem.with_suffix(".srt").name).is_file():
+                subtitles[name] = stem.with_suffix(".srt").name
+            if (outdir / stem.with_suffix(".ass").name).is_file():
+                subtitles_ass[name] = stem.with_suffix(".ass").name
+            clean_name = f"{stem.stem}.clean.mp4"
+            if (outdir / clean_name).is_file():
+                clean[name] = clean_name
+        outputs["subtitles"] = subtitles
+        outputs["subtitles_ass"] = subtitles_ass
+        outputs["clean"] = clean
 
         job["outputs"] = outputs
         job["status"], job["progress"], job["stage"] = "done", 100, "완료"
@@ -328,11 +357,21 @@ async def get_file(job_id: str, name: str):
     target = (outdir / name).resolve()
     if not str(target).startswith(str(outdir)) or not target.is_file():
         raise HTTPException(404, "파일 없음")
-    download = name.endswith((".mp4", ".jpg"))
+    download = name.endswith((".mp4", ".jpg", ".srt", ".ass", ".fcpxml"))
+    if name.endswith(".mp4"):
+        media_type = "video/mp4"
+    elif name.endswith(".srt"):
+        media_type = "application/x-subrip"
+    elif name.endswith(".ass"):
+        media_type = "text/x-ssa"
+    elif name.endswith(".fcpxml"):
+        media_type = "application/xml"
+    else:
+        media_type = None
     return FileResponse(
         target,
         filename=name if download else None,
-        media_type="video/mp4" if name.endswith(".mp4") else None,
+        media_type=media_type,
     )
 
 
