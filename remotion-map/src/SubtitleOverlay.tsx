@@ -11,7 +11,17 @@ import {
 } from 'remotion';
 
 // 동봉 Pretendard Bold를 헤드리스 Chromium에 등록 (PIL 엔진과 동일 폰트).
-const pretendardHandle = delayRender('load-pretendard');
+// CPU 경합(Whisper/ffmpeg 동시 실행)으로 폰트 로딩이 28초 기본 타임아웃을 넘겨
+// 잡 전체가 크래시한 적이 있다. timeout을 늘리고, Promise가 멈춰도(.catch로 못 잡는
+// hang) 폴백 폰트로 진행되도록 setTimeout 안전망을 둔다 — degrade는 해도 안 죽는다.
+// 경합 자체는 web 서버의 잡 스케줄(무거운 단계 비중첩)에서 줄인다.
+const pretendardHandle = delayRender('load-pretendard', { timeoutInMilliseconds: 60000 });
+let pretendardCleared = false;
+const clearPretendard = () => {
+  if (pretendardCleared) return;
+  pretendardCleared = true;
+  continueRender(pretendardHandle);
+};
 const pretendard = new FontFace(
   'Pretendard',
   `url(${staticFile('Pretendard-Bold.otf')}) format('opentype')`,
@@ -21,9 +31,11 @@ pretendard
   .load()
   .then((f) => {
     document.fonts.add(f);
-    continueRender(pretendardHandle);
+    clearPretendard();
   })
-  .catch(() => continueRender(pretendardHandle));
+  .catch(clearPretendard);
+// load()가 resolve/reject 둘 다 안 되고 멈추는 경우(.catch로 못 잡음)의 안전망.
+setTimeout(clearPretendard, 45000);
 
 // 컷 영상 타임라인(초) 기준 자막 이벤트.
 export type SubEvent = {
