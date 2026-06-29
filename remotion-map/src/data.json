@@ -1,0 +1,19 @@
+{
+  "width": 1280,
+  "height": 720,
+  "center": [13.404954, 52.520008],
+  "zoom": 5,
+  "distanceKm": 688,
+  "cities": {
+    "berlin": {
+      "name": "Berlin",
+      "country": "Germany",
+      "lonlat": [13.404954, 52.520008]
+    },
+    "budapest": {
+      "name": "Budapest",
+      "country": "Hungary",
+      "lonlat": [19.040236, 47.497913]
+    }
+  }
+}

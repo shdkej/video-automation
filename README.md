@@ -105,9 +105,22 @@ python pipeline.py input.mp4 --only shorts thumbnail
 > **자막은 speech 모드에서만 들어간다.** scene/vision은 발화 텍스트가 없어 자막을 비운다
 > (디버그용 `scene_score=…` 같은 문자열이 영상에 박히지 않도록). 자막이 필요하면 speech 모드를 쓴다.
 
+### 자막 엔진
+
+자막은 두 엔진 중 하나로 그린다 — `--sub-engine`(기본 `remotion`).
+
+| 엔진 | 방식 | 특징 |
+|------|------|------|
+| `remotion` (기본) | Remotion으로 **투명 애니메이션 자막**을 알파 webm으로 렌더 → ffmpeg overlay 1회 합성 | 페이드/단어 등장, 숏츠 hook 배너. `remotion-map` node 의존성 필요 |
+| `pil` | PIL 정적 PNG를 구간별 burn-in | 가볍고 추가 의존성 없음 |
+
+- `--sub-style`(remotion 전용): `fade`(전체 페이드, 기본) / `kinetic`(단어별 순차 등장).
+- **숏츠**는 자동으로 펀치 자막 + 상단 hook 배너로 그려진다(`mode=shorts`).
+- Remotion 엔진의 렌더 **동시성은 머신 CPU 코어 수에 맞춰 자동 조정**되고, 지도 데이터 준비(`prepare`) 없이도 자막만 단독으로 렌더된다 — 코어가 적은 머신·맵 미사용 환경에서도 바로 동작.
+
 **부분 실패 격리**: 4종 중 하나가 실패해도 나머지는 생성되고, 끝에 실패한 종만 `--cache --only <종>`으로 재시도하라는 안내가 나온다. `--cache`는 `outputs/selection.json`을 재사용해 **LLM/Whisper 재호출 비용을 아낀다**.
 
-주요 옵션: `--only`, `--shorts-count`(기본 2), `--shorts-ideal-seconds`(기본 25), `--shorts-max-seconds`(기본 45), `--shorts-blur`, `--thumbnail-count`(기본 3), `--intro-seconds`(기본 4), `--cache`, `--no-subtitle`, `--no-grade`. 분석 옵션(`--mode`/`-t`/`--llm-model` 등)은 auto_cut과 동일.
+주요 옵션: `--only`, `--shorts-count`(기본 2), `--shorts-ideal-seconds`(기본 25), `--shorts-max-seconds`(기본 45), `--shorts-blur`, `--thumbnail-count`(기본 3), `--intro-seconds`(기본 4), `--cache`, `--no-subtitle`, `--no-grade`, `--sub-engine`(기본 `remotion`), `--sub-style`(기본 `fade`). 분석 옵션(`--mode`/`-t`/`--llm-model` 등)은 auto_cut과 동일.
 
 ## 모드
 
@@ -134,6 +147,10 @@ pip install -r requirements.txt
 
 # ffmpeg 필요
 brew install ffmpeg
+
+# 애니메이션 자막(기본 엔진)을 쓰려면 remotion-map에서 한 번만 설치
+# (PIL 정적 자막 --sub-engine pil 만 쓰면 생략 가능)
+cd remotion-map && npm install && cd ..
 ```
 
 ## 사용
@@ -206,7 +223,6 @@ python auto_cut.py input.mp4 --cache --dry-run
 
 - 화자 분리(pyannote)로 발화자 단위 컷
 - 모드 자동 폴백 (speech 실패 시 vision)
-- 동적/애니메이션 자막 (현재는 정적 1줄 burn-in → 단어 단위 등장·키워드 강조. 숏폼 리텐션 핵심, Opus Clip 벤치마킹 — 후순위)
 - 숏츠 hook 시점 (현재는 LLM/scene 임팩트 점수로 구간 선정 + 중앙 절단 → 구간 내 정확한 hook 프레임까지 LLM 질의)
 - 썸네일 후보 랭킹 (현재는 시간 분산 → 얼굴/대비/장면전환 신호로 CTR 높은 프레임 우선)
 - BGM 자동 삽입(effects.add_bgm) pipeline 연동
