@@ -32,6 +32,7 @@ export type SubEvent = {
   end: number;
   speaker?: string; // 화자 키(색 매핑). 없으면 기본색
   style?: 'fade' | 'kinetic'; // 이벤트별 스타일 override
+  words?: { text: string; start: number; end: number }[]; // 카라오케 단어 타이밍(이벤트 상대 초)
 };
 export type SubtitleProps = {
   events: SubEvent[];
@@ -98,9 +99,7 @@ const BANNER_HIGHLIGHT = '#E11D2A';
 const HookBanner: React.FC<{ hook: string; fontSize: number; height: number }> = ({
   hook, fontSize, height,
 }) => {
-  const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
-  const slideIn = spring({ frame, fps, config: { damping: 18, mass: 0.7 }, durationInFrames: 14 });
+  // 첫 프레임이 곧 커버 — 슬라이드인 없이 frame 0부터 완전 노출 (트렌드 표준)
   const top = Math.round(height * 0.13); // 상단 10% 세이프존 비우고 13% 지점
   const lineHeight = 1.2;
   return (
@@ -109,8 +108,6 @@ const HookBanner: React.FC<{ hook: string; fontSize: number; height: number }> =
         style={{
           position: 'absolute',
           top,
-          opacity: slideIn,
-          transform: `translateY(${interpolate(slideIn, [0, 1], [-40, 0])}px)`,
           maxWidth: 'calc(100% - 100px)',
           background: '#FFE14D',
           borderRadius: 16,
@@ -194,16 +191,18 @@ const Caption: React.FC<{
     extrapolateLeft: 'clamp', extrapolateRight: 'clamp',
   });
 
-  // 숏츠: 단어 stagger + 스케일 펀치(overshoot). sub_style 무관 강제.
+  // 숏츠: 카라오케 — 실제 발화 시점에 단어 등장(words). 없으면 균일 stagger 폴백.
   if (mode === 'shorts') {
     const boxIn = spring({ frame, fps, config: { damping: 20, mass: 0.5 }, durationInFrames: 8 });
-    const words = ev.text.split(/\s+/).filter(Boolean);
     const stagger = 2;
+    const words: { text: string; startFrame: number }[] = ev.words?.length
+      ? ev.words.map((w) => ({ text: w.text, startFrame: Math.round(w.start * fps) }))
+      : ev.text.split(/\s+/).filter(Boolean).map((t, i) => ({ text: t, startFrame: i * stagger }));
     return (
       <Pill fontSize={fontSize} marginBottom={marginBottom}
         containerOpacity={Math.min(boxIn, exit)} containerY={interpolate(boxIn, [0, 1], [20, 0])}>
         {words.map((w, i) => {
-          const wf = frame - i * stagger;
+          const wf = frame - w.startFrame;
           // 스케일 펀치: 0.7 → 1.06 → 1.0 안착 (~8프레임), 1.1배 초과 금지
           const sc = interpolate(wf, [0, 5, 8], [0.7, 1.06, 1.0], {
             extrapolateLeft: 'clamp', extrapolateRight: 'clamp',
@@ -211,14 +210,14 @@ const Caption: React.FC<{
           const op = interpolate(wf, [0, 4], [0, 1], {
             extrapolateLeft: 'clamp', extrapolateRight: 'clamp',
           });
-          const hot = isAccentToken(w);
+          const hot = isAccentToken(w.text);
           return (
             <span key={i} style={{
               display: 'inline-block', marginRight: '0.28em',
               opacity: op, transform: `scale(${Math.min(sc, 1.1)})`,
               ...(hot ? { color: ACCENT } : accent ? { color: accent } : {}),
             }}>
-              {w}
+              {w.text}
             </span>
           );
         })}
