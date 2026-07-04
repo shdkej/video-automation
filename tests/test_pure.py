@@ -24,6 +24,7 @@ from shorts_timeline import Timeline  # noqa: E402
 from pipeline import (  # noqa: E402
     caption_for_segment,
     longform_events,
+    pick_thumbnail_hook,
     rank_for_shorts,
     shorts_events,
     split_media,
@@ -273,6 +274,24 @@ def test_shorts_events_falls_back_when_transcript_has_no_overlap():
     spec = {"start": 5.0, "end": 15.0, "caption": "캡션"}
     events = shorts_events(spec, transcript, _tl((5.0, 15.0)))
     assert events == [{"text": "캡션", "start": 0.0, "end": 10.0}]
+
+
+# ---------------------------------------------------------------------------
+# pick_thumbnail_hook — 썸네일에 얹을 hook 선정
+# ---------------------------------------------------------------------------
+
+def test_pick_thumbnail_hook_prefers_top_score_hook():
+    segments = [
+        {"start": 0, "end": 10, "score": 40, "hook": "낮은 훅"},
+        {"start": 20, "end": 30, "score": 90, "hook": "강한 훅"},
+    ]
+    assert pick_thumbnail_hook(segments, ["a", "b"]) == "강한 훅"
+
+
+def test_pick_thumbnail_hook_falls_back_to_caption_then_empty():
+    segments = [{"start": 0, "end": 10}]
+    assert pick_thumbnail_hook(segments, ["캡션"]) == "캡션"
+    assert pick_thumbnail_hook([{"start": 0, "end": 1}], [""]) == ""
 
 
 # ---------------------------------------------------------------------------

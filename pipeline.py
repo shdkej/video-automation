@@ -41,6 +41,7 @@ from effects import (
     concat_sources,
     cut_with_xfade,
     extract_thumbnail,
+    overlay_hook_text,
     reframe_vertical,
 )
 from probe import has_audio_stream, has_video_stream, probe_duration
@@ -164,6 +165,20 @@ def pick_thumbnail_times(segments: list, count: int) -> list:
         step = len(segments) / count
         chosen = [segments[int(i * step)] for i in range(count)]
     return [(s["start"] + s["end"]) / 2 for s in chosen]
+
+
+def pick_thumbnail_hook(segments: list, captions: list) -> str:
+    """썸네일에 얹을 hook 문구 — 최고 점수 구간의 hook 우선, 없으면 첫 비어있지 않은 캡션."""
+    scored = [s for s in segments if s.get("score") is not None and s.get("hook")]
+    if scored:
+        return max(scored, key=lambda s: float(s["score"]))["hook"]
+    for s in segments:
+        if s.get("hook"):
+            return s["hook"]
+    for c in captions:
+        if c.strip():
+            return c.strip()
+    return ""
 
 
 def pick_intro_segment(segments: list, intro_sec: float) -> dict:
@@ -444,6 +459,8 @@ def build_one_short(args, spec: dict, stem: str, outdir: Path, transcript=None) 
             )
             src = subbed
         apply_audio_fade_out(src, final)
+        # 릴스 커버용 세로 썸네일 — hook 배너가 이미 박힌 첫 장면
+        extract_thumbnail(final, outdir / f"{stem}_cover.jpg", at_sec=0.1, grade=False)
 
         changes = (len(clips) - 1) + len(events)
         print(f"  {stem}: {tl.duration:.1f}s | 무음 제거 {tl.removed_sec:.1f}s · "
@@ -454,14 +471,17 @@ def build_one_short(args, spec: dict, stem: str, outdir: Path, transcript=None) 
             tmp.unlink(missing_ok=True)
 
 
-def build_thumbnail(args, segments: list, outdir: Path) -> list:
-    """대표 구간들에서 후보 N장 추출. 1장이면 thumbnail.jpg, 여러 장이면 _NN."""
+def build_thumbnail(args, segments: list, captions: list, outdir: Path) -> list:
+    """대표 구간들에서 후보 N장 추출 + hook 문구 burn-in(--no-thumb-text로 끔)."""
     times = pick_thumbnail_times(segments, args.thumbnail_count)
+    hook = "" if args.no_thumb_text else pick_thumbnail_hook(segments, captions)
     paths = []
     for n, at in enumerate(times, 1):
         name = "thumbnail.jpg" if len(times) == 1 else f"thumbnail_{n:02d}.jpg"
         out = outdir / name
         extract_thumbnail(args.input, out, at, grade=not args.no_grade)
+        if hook:
+            overlay_hook_text(out, hook)
         paths.append(out)
     return paths
 
@@ -557,7 +577,7 @@ def run(args) -> None:
                       rank_for_shorts(segments, captions, args.shorts_count,
                                       args.shorts_max_seconds, args.shorts_ideal_seconds), 1)])
     step(f"[3/4] 썸네일 후보 {args.thumbnail_count}장 추출…", "thumbnail",
-         lambda: build_thumbnail(args, segments, outdir))
+         lambda: build_thumbnail(args, segments, captions, outdir))
     step("[4/4] 인트로 생성…", "intro",
          lambda: build_intro(args, segments, outdir))
 
@@ -622,6 +642,7 @@ def main() -> None:
 
     # 썸네일
     parser.add_argument("--thumbnail-count", type=int, default=3, help="썸네일 후보 장수")
+    parser.add_argument("--no-thumb-text", action="store_true", help="썸네일 hook 문구 burn-in 생략")
 
     # 인트로
     parser.add_argument("--intro-seconds", type=float, default=4.0, help="인트로 hook 길이(초)")

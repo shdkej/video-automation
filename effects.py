@@ -324,6 +324,48 @@ def extract_thumbnail(
     subprocess.run(cmd, check=True)
 
 
+def overlay_hook_text(image_path: Path, text: str) -> None:
+    """썸네일에 hook 문구를 burn-in — 숏츠 자막과 같은 룩(ExtraBold+검정 외곽선).
+
+    하단 12% 여백 위에 중앙 정렬, 폭 88%를 넘으면 단어 단위 줄바꿈(최대 2줄).
+    """
+    if not text.strip():
+        return
+    img = Image.open(image_path).convert("RGB")
+    W, H = img.size
+    font_path, font_index = find_korean_font()
+    size = max(28, W // 14)
+    try:
+        font = ImageFont.truetype(font_path, size, index=font_index)
+    except (OSError, IndexError):
+        font = ImageFont.truetype(font_path, size)
+    draw = ImageDraw.Draw(img)
+
+    max_w = int(W * 0.88)
+    lines, cur = [], ""
+    for word in text.split():
+        trial = f"{cur} {word}".strip()
+        if draw.textlength(trial, font=font) <= max_w or not cur:
+            cur = trial
+        else:
+            lines.append(cur)
+            cur = word
+        if len(lines) == 2:
+            break
+    if cur and len(lines) < 2:
+        lines.append(cur)
+
+    stroke = max(2, size // 12)
+    line_h = int(size * 1.25)
+    y = H - int(H * 0.12) - line_h * len(lines)
+    for line in lines:
+        tw = draw.textlength(line, font=font)
+        draw.text(((W - tw) / 2, y), line, font=font, fill=(255, 255, 255),
+                  stroke_width=stroke, stroke_fill=(0, 0, 0))
+        y += line_h
+    img.save(image_path, quality=92)
+
+
 # ============================================================================
 # Fade in/out
 # ============================================================================
