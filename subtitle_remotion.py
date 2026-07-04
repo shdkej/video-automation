@@ -21,6 +21,11 @@ REMOTION_BIN = REMOTION_DIR / "node_modules" / ".bin" / "remotion"
 ENTRY = "src/index.ts"
 COMPOSITION = "SubtitleOverlay"
 
+# 오버레이 렌더 해상도 상한(세로 px). footage가 이보다 크면(예: 4K) 비례 축소해
+# 렌더한 뒤 합성 단계에서 footage 크기로 업스케일한다. 4K 알파 VP8 인코딩은
+# 저코어 머신에서 비현실적으로 느려(0.008x) 사실상 렌더가 끝나지 않기 때문.
+OVERLAY_MAX_HEIGHT = 1080
+
 
 def probe_fps(path: Path) -> float:
     """첫 비디오 스트림의 평균 fps."""
@@ -114,6 +119,9 @@ def render_overlay_webm(
         str(REMOTION_BIN), "render", ENTRY, COMPOSITION, str(out_webm.resolve()),
         f"--props={props_path}",
         "--codec=vp8", "--image-format=png", "--pixel-format=yuva420p",
+        # 고해상도(4K)·저코어 머신에서 모듈 레벨 폰트 delayRender가 기본 30s를 넘겨
+        # "load-pretendard not cleared" 로 죽는다. 폰트 로드 여유를 위해 상향.
+        "--timeout=120000",
         "--log=error",
     ]
     subprocess.run(cmd, cwd=REMOTION_DIR, check=True)
@@ -159,18 +167,28 @@ def render_subtitled_remotion(
     work_dir.mkdir(parents=True, exist_ok=True)
     overlay = work_dir / "overlay.webm"
 
-    # 1) Remotion 투명 오버레이 렌더 (footage 해상도/fps에 맞춤)
-    render_overlay_webm(events, w, h, fps, overlay, font_size=font_size, margin_bottom=margin_bottom,
+    # footage가 상한보다 크면 비례 축소해 렌더한다. fontSize/marginBottom은 절대 px라
+    # 같은 비율로 줄여야 업스케일 후 룩이 보존된다. 치수는 yuv420p 요구로 짝수 클램프.
+    scale = min(1.0, OVERLAY_MAX_HEIGHT / h)
+    ow = round(w * scale) & ~1
+    oh = round(h * scale) & ~1
+    ofont = max(1, round(font_size * scale))
+    omargin = round(margin_bottom * scale)
+
+    # 1) Remotion 투명 오버레이 렌더 (축소 해상도/footage fps)
+    render_overlay_webm(events, ow, oh, fps, overlay, font_size=ofont, margin_bottom=omargin,
                         style=style, palette=palette, hook=hook, mode=mode)
 
     # 2) ffmpeg overlay 합성 (VP8 알파 디코딩 위해 입력 앞에 -c:v libvpx, 오디오 보존).
+    # 축소 렌더한 오버레이를 footage 크기로 업스케일(scale=1이면 무비용 통과) 후 합성.
     # 오버레이 webm은 calculateMetadata의 +0.3 패딩 탓에 footage보다 길 수 있으므로
     # 합성 길이를 footage(첫 입력)에 고정한다 — overlay=shortest=1로 비디오를 자른다.
     cmd = [
         "ffmpeg", "-y", "-loglevel", "error",
         "-i", str(cut_path),
         "-c:v", "libvpx", "-i", str(overlay),
-        "-filter_complex", "[0:v][1:v]overlay=format=auto:shortest=1",
+        "-filter_complex",
+        f"[1:v]scale={w}:{h}:flags=lanczos[ov];[0:v][ov]overlay=format=auto:shortest=1",
         "-map", "0:a?", "-c:a", "copy",
         str(output),
     ]
