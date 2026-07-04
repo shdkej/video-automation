@@ -435,6 +435,73 @@ def cut_with_xfade(
 
 
 # ============================================================================
+# Shorts footage — 점프컷 서브클립 + punch-in 교차 (페이드 없음: 첫 프레임=커버)
+# ============================================================================
+
+def build_short_footage(
+    input_path: Path,
+    clips: list[tuple],
+    output_path: Path,
+    punchin: bool = True,
+    punch_scale: float = 1.08,
+) -> None:
+    """clips(원본 시점 (s, e) 목록)를 잘라 concat. 홀수번째 클립에 punch-in.
+
+    점프컷 경계와 punch 가상 컷이 모두 clips로 들어온다. 컷 경계에서
+    1.0x↔punch_scale 크롭 줌을 교차해 점프컷을 의도된 리듬으로 보이게 한다.
+    페이드인 없음 — 숏츠 첫 프레임이 곧 커버(트렌드 표준).
+    """
+    w, h = probe_resolution(input_path)
+    w -= w % 2
+    h -= h % 2
+    tmpdir = output_path.parent / f".{output_path.stem}_short_tmp"
+    tmpdir.mkdir(exist_ok=True)
+    try:
+        paths = []
+        for i, (s, e) in enumerate(clips):
+            cp = tmpdir / f"clip_{i:03d}.mp4"
+            cmd = ["ffmpeg", "-y", "-loglevel", "error",
+                   "-ss", f"{s:.3f}", "-i", str(input_path), "-t", f"{e - s:.3f}"]
+            if punchin and i % 2 == 1:
+                cmd += ["-vf", f"crop=iw/{punch_scale}:ih/{punch_scale},scale={w}:{h}"]
+            else:
+                cmd += ["-vf", f"scale={w}:{h}"]  # concat을 위한 해상도 통일
+            cmd += ["-c:v", "libx264", "-preset", "fast", "-crf", "20",
+                    "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
+                    "-avoid_negative_ts", "make_zero", str(cp)]
+            subprocess.run(cmd, check=True)
+            paths.append(cp)
+
+        list_file = tmpdir / "concat.txt"
+        list_file.write_text("\n".join(f"file '{p.resolve()}'" for p in paths))
+        subprocess.run(
+            ["ffmpeg", "-y", "-loglevel", "error",
+             "-f", "concat", "-safe", "0", "-i", str(list_file),
+             "-c", "copy", str(output_path)],
+            check=True,
+        )
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def apply_audio_fade_out(input_path: Path, output_path: Path, fade: float = 0.2) -> None:
+    """영상은 그대로, 오디오만 끝 fade초 페이드아웃(컷 팝 방지). 오디오 없으면 복사."""
+    if not has_audio_stream(input_path):
+        shutil.copy(input_path, output_path)
+        return
+    total = probe_duration(input_path)
+    st = max(0.0, total - fade)
+    subprocess.run(
+        ["ffmpeg", "-y", "-loglevel", "error",
+         "-i", str(input_path),
+         "-af", f"afade=out:st={st:.3f}:d={fade}",
+         "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+         str(output_path)],
+        check=True,
+    )
+
+
+# ============================================================================
 # BGM mux — 영상에 배경음 + (선택) 페이드아웃
 # ============================================================================
 
