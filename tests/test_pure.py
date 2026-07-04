@@ -20,6 +20,7 @@ from auto_cut import (  # noqa: E402
     validate_segments,
 )
 from effects import compute_xfade_windows  # noqa: E402
+from shorts_timeline import Timeline  # noqa: E402
 from pipeline import (  # noqa: E402
     caption_for_segment,
     longform_events,
@@ -189,43 +190,89 @@ def test_rank_for_shorts_hook_falls_back_to_caption():
 
 
 # ---------------------------------------------------------------------------
-# shorts_events — transcript remap (다중 이벤트) vs caption 폴백
+# shorts_events — Timeline remap (점프컷·카라오케 words) vs caption 폴백
 # ---------------------------------------------------------------------------
 
+def _tl(*intervals):
+    return Timeline(list(intervals))
+
+
 def test_shorts_events_remaps_transcript_to_multiple_events():
-    # 숏츠 윈도우 30~50초, 그 안에 발화 3개 → 0기준 다중 이벤트
     transcript = {"segments": [
-        {"start": 10, "end": 20, "text": "구간 밖 발화"},
-        {"start": 31, "end": 34, "text": "첫 발화"},
-        {"start": 36, "end": 40, "text": "둘째 발화"},
-        {"start": 44, "end": 48, "text": "셋째 발화"},
+        {"start": 10, "end": 13, "text": "첫 발화"},
+        {"start": 13, "end": 16, "text": "둘째 발화"},
     ]}
-    spec = {"start": 30, "end": 50, "caption": "c"}
-    events = shorts_events(spec, transcript)
-    assert len(events) == 3                       # 윈도우 밖 발화는 제외
-    assert events[0]["start"] == pytest.approx(1) # 31-30=1 (0기준 remap)
-    assert [e["text"] for e in events] == ["첫 발화", "둘째 발화", "셋째 발화"]
-    # 마지막 이벤트 end는 숏츠 끝(dur=20)까지 패딩되어 배너 상시성 보장
-    assert events[-1]["end"] >= 20 - 0.1
+    spec = {"start": 10.0, "end": 16.0, "caption": "폴백"}
+    events = shorts_events(spec, transcript, _tl((10.0, 16.0)))
+    assert len(events) == 2
+    assert events[0]["start"] == 0.0 and events[0]["text"] == "첫 발화"
+    assert events[1]["start"] == 3.0
+    # 마지막 이벤트 end는 숏츠 끝까지 연장
+    assert events[1]["end"] >= 6.0 - 0.05 - 1e-9
+
+
+def test_shorts_events_jumpcut_timeline_shifts_later_events():
+    # 12~14가 잘린 타임라인: 14초의 발화가 새 타임라인 2초로 당겨짐
+    transcript = {"segments": [
+        {"start": 10, "end": 12, "text": "앞"},
+        {"start": 14, "end": 16, "text": "뒤"},
+    ]}
+    spec = {"start": 10.0, "end": 16.0, "caption": ""}
+    events = shorts_events(spec, transcript, _tl((10.0, 12.0), (14.0, 16.0)))
+    assert events[0]["start"] == 0.0
+    assert events[1]["start"] == 2.0   # remap(14.0)
+
+
+def test_shorts_events_karaoke_words_relative_to_event():
+    transcript = {"segments": [
+        {"start": 10, "end": 12, "text": "안녕 하세요",
+         "words": [
+             {"word": "안녕", "start": 10.2, "end": 10.8},
+             {"word": "하세요", "start": 11.0, "end": 11.8},
+         ]},
+    ]}
+    spec = {"start": 10.0, "end": 12.0, "caption": ""}
+    [ev] = shorts_events(spec, transcript, _tl((10.0, 12.0)))
+    assert ev["text"] == "안녕 하세요"      # text는 words에서 파생 (단일 출처)
+    assert ev["start"] == 0.2               # 첫 단어 시작
+    ws = ev["words"]
+    assert ws[0] == {"text": "안녕", "start": 0.0, "end": 0.6}
+    assert ws[1]["start"] == 0.8            # 11.0 remap → 1.0, 이벤트 상대 → 0.8
+
+
+def test_shorts_events_words_strip_leading_fillers():
+    transcript = {"segments": [
+        {"start": 0, "end": 3, "text": "어 그러니까 본론은",
+         "words": [
+             {"word": "어", "start": 0.0, "end": 0.3},
+             {"word": "그러니까", "start": 0.4, "end": 1.0},
+             {"word": "본론은", "start": 1.2, "end": 2.0},
+         ]},
+    ]}
+    spec = {"start": 0.0, "end": 3.0, "caption": ""}
+    [ev] = shorts_events(spec, transcript, _tl((0.0, 3.0)))
+    assert ev["text"] == "본론은"
+    assert len(ev["words"]) == 1
 
 
 def test_shorts_events_falls_back_to_caption_without_transcript():
-    spec = {"start": 0, "end": 15, "caption": "단일 캡션"}
-    events = shorts_events(spec, None)
-    assert events == [{"text": "단일 캡션", "start": 0.0, "end": 15.0}]
+    spec = {"start": 5.0, "end": 15.0, "caption": "캡션 폴백"}
+    events = shorts_events(spec, None, _tl((5.0, 15.0)))
+    assert events == [{"text": "캡션 폴백", "start": 0.0, "end": 10.0}]
 
 
 def test_shorts_events_empty_when_no_transcript_and_no_caption():
     # scene/vision 구간(캡션 없음) → 빈 이벤트(자막 생략, 크래시 금지)
-    assert shorts_events({"start": 0, "end": 10, "caption": ""}, None) == []
+    spec = {"start": 5.0, "end": 15.0, "caption": ""}
+    assert shorts_events(spec, None, _tl((5.0, 15.0))) == []
 
 
 def test_shorts_events_falls_back_when_transcript_has_no_overlap():
     # transcript는 있으나 윈도우와 안 겹치면 caption 폴백
-    transcript = {"segments": [{"start": 100, "end": 110, "text": "먼 발화"}]}
-    spec = {"start": 0, "end": 10, "caption": "폴백"}
-    events = shorts_events(spec, transcript)
-    assert events == [{"text": "폴백", "start": 0.0, "end": 10.0}]
+    transcript = {"segments": [{"start": 100, "end": 110, "text": "다른 데"}]}
+    spec = {"start": 5.0, "end": 15.0, "caption": "캡션"}
+    events = shorts_events(spec, transcript, _tl((5.0, 15.0)))
+    assert events == [{"text": "캡션", "start": 0.0, "end": 10.0}]
 
 
 # ---------------------------------------------------------------------------

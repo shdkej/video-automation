@@ -26,7 +26,6 @@ from auto_cut import (
     mux_audio_into_video,
     overlaps,
     pick_scene_segments,
-    remap_transcript_to_cuts,
     resolve_llm_model,
     select_highlights,
     select_vision_segments,
@@ -43,6 +42,7 @@ from effects import (
     reframe_vertical,
 )
 from probe import has_audio_stream, has_video_stream, probe_duration
+from shorts_timeline import plan_short, punch_plan
 from subtitle import render_subtitled
 from subtitle_remotion import render_subtitled_remotion
 
@@ -338,28 +338,62 @@ _SHORTS_MARGIN_BOTTOM = 576  # 1920 * 0.30
 _SHORTS_PADDED_TAIL = 0.05   # 마지막 발화 end가 숏츠 끝에 닿도록 보정
 
 
-def shorts_events(spec: dict, transcript: dict | None) -> list:
-    """숏츠 윈도우와 겹치는 발화를 0기준 타임라인 events로 remap.
+def _event_words(tseg: dict, lo: float, hi: float) -> list:
+    """이벤트에 넣을 단어 목록 — 윈도우와 겹치는 단어에서 선두 추임새 제거.
 
-    transcript가 있으면 발화별 다중 이벤트(말 자막 pop용). 없으면(scene/vision/
-    구캐시) caption 단일 이벤트로 폴백한다 — 어느 쪽도 크래시하지 않는다.
+    text와 words가 어긋나지 않도록, words가 있으면 text도 words에서 파생한다.
     """
-    dur = spec["end"] - spec["start"]
-    if transcript and transcript.get("segments"):
-        cut = {"start": spec["start"], "end": spec["end"]}
-        remapped = remap_transcript_to_cuts(transcript["segments"], [cut])
-        events = [
-            {"text": strip_leading_fillers(r["text"].strip()),
-             "start": round(r["start"], 3), "end": round(r["end"], 3)}
-            for r in remapped if r["text"].strip()
-        ]
-        if events:
-            # 마지막 발화 end를 숏츠 끝까지 늘려 배너가 전 구간 상시 표시되게.
-            events[-1]["end"] = max(events[-1]["end"], dur - _SHORTS_PADDED_TAIL)
-            return events
+    ws = [w for w in tseg.get("words", []) if w["start"] < hi and w["end"] > lo]
+    while ws and ws[0]["word"].strip() in _FILLERS:
+        ws = ws[1:]
+    return ws
+
+
+def shorts_events(spec: dict, transcript: dict | None, timeline) -> list:
+    """숏츠 타임라인(점프컷 반영) 기준 자막 이벤트. words가 있으면 카라오케 타이밍 포함.
+
+    모든 시점은 timeline.remap을 통과한다 — footage와 자막의 단일 출처.
+    transcript 없음(scene/vision)·구캐시(words 없음)·겹침 없음 어느 쪽도
+    크래시하지 않고 caption 단일 이벤트 또는 균일 stagger로 폴백한다.
+    """
+    lo = timeline.intervals[0][0]
+    hi = timeline.intervals[-1][1]
+    events = []
+    for t in (transcript or {}).get("segments") or []:
+        if t["end"] <= lo or t["start"] >= hi:
+            continue
+        ws = _event_words(t, lo, hi)
+        if ws:
+            ns = timeline.remap(ws[0]["start"])
+            ne = timeline.remap(ws[-1]["end"])
+            if ne - ns < 0.1:
+                continue
+            ev_words = [
+                {"text": w["word"].strip(),
+                 "start": round(max(0.0, timeline.remap(w["start"]) - ns), 3),
+                 "end": round(max(0.0, timeline.remap(w["end"]) - ns), 3)}
+                for w in ws
+            ]
+            events.append({
+                "text": " ".join(w["text"] for w in ev_words),
+                "start": round(ns, 3), "end": round(ne, 3), "words": ev_words,
+            })
+        else:
+            text = strip_leading_fillers(t["text"].strip())
+            if not text:
+                continue
+            ns = timeline.remap(max(t["start"], lo))
+            ne = timeline.remap(min(t["end"], hi))
+            if ne - ns < 0.1:
+                continue
+            events.append({"text": text, "start": round(ns, 3), "end": round(ne, 3)})
+    if events:
+        # 마지막 발화 end를 숏츠 끝까지 늘려 배너가 전 구간 상시 표시되게.
+        events[-1]["end"] = max(events[-1]["end"], round(timeline.duration - _SHORTS_PADDED_TAIL, 3))
+        return events
     cap = spec.get("caption", "").strip()
     if cap:
-        return [{"text": cap, "start": 0.0, "end": round(dur, 3)}]
+        return [{"text": cap, "start": 0.0, "end": round(timeline.duration, 3)}]
     return []
 
 
