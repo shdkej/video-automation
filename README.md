@@ -98,8 +98,9 @@ python pipeline.py input.mp4 --only shorts thumbnail
 | 산출물 | 형태 | 비고 |
 |--------|------|------|
 | `longform.mp4` | 하이라이트 컷 16:9 | 클립별 자막 burn-in (**speech 모드만** — 아래 참고) |
-| `shorts_NN.mp4` | 세로 9:16 | **적정 길이(기본 25초)에 가까운** 구간 상위 N개, 길면 중앙 기준 절단(hook 당김), 자막 + fade |
-| `thumbnail_NN.jpg` | 후보 N장 | 구간을 시간축으로 분산해 N장(기본 3, 1장이면 `thumbnail.jpg`), 컬러 그레이드 |
+| `shorts_NN.mp4` | 세로 9:16 | 임팩트 상위 N개, **침묵 제거 점프컷 + punch-in 교차**, 카라오케 자막, 첫 프레임 풀노출(페이드인 없음) |
+| `shorts_NN_cover.jpg` | 세로 커버 | 숏츠별 첫 장면(hook 배너 포함) — 릴스 커버용 |
+| `thumbnail_NN.jpg` | 후보 N장 | 구간을 시간축으로 분산해 N장(기본 3, 1장이면 `thumbnail.jpg`), 컬러 그레이드 + **hook 문구 burn-in** |
 | `intro.mp4` | hook 클립 3~5초 | 베스트 구간 앞부분 + fade (풀스크린 타이틀 카드 안 씀) |
 
 > **자막은 speech 모드에서만 들어간다.** scene/vision은 발화 텍스트가 없어 자막을 비운다
@@ -115,12 +116,14 @@ python pipeline.py input.mp4 --only shorts thumbnail
 | `pil` | PIL 정적 PNG를 구간별 burn-in | 가볍고 추가 의존성 없음 |
 
 - `--sub-style`(remotion 전용): `fade`(전체 페이드, 기본) / `kinetic`(단어별 순차 등장).
-- **숏츠**는 자동으로 펀치 자막 + 상단 hook 배너로 그려진다(`mode=shorts`).
+- **숏츠**는 자동으로 펀치 자막 + 상단 hook 배너로 그려진다(`mode=shorts`). 트랜스크립트에 단어 타임스탬프(`words`)가 있으면 **실제 발화 타이밍 카라오케**로, 구캐시(words 없음)는 균일 등장으로 폴백한다.
 - Remotion 엔진의 렌더 **동시성은 머신 CPU 코어 수에 맞춰 자동 조정**되고, 지도 데이터 준비(`prepare`) 없이도 자막만 단독으로 렌더된다 — 코어가 적은 머신·맵 미사용 환경에서도 바로 동작.
 
 **부분 실패 격리**: 4종 중 하나가 실패해도 나머지는 생성되고, 끝에 실패한 종만 `--cache --only <종>`으로 재시도하라는 안내가 나온다. `--cache`는 `outputs/selection.json`을 재사용해 **LLM/Whisper 재호출 비용을 아낀다**.
 
-주요 옵션: `--only`, `--shorts-count`(기본 2), `--shorts-ideal-seconds`(기본 25), `--shorts-max-seconds`(기본 45), `--shorts-blur`, `--thumbnail-count`(기본 3), `--intro-seconds`(기본 4), `--cache`, `--no-subtitle`, `--no-grade`, `--sub-engine`(기본 `remotion`), `--sub-style`(기본 `fade`). 분석 옵션(`--mode`/`-t`/`--llm-model` 등)은 auto_cut과 동일.
+주요 옵션: `--only`, `--shorts-count`(기본 2), `--shorts-ideal-seconds`(기본 25), `--shorts-max-seconds`(기본 45), `--shorts-blur`, `--shorts-silence-min`(기본 0.45 — 점프컷으로 제거할 최소 무음), `--no-shorts-jumpcut`·`--no-shorts-punchin`(트렌드 편집 끄기, A/B 비교용), `--thumbnail-count`(기본 3), `--no-thumb-text`, `--intro-seconds`(기본 4), `--cache`, `--no-subtitle`, `--no-grade`, `--sub-engine`(기본 `remotion`), `--sub-style`(기본 `fade`). 분석 옵션(`--mode`/`-t`/`--llm-model` 등)은 auto_cut과 동일.
+
+> 숏츠는 speech 모드에서 단어 타임스탬프 기반으로 **0.45초+ 무음을 잘라내는 점프컷**과 컷 경계 **1.0x↔1.08x punch-in**을 기본 적용한다(생성 로그에 무음 제거량·점프컷 수·초당 화면변화 측정치 출력). scene/vision·구캐시는 자동으로 통짜 클립 + 주기적 punch로 폴백한다.
 
 ## 모드
 

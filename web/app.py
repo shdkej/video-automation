@@ -106,7 +106,8 @@ def _args_from_opts(input_path: Path, outdir: Path, opts: dict) -> SimpleNamespa
         llm_model=None, cache=True,  # 같은 잡 폴더의 트랜스크립트/selection 재사용(재생성 대비)
         shorts_count=int(opts["shorts_count"]), shorts_max_seconds=45.0,
         shorts_ideal_seconds=25.0, shorts_blur=bool(opts.get("shorts_blur")),
-        thumbnail_count=int(opts["thumbnail_count"]),
+        shorts_silence_min=0.45, no_shorts_jumpcut=False, no_shorts_punchin=False,
+        thumbnail_count=int(opts["thumbnail_count"]), no_thumb_text=False,
         intro_seconds=4.0,
         no_subtitle=bool(opts.get("no_subtitle")), no_grade=False,
         sub_font_size=36, sub_margin_v=80, only=None,
