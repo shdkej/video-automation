@@ -34,7 +34,9 @@ from auto_cut import (
     validate_transcript_quality,
 )
 from effects import (
+    apply_audio_fade_out,
     apply_fade,
+    build_short_footage,
     compute_xfade_windows,
     concat_sources,
     cut_with_xfade,
@@ -398,38 +400,54 @@ def shorts_events(spec: dict, transcript: dict | None, timeline) -> list:
 
 
 def build_one_short(args, spec: dict, stem: str, outdir: Path, transcript=None) -> Path:
-    """단일 숏츠: 컷 → 세로 9:16 → (자막+hook 배너) → fade. 중간 임시파일 정리."""
-    seg = {"start": spec["start"], "end": spec["end"]}
+    """단일 숏츠: 타임라인 계획(점프컷) → footage(punch-in) → 세로 → 자막 → 오디오 페이드.
+
+    영상 페이드는 넣지 않는다 — 첫 프레임이 곧 커버(트렌드). 측정치(무음 제거·컷 수·
+    초당 화면변화)를 출력해 A/B 비교의 근거를 남긴다.
+    """
+    tl = plan_short(
+        spec["start"], spec["end"],
+        (transcript or {}).get("segments"),
+        min_silence=args.shorts_silence_min,
+        jumpcut=not args.no_shorts_jumpcut,
+    )
+    clips = list(tl.intervals) if args.no_shorts_punchin else punch_plan(tl.intervals)
+
     raw = outdir / f".{stem}_raw.mp4"
     vert = outdir / f".{stem}_vert.mp4"
     subbed = outdir / f".{stem}_sub.mp4"
     final = outdir / f"{stem}.mp4"
     try:
-        cut_video(args.input, [seg], raw)
+        build_short_footage(args.input, clips, raw, punchin=not args.no_shorts_punchin)
         reframe_vertical(raw, vert, blur_bg=args.shorts_blur)
 
-        events = shorts_events(spec, transcript)
+        events = shorts_events(spec, transcript, tl)
         hook = (spec.get("hook") or spec.get("caption", "")).strip() or None
         if args.no_subtitle or not events:
-            faded_src = vert
+            src = vert
         elif args.sub_engine == "remotion":
             render_subtitled_remotion(
                 cut_path=vert, output=subbed, captions=[], segments=[],
                 events=events, hook=hook, mode="shorts",
                 font_size=_SHORTS_FONT_SIZE, margin_bottom=_SHORTS_MARGIN_BOTTOM,
             )
-            faded_src = subbed
+            src = subbed
         else:
             # PIL+숏츠는 신규 스타일 미지원 — 현행 정적 캡션 그대로(첫 이벤트 텍스트).
             print("  ⚠ PIL 엔진은 숏츠 펀치 자막/hook 배너를 지원하지 않습니다(정적 캡션).")
             cap = events[0]["text"]
+            seg0 = {"start": 0.0, "end": tl.duration}
             render_subtitled(
-                cut_path=vert, captions=[cap], segments=[seg], output=subbed,
+                cut_path=vert, captions=[cap], segments=[seg0], output=subbed,
                 font_size=args.sub_font_size + 8, margin_v=args.sub_margin_v + 120,
                 max_caption_width=960,
             )
-            faded_src = subbed
-        apply_fade(faded_src, final, fade_in=0.3, fade_out=0.3)
+            src = subbed
+        apply_audio_fade_out(src, final)
+
+        changes = (len(clips) - 1) + len(events)
+        print(f"  {stem}: {tl.duration:.1f}s | 무음 제거 {tl.removed_sec:.1f}s · "
+              f"점프컷 {tl.cut_count} · 화면변화 {changes / max(tl.duration, 0.1):.1f}/s")
         return final
     finally:
         for tmp in (raw, vert, subbed):
@@ -595,6 +613,12 @@ def main() -> None:
     parser.add_argument("--shorts-max-seconds", type=float, default=45.0, help="숏츠 최대 길이(초)")
     parser.add_argument("--shorts-ideal-seconds", type=float, default=25.0, help="숏츠 적정 길이(선정 기준)")
     parser.add_argument("--shorts-blur", action="store_true", help="세로 변환 시 좌우 crop 대신 흐린 배경")
+    parser.add_argument("--shorts-silence-min", type=float, default=0.45,
+                        help="점프컷으로 제거할 최소 무음 길이(초)")
+    parser.add_argument("--no-shorts-jumpcut", action="store_true",
+                        help="침묵 제거 점프컷 끄기 (A/B 비교용)")
+    parser.add_argument("--no-shorts-punchin", action="store_true",
+                        help="컷 경계 punch-in 줌 끄기 (A/B 비교용)")
 
     # 썸네일
     parser.add_argument("--thumbnail-count", type=int, default=3, help="썸네일 후보 장수")
