@@ -297,12 +297,18 @@ def transcribe_video(video_path: Path, model_size: str, language: str) -> dict:
     segments, info = model.transcribe(
         str(video_path),
         language=language if language != "auto" else None,
+        word_timestamps=True,  # 숏츠 카라오케 자막·점프컷용 단어 경계
     )
 
-    transcript_segments = [
-        {"start": float(s.start), "end": float(s.end), "text": s.text.strip()}
-        for s in segments
-    ]
+    transcript_segments = []
+    for s in segments:
+        item = {"start": float(s.start), "end": float(s.end), "text": s.text.strip()}
+        if s.words:
+            item["words"] = [
+                {"word": w.word.strip(), "start": float(w.start), "end": float(w.end)}
+                for w in s.words if w.word.strip()
+            ]
+        transcript_segments.append(item)
     return {
         "duration": float(info.duration),
         "language": info.language,
