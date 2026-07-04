@@ -183,12 +183,15 @@ def render_subtitled_remotion(
     # 축소 렌더한 오버레이를 footage 크기로 업스케일(scale=1이면 무비용 통과) 후 합성.
     # 오버레이 webm은 calculateMetadata의 +0.3 패딩 탓에 footage보다 길 수 있으므로
     # 합성 길이를 footage(첫 입력)에 고정한다 — overlay=shortest=1로 비디오를 자른다.
+    # setpts=PTS-STARTPTS가 없으면 출력 frame 0에 오버레이가 안 얹힌다
+    # (숏츠는 첫 프레임이 커버라 배너 누락이 치명적).
     cmd = [
         "ffmpeg", "-y", "-loglevel", "error",
         "-i", str(cut_path),
         "-c:v", "libvpx", "-i", str(overlay),
         "-filter_complex",
-        f"[1:v]scale={w}:{h}:flags=lanczos[ov];[0:v][ov]overlay=format=auto:shortest=1",
+        f"[1:v]setpts=PTS-STARTPTS,scale={w}:{h}:flags=lanczos[ov];"
+        f"[0:v][ov]overlay=format=auto:shortest=1",
         "-map", "0:a?", "-c:a", "copy",
         str(output),
     ]
