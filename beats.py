@@ -41,11 +41,12 @@ def onset_envelope(path: Path) -> np.ndarray:
 def beats_from_envelope(env: np.ndarray, hop_sec: float = HOP_SEC) -> list:
     """온셋 배열 → 비트 시각 목록. 자기상관으로 주기, 그리드 오프셋으로 위상.
 
-    무음/무리듬(온셋 대부분 0)이면 빈 목록 — 스냅은 조용히 no-op이 된다.
+    게이트는 무음·잡음만 거른다(관대하게). 실측상 coverage 같은 지표는 실음악과
+    말소리를 못 가르는데, 비트의 쓰임(±0.35s 스냅·줌 타이밍)은 오탐 실해가
+    미미하고 미탐(실음악에서 비트 죽음)이 훨씬 아프기 때문이다.
     """
     if env.size < 100 or float(env.sum()) <= 0:
         return []
-    # 리듬성 게이트: 온셋이 희박하거나 균일하면(말소리·백색소음) 비트로 치지 않는다
     active_ratio = float((env > 0.1).mean())
     if active_ratio < 0.02:
         return []
@@ -71,15 +72,14 @@ def beats_from_envelope(env: np.ndarray, hop_sec: float = HOP_SEC) -> list:
     phases = [float(env[p::best_lag].sum()) for p in range(best_lag)]
     phase_idx = int(np.argmax(phases))
 
-    # 그리드 정합도 게이트: 비트 위치(±1hop)에 온셋 에너지가 몰려 있어야 음악 리듬.
-    # 말소리는 온셋이 연속적으로 퍼져 있어 정합도가 낮다 — 오인식 방지.
+    # 그리드 정합도: 백색소음처럼 완전히 무상관인 신호만 거른다
     idx = np.arange(phase_idx, env.size, best_lag)
     near = np.zeros_like(env, dtype=bool)
     for off in (-1, 0, 1):
         j = idx + off
         near[j[(j >= 0) & (j < env.size)]] = True
     coverage = float(env[near].sum()) / float(env.sum())
-    if coverage < 0.3:
+    if coverage < 0.05:
         return []
 
     duration = env.size * hop_sec
