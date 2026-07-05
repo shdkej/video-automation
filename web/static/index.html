@@ -42,7 +42,11 @@
         <!-- 모드 -->
         <div class="step-num" data-n="02">분석 방식</div>
         <div class="mode-cards" id="mode-cards">
-          <button type="button" class="mode-card selected" data-mode="scene">
+          <button type="button" class="mode-card selected" data-mode="auto">
+            <div class="mc-head"><span class="mc-name">auto</span><span class="badge free">추천</span></div>
+            <p class="mc-desc">영상을 보고 알아서 판별 — 발화가 있으면 speech, 컷이 있으면 scene, 아니면 vision.</p>
+          </button>
+          <button type="button" class="mode-card" data-mode="scene">
             <div class="mc-head"><span class="mc-name">scene</span><span class="badge free">무료</span></div>
             <p class="mc-desc">컷이 또렷한 편집 영상. ffmpeg 씬 감지, API 키 불필요. AI 장면 자막은 키 있을 때만 생성.</p>
           </button>
@@ -54,7 +58,7 @@
             <div class="mc-head"><span class="mc-name">vision</span><span class="badge key">비전</span></div>
             <p class="mc-desc">정적·무음 영상. 모자이크를 비전 LLM이 분석. API 키 필요.</p>
           </button>
-          <input type="hidden" name="mode" id="mode" value="scene">
+          <input type="hidden" name="mode" id="mode" value="auto">
         </div>
 
         <!-- 옵션 -->

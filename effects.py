@@ -266,53 +266,6 @@ def concat_videos(clips: list[Path], output_path: Path, reencode: bool = True) -
 # Vertical reframe — 가로 영상을 숏폼 9:16로 (center-crop / blur 배경)
 # ============================================================================
 
-def _vertical_video_args(
-    target_w: int, target_h: int, blur_bg: bool, focus: str = "center",
-) -> list:
-    """세로 9:16 변환 ffmpeg 인자 — reframe_vertical과 cut_and_reframe_vertical의 단일 출처.
-
-    blur_bg=False: 9:16을 가득 채우도록 확대 후 crop. focus(left/center/right)로
-                   가로 영상에서 어느 쪽을 살릴지 정한다 (피사체가 옆에 있을 때).
-    blur_bg=True:  원본을 흐린 배경 위에 폭 맞춰 얹음 (잘림 없음 — focus 무관).
-    """
-    if blur_bg:
-        fc = (
-            f"[0:v]split[a][b];"
-            f"[a]scale={target_w}:{target_h}:force_original_aspect_ratio=increase,"
-            f"crop={target_w}:{target_h},boxblur=24:2[bg];"
-            f"[b]scale={target_w}:{target_h}:force_original_aspect_ratio=decrease[fg];"
-            f"[bg][fg]overlay=(W-w)/2:(H-h)/2[vout]"
-        )
-        return ["-filter_complex", fc, "-map", "[vout]"]
-    x = {"left": "0", "right": "iw-ow"}.get(focus, "(iw-ow)/2")
-    vf = (
-        f"scale={target_w}:{target_h}:force_original_aspect_ratio=increase,"
-        f"crop={target_w}:{target_h}:{x}:(ih-oh)/2"
-    )
-    return ["-vf", vf, "-map", "0:v:0"]
-
-
-def reframe_vertical(
-    input_path: Path,
-    output_path: Path,
-    target_w: int = 1080,
-    target_h: int = 1920,
-    blur_bg: bool = False,
-    focus: str = "center",
-) -> None:
-    """가로(또는 임의 비율) 영상을 세로 9:16로 변환."""
-    video_args = _vertical_video_args(target_w, target_h, blur_bg, focus)
-    subprocess.run(
-        ["ffmpeg", "-y", "-loglevel", "error",
-         "-i", str(input_path), *video_args,
-         "-map", "0:a?",  # 오디오 있으면 매핑, 없으면 조용히 생략
-         "-c:v", "libx264", "-preset", "fast", "-crf", "20",
-         "-c:a", "copy",
-         str(output_path)],
-        check=True,
-    )
-
-
 # ============================================================================
 # Thumbnail — 특정 시점 프레임 1장을 JPG로
 # ============================================================================
@@ -498,16 +451,26 @@ def build_short_footage(
     output_path: Path,
     punchin: bool = True,
     punch_scale: float = 1.08,
+    vertical: bool = False,
+    blur_bg: bool = False,
+    focus: str = "center",
+    target_w: int = 1080,
+    target_h: int = 1920,
 ) -> None:
     """clips(원본 시점 (s, e) 목록)를 잘라 concat. 홀수번째 클립에 punch-in.
 
     점프컷 경계와 punch 가상 컷이 모두 clips로 들어온다. 컷 경계에서
     1.0x↔punch_scale 크롭 줌을 교차해 점프컷을 의도된 리듬으로 보이게 한다.
     페이드인 없음 — 숏츠 첫 프레임이 곧 커버(트렌드 표준).
+
+    vertical=True면 세로 9:16 변환까지 클립 인코딩에 합친다 — 별도
+    리프레임 패스(풀 인코딩 1회)가 사라진다. focus(left/center/right)는
+    가로 영상에서 어느 쪽을 살릴지, blur_bg는 흐린 배경 레터박스 대체.
     """
     w, h = probe_resolution(input_path)
     w -= w % 2
     h -= h % 2
+    vx = {"left": "0", "right": "iw-ow"}.get(focus, "(iw-ow)/2")
     tmpdir = output_path.parent / f".{output_path.stem}_short_tmp"
     tmpdir.mkdir(exist_ok=True)
     try:
@@ -516,10 +479,22 @@ def build_short_footage(
             cp = tmpdir / f"clip_{i:03d}.mp4"
             cmd = ["ffmpeg", "-y", "-loglevel", "error",
                    "-ss", f"{s:.3f}", "-i", str(input_path), "-t", f"{e - s:.3f}"]
-            if punchin and i % 2 == 1:
-                cmd += ["-vf", f"crop=iw/{punch_scale}:ih/{punch_scale},scale={w}:{h}"]
+            punch = f"crop=iw/{punch_scale}:ih/{punch_scale}," if (punchin and i % 2 == 1) else ""
+            if vertical and blur_bg:
+                fc = (
+                    f"[0:v]{punch}split[a][b];"
+                    f"[a]scale={target_w}:{target_h}:force_original_aspect_ratio=increase,"
+                    f"crop={target_w}:{target_h},boxblur=24:2[bg];"
+                    f"[b]scale={target_w}:{target_h}:force_original_aspect_ratio=decrease[fg];"
+                    f"[bg][fg]overlay=(W-w)/2:(H-h)/2[vout]"
+                )
+                cmd += ["-filter_complex", fc, "-map", "[vout]", "-map", "0:a?"]
+            elif vertical:
+                vf = (f"{punch}scale={target_w}:{target_h}:force_original_aspect_ratio=increase,"
+                      f"crop={target_w}:{target_h}:{vx}:(ih-oh)/2")
+                cmd += ["-vf", vf, "-map", "0:v:0", "-map", "0:a?"]
             else:
-                cmd += ["-vf", f"scale={w}:{h}"]  # concat을 위한 해상도 통일
+                cmd += ["-vf", f"{punch}scale={w}:{h}"]  # concat을 위한 해상도 통일
             cmd += ["-c:v", "libx264", "-preset", "fast", "-crf", "20",
                     "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
                     "-avoid_negative_ts", "make_zero", str(cp)]

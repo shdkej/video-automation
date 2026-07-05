@@ -28,6 +28,7 @@ from probe import parse_resolution_csv  # noqa: E402
 from shorts_timeline import Timeline  # noqa: E402
 from pipeline import (  # noqa: E402
     caption_for_segment,
+    decide_auto_mode,
     longform_events,
     pick_intro_clips,
     pick_thumbnail_hook,
@@ -456,6 +457,17 @@ def test_snap_to_word_bounds_snaps_within_shift():
     snapped = snap_to_word_bounds(clip, transcript)
     assert snapped["start"] == 0.3  # 가까운 단어 시작으로
     assert snapped["end"] == 3.8    # 가까운 단어 끝으로
+
+
+def test_decide_auto_mode_cascade():
+    # 발화가 잡히면 무조건 speech
+    assert decide_auto_mode(True, True, 0, True) == "speech"
+    # 무발화 + 씬 체인지 → scene (키 유무 무관)
+    assert decide_auto_mode(True, False, 5, False) == "scene"
+    assert decide_auto_mode(False, None, 3, True) == "scene"
+    # 무발화 + 한 장면(춤·풍경) → vision, 키 없으면 scene 폴백
+    assert decide_auto_mode(False, None, 0, True) == "vision"
+    assert decide_auto_mode(False, None, 0, False) == "scene"
 
 
 def test_segments_from_transcript_clusters_speech():

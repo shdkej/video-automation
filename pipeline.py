@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -46,7 +48,6 @@ from effects import (
     cut_with_xfade,
     extract_thumbnail,
     overlay_hook_text,
-    reframe_vertical,
 )
 from beats import detect_beats, snap_segments_to_beats, snap_to_beat
 from probe import has_audio_stream, has_video_stream, probe_duration, probe_resolution
@@ -250,6 +251,66 @@ def pick_intro_clips(
 # Service — 분석 (mode별로 segments + captions 한 번만 산출)
 # ============================================================================
 
+def decide_auto_mode(
+    has_audio: bool, speech_ok: bool | None, scene_count: int, has_llm_key: bool,
+) -> str:
+    """auto 모드 판별 규칙 (순수) — 신호만 보고 분석 방식을 고른다.
+
+    발화가 잡히면 speech, 아니면 씬 체인지가 있으면 scene, 한 장면짜리
+    무발화(춤·풍경 등)는 vision. 키가 없으면 vision 대신 scene으로
+    (씬 0개여도 scene 경로의 고정 간격 폴백이 받아준다).
+    """
+    if has_audio and speech_ok:
+        return "speech"
+    if scene_count >= 2:
+        return "scene"
+    return "vision" if has_llm_key else "scene"
+
+
+def _auto_detect_mode(args, duration: float, outdir: Path) -> str:
+    """입력 영상의 특성을 실측해 모드를 판별한다.
+
+    - 오디오가 있으면 발화 여부를 전사로 판정. 긴 영상은 앞 90초 샘플만 전사해
+      비용을 아끼고, 짧은 영상(≤100초)은 전체를 전사해 사이드카로 남긴다 —
+      speech로 판별되면 본 분석이 캐시로 재사용해 이중 전사가 없다.
+    """
+    has_audio = has_audio_stream(args.input)
+    speech_ok: bool | None = None
+    if has_audio:
+        if duration <= 100:
+            transcript = transcribe_video(args.input, args.whisper_model, args.language)
+            args.input.with_suffix(".transcript.json").write_text(
+                json.dumps(transcript, ensure_ascii=False))
+        else:
+            probe_wav = outdir / ".mode_probe.wav"
+            subprocess.run(
+                ["ffmpeg", "-y", "-loglevel", "error", "-t", "90",
+                 "-i", str(args.input), "-vn", "-ac", "1", "-ar", "16000", str(probe_wav)],
+                check=True,
+            )
+            try:
+                transcript = transcribe_video(probe_wav, args.whisper_model, args.language)
+            finally:
+                probe_wav.unlink(missing_ok=True)
+        try:
+            validate_transcript_quality(transcript)
+            speech_ok = True
+        except ValueError:
+            speech_ok = False
+
+    scene_count = 0
+    if not (has_audio and speech_ok):
+        scene_count = len(detect_scene_changes(args.input, args.scene_threshold))
+
+    has_key = bool(os.environ.get("OPENAI_API_KEY") or os.environ.get("ANTHROPIC_API_KEY"))
+    mode = decide_auto_mode(has_audio, speech_ok, scene_count, has_key)
+    print(f"[auto] 오디오={'유' if has_audio else '무'}"
+          + (f", 발화={'유' if speech_ok else '무'}" if speech_ok is not None else "")
+          + (f", 씬 {scene_count}개" if not (has_audio and speech_ok) else "")
+          + f" → {mode} 모드")
+    return mode
+
+
 def _load_or_detect_beats(args, outdir: Path) -> list:
     """소스 오디오의 비트 그리드 — outputs/beats.json에 캐시(재생성 재사용).
 
@@ -320,13 +381,15 @@ def analyze(args, outdir: Path) -> tuple:
     if args.cache and sel_path.exists() and cap_path.exists():
         print("[분석] 캐시된 selection.json/captions.json 재사용 (LLM/분석 생략)")
         transcript = None
-        if args.mode == "speech":
-            tpath = args.input.with_suffix(".transcript.json")
-            if tpath.exists():
-                transcript = json.loads(tpath.read_text())
+        tpath = args.input.with_suffix(".transcript.json")
+        if tpath.exists():  # 모드와 무관하게 사이드카가 있으면 로드 (auto 재생성 호환)
+            transcript = json.loads(tpath.read_text())
         return json.loads(sel_path.read_text()), json.loads(cap_path.read_text()), transcript
 
     duration = probe_duration(args.input)
+
+    if args.mode == "auto":
+        args.mode = _auto_detect_mode(args, duration, outdir)
 
     if args.mode == "scene":
         print(f"[분석] scene 모드 (threshold={args.scene_threshold})")
@@ -335,20 +398,16 @@ def analyze(args, outdir: Path) -> tuple:
             scenes, duration, args.target_minutes * 60, args.clip_seconds,
         )
         if not segments:
-            if getattr(args, "subtitle_only", False):
-                # 자막만 모드는 컷 선정이 목적이 아니므로 고정 간격 구간으로 진행
-                # (한 장면짜리 영상에서 자막 타이밍 슬롯을 만들기 위함)
-                step = args.clip_seconds
-                segments = [
-                    {"start": round(t, 3), "end": round(min(t + step, duration), 3)}
-                    for t in (i * step for i in range(int(duration // step) + 1))
-                    if duration - t >= 1.0
-                ]
-            else:
-                raise PipelineError(
-                    f"씬 체인지가 감지되지 않습니다 (threshold={args.scene_threshold}). "
-                    f"--scene-threshold를 더 낮게 (예: 0.1) 시도해보세요."
-                )
+            # 한 장면짜리 영상 — 에러 대신 고정 간격 구간으로 진행 (산출 최소 보장)
+            print(f"  ⚠ 씬 체인지 0개 (threshold={args.scene_threshold}) — 고정 간격 구간으로 폴백")
+            step = args.clip_seconds
+            segments = [
+                {"start": round(t, 3), "end": round(min(t + step, duration), 3)}
+                for t in (i * step for i in range(int(duration // step) + 1))
+                if duration - t >= 1.0
+            ]
+            if not segments:
+                raise PipelineError("영상이 너무 짧습니다 (1초 미만).")
         segments = snap_segments_to_beats(segments, _load_or_detect_beats(args, outdir))
         return segments, _scene_captions_safe(args, segments, outdir), None
 
@@ -573,14 +632,14 @@ def build_one_short(
     clips = (list(tl.intervals) if args.no_shorts_punchin
              else punch_plan(tl.intervals, beats=_load_beats(outdir)))
 
-    raw = outdir / f".{stem}_raw.mp4"
     vert = outdir / f".{stem}_vert.mp4"
     subbed = outdir / f".{stem}_sub.mp4"
     final = outdir / f"{stem}.mp4"
     try:
-        build_short_footage(args.input, clips, raw, punchin=not args.no_shorts_punchin)
-        reframe_vertical(raw, vert, blur_bg=args.shorts_blur,
-                         focus=getattr(args, "shorts_focus", "center"))
+        # 컷+세로 변환을 한 패스로 — 클립별 인코딩에 리프레임까지 합쳐져 있다
+        build_short_footage(args.input, clips, vert, punchin=not args.no_shorts_punchin,
+                            vertical=True, blur_bg=args.shorts_blur,
+                            focus=getattr(args, "shorts_focus", "center"))
 
         events = shorts_events(spec, transcript, tl)
         hook = (spec.get("hook") or spec.get("caption", "")).strip() or None
@@ -615,7 +674,7 @@ def build_one_short(
               f"점프컷 {tl.cut_count} · 화면변화 {changes / max(tl.duration, 0.1):.1f}/s")
         return final
     finally:
-        for tmp in (raw, vert, subbed):
+        for tmp in (vert, subbed):
             tmp.unlink(missing_ok=True)
 
 
@@ -865,8 +924,8 @@ def main() -> None:
 
     # 분석
     parser.add_argument(
-        "--mode", choices=["speech", "scene", "vision"], default="speech",
-        help="speech: 음성+LLM(자막 가능), scene: 씬 감지(무료), vision: 모자이크+비전 LLM",
+        "--mode", choices=["auto", "speech", "scene", "vision"], default="auto",
+        help="auto: 영상 특성 자동 판별(기본), speech: 음성+LLM, scene: 씬 감지(무료), vision: 모자이크+비전 LLM",
     )
     parser.add_argument("-t", "--target-minutes", type=float, default=10.0, help="롱폼 목표 길이(분)")
     parser.add_argument("--scene-threshold", type=float, default=0.3, help="scene 모드 임계값")

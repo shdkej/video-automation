@@ -4,6 +4,7 @@ const show = (el) => el.classList.remove("hidden");
 const hide = (el) => el.classList.add("hidden");
 
 const MODE_NOTES = {
+  auto: "영상 특성(발화·씬·오디오)을 실측해서 분석 방식을 자동으로 고릅니다. 뭘 고를지 모르겠으면 이걸로.",
   scene: "ffmpeg 씬 감지로 컷 포인트를 찾습니다. API 키 불필요·무료. 자막은 speech 모드에서만 들어갑니다.",
   speech: "Whisper가 음성을 받아 적고 LLM이 핵심 구간을 고른 뒤 한국어 자막을 입힙니다. .env에 OPENAI_API_KEY 또는 ANTHROPIC_API_KEY 필요.",
   vision: "정적·무음 영상용. 시점별 모자이크 한 장을 비전 LLM이 분석합니다. API 키 필요.",
@@ -45,7 +46,7 @@ function selectMode(mode) {
   $("footer-mode").textContent = mode;
 }
 cards.forEach((c) => c.addEventListener("click", () => selectMode(c.dataset.mode)));
-selectMode("scene");
+selectMode("auto");
 
 // ---------- 드롭존 ----------
 const dz = $("dropzone");
@@ -212,6 +213,8 @@ function renderResults(jobId, job) {
   const bits = [];
   if (job.source_count > 1) bits.push(`${job.source_count}개 소스 결합`);
   if (job.segment_count != null) bits.push(`선정 구간 ${job.segment_count}개`);
+  if (job.mode_detected) bits.push(`자동 판별 → ${job.mode_detected}`);
+  (job.notes || []).forEach((n) => bits.push(n));
   const u = job.llm_usage;
   if (u && u.calls) bits.push(`LLM ~$${u.usd} (${u.calls}콜, 추정)`);
   if (job.bgm_track) bits.push(`BGM ${job.bgm_track}${job.bgm_credit ? ` (${job.bgm_credit})` : ""}`);

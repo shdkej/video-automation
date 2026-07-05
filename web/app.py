@@ -32,6 +32,7 @@ sys.path.insert(0, str(ROOT))
 import pipeline as pl  # noqa: E402
 from auto_cut import BGM_MOODS, get_llm_usage, reset_llm_usage  # noqa: E402
 from beats import detect_beats  # noqa: E402
+from probe import probe_resolution  # noqa: E402
 from effects import add_bgm  # noqa: E402
 
 BASE = Path(__file__).resolve().parent
@@ -165,8 +166,16 @@ def _run_job(job_id: str, input_paths: list[Path], opts: dict) -> None:
         (outdir / "selection.json").write_text(json.dumps(segments, ensure_ascii=False, indent=2))
         (outdir / "captions.json").write_text(json.dumps(captions, ensure_ascii=False, indent=2))
         job["segment_count"] = len(segments)
+        if opts["mode"] == "auto":
+            job["mode_detected"] = args.mode  # analyze가 판별 결과로 치환
 
         wanted = [w for w in pl.WANTED if w in opts.get("outputs", pl.WANTED)]
+
+        # 세로 입력엔 16:9 롱폼이 성립하지 않는다 — 건너뛰고 사유를 남긴다
+        vw, vh = probe_resolution(input_path)
+        if vh > vw and "longform" in wanted and not opts.get("subtitle_only"):
+            wanted = [x for x in wanted if x != "longform"]
+            job.setdefault("notes", []).append("세로 입력 — 16:9 롱폼은 건너뜀")
 
         outputs: dict = {}
         if opts.get("subtitle_only"):
@@ -364,8 +373,8 @@ async def create_job(
     beat_sync: bool = Form(True),
     bgm_auto: bool = Form(True),
 ):
-    if mode not in ("speech", "scene", "vision"):
-        raise HTTPException(400, "mode는 speech/scene/vision 중 하나")
+    if mode not in ("auto", "speech", "scene", "vision"):
+        raise HTTPException(400, "mode는 auto/speech/scene/vision 중 하나")
     if not outputs or set(outputs) - set(pl.WANTED):
         raise HTTPException(400, f"outputs는 {'/'.join(pl.WANTED)} 중에서 1개 이상")
     if sub_engine not in ("pil", "remotion"):
