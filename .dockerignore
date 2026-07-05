@@ -12,3 +12,4 @@ docs
 *.mov
 .env
 .venv
+web/music

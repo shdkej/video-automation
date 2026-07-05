@@ -30,7 +30,8 @@ from fastapi.staticfiles import StaticFiles
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 import pipeline as pl  # noqa: E402
-from auto_cut import get_llm_usage, reset_llm_usage  # noqa: E402
+from auto_cut import BGM_MOODS, get_llm_usage, reset_llm_usage  # noqa: E402
+from beats import detect_beats  # noqa: E402
 from effects import add_bgm  # noqa: E402
 
 BASE = Path(__file__).resolve().parent
@@ -176,6 +177,11 @@ def _run_job(job_id: str, input_paths: list[Path], opts: dict) -> None:
             if (outdir / "subtitled.srt").is_file():
                 outputs["srt"] = "subtitled.srt"
             bgm = _find_bgm(JOBS_DIR / job_id)
+            if bgm is None and opts.get("bgm_auto", True):
+                bgm = _auto_pick_bgm(outdir)
+                if bgm:
+                    job["bgm_track"] = bgm.name
+                    job["bgm_credit"] = _track_meta(bgm).get("credit")
             if bgm:
                 stage("BGM 입히는 중", 90)
                 mixed = outdir / ".subtitled.bgm.mp4"
@@ -222,6 +228,11 @@ def _run_job(job_id: str, input_paths: list[Path], opts: dict) -> None:
             outputs["srt"] = "longform.srt"
 
         bgm = _find_bgm(JOBS_DIR / job_id)
+        if bgm is None and opts.get("bgm_auto", True):
+            bgm = _auto_pick_bgm(outdir)
+            if bgm:
+                job["bgm_track"] = bgm.name
+                job["bgm_credit"] = _track_meta(bgm).get("credit")
         if bgm:
             stage("BGM 입히는 중", 96)
             videos_out = ([outputs.get("longform")] if outputs.get("longform") else []) \
@@ -250,6 +261,53 @@ def _run_job(job_id: str, input_paths: list[Path], opts: dict) -> None:
 def _find_bgm(job_dir: Path) -> Path | None:
     """잡 폴더의 BGM 파일 — 재생성 때도 재사용된다."""
     return next(iter(job_dir.glob("bgm.*")), None)
+
+
+# BGM 라이브러리 — hostPath 마운트(파드 교체에도 유지), 무드 폴더별 mp3 + 메타(.json)
+MUSIC_DIR = BASE / "music"
+
+
+def _track_meta(p: Path) -> dict:
+    meta = p.with_name(p.name + ".json")
+    if meta.is_file():
+        try:
+            return json.loads(meta.read_text())
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {}
+
+
+def _auto_pick_bgm(outdir: Path) -> Path | None:
+    """LLM이 고른 무드(mood.json) + 라이브러리에서 자동 선곡.
+
+    영상 자체 템포(beats.json)가 있으면 BPM이 가장 가까운 곡, 없으면 첫 곡.
+    """
+    mpath = outdir / "mood.json"
+    if not mpath.is_file():
+        return None
+    try:
+        mood = json.loads(mpath.read_text()).get("mood")
+    except (json.JSONDecodeError, OSError):
+        return None
+    d = MUSIC_DIR / str(mood)
+    tracks = sorted(d.glob("*.mp3")) if d.is_dir() else []
+    if not tracks:
+        return None
+    target_bpm = None
+    bjson = outdir / "beats.json"
+    if bjson.is_file():
+        try:
+            vb = json.loads(bjson.read_text())
+            if len(vb) > 1:
+                target_bpm = 60.0 / (vb[1] - vb[0])
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    def distance(p: Path) -> float:
+        bpm = _track_meta(p).get("bpm")
+        return abs(bpm - target_bpm) if (bpm and target_bpm) else 9999.0
+
+    return min(tracks, key=distance)
 
 
 def _save_uploads(files: list[UploadFile], job_dir: Path) -> list[Path]:
@@ -304,6 +362,7 @@ async def create_job(
     bgm_volume: float = Form(0.3),
     subtitle_only: bool = Form(False),
     beat_sync: bool = Form(True),
+    bgm_auto: bool = Form(True),
 ):
     if mode not in ("speech", "scene", "vision"):
         raise HTTPException(400, "mode는 speech/scene/vision 중 하나")
@@ -344,6 +403,7 @@ async def create_job(
         "outputs": None, "error": None, "mode": mode,
         "source_count": len(input_paths),
         "subtitle_only": subtitle_only, "beat_sync": beat_sync,
+        "bgm_auto": bgm_auto,
     }
     opts = {
         "mode": mode, "target_minutes": target_minutes,
@@ -358,6 +418,7 @@ async def create_job(
         "shorts_ideal_seconds": shorts_ideal_seconds,
         "shorts_focus": shorts_focus, "bgm_volume": bgm_volume,
         "subtitle_only": subtitle_only, "beat_sync": beat_sync,
+        "bgm_auto": bgm_auto,
     }
     threading.Thread(target=_run_job, args=(job_id, input_paths, opts), daemon=True).start()
     return {"job_id": job_id}
@@ -386,6 +447,7 @@ async def rebuild_job(
     bgm_volume: float = Form(0.3),
     subtitle_only: bool = Form(False),
     beat_sync: bool = Form(True),
+    bgm_auto: bool = Form(True),
 ):
     """기존 잡의 분석(selection.json)을 재사용해 산출 옵션만 바꿔 다시 생성.
 
@@ -419,6 +481,7 @@ async def rebuild_job(
         "outputs": None, "error": None, "mode": mode,
         "source_count": prev.get("source_count", len(input_paths)),
         "subtitle_only": subtitle_only, "beat_sync": beat_sync,
+        "bgm_auto": bgm_auto,
     }
     opts = {
         "mode": mode, "target_minutes": target_minutes,
@@ -433,6 +496,7 @@ async def rebuild_job(
         "shorts_ideal_seconds": shorts_ideal_seconds,
         "shorts_focus": shorts_focus, "bgm_volume": bgm_volume,
         "subtitle_only": subtitle_only, "beat_sync": beat_sync,
+        "bgm_auto": bgm_auto,
     }
     threading.Thread(target=_run_job, args=(job_id, input_paths, opts), daemon=True).start()
     return {"job_id": job_id}
@@ -486,6 +550,37 @@ async def get_job(job_id: str):
         "outputs": outputs, "error": None, "mode": None,
         "source_count": None, "segment_count": segment_count,
     }
+
+
+@app.get("/api/music")
+async def list_music():
+    """BGM 라이브러리 목록 — 무드별 곡과 BPM/크레딧 메타."""
+    lib = {}
+    for mood in BGM_MOODS:
+        d = MUSIC_DIR / mood
+        lib[mood] = ([{"name": p.name, **_track_meta(p)} for p in sorted(d.glob("*.mp3"))]
+                     if d.is_dir() else [])
+    return {"moods": lib}
+
+
+@app.post("/api/music/{mood}")
+async def upload_music(mood: str, file: UploadFile, credit: str = Form("")):
+    """무드 폴더에 곡 추가 — 업로드 즉시 BPM을 측정해 메타로 남긴다."""
+    if mood not in BGM_MOODS:
+        raise HTTPException(400, f"mood는 {'/'.join(BGM_MOODS)} 중 하나")
+    if not file.filename or not file.filename.lower().endswith((".mp3", ".m4a", ".wav")):
+        raise HTTPException(400, "mp3/m4a/wav 오디오 파일이 필요합니다")
+    d = MUSIC_DIR / mood
+    d.mkdir(parents=True, exist_ok=True)
+    safe = Path(file.filename).name.replace("/", "_")
+    dest = d / safe
+    with open(dest, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+    b = detect_beats(dest)
+    bpm = round(60.0 / (b[1] - b[0])) if len(b) > 1 else None
+    meta = {"bpm": bpm, "credit": credit.strip() or None}
+    dest.with_name(dest.name + ".json").write_text(json.dumps(meta, ensure_ascii=False))
+    return {"mood": mood, "name": safe, **meta}
 
 
 def _transcript_path(job_id: str) -> Path | None:

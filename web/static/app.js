@@ -131,6 +131,7 @@ $("job-form").addEventListener("submit", async (e) => {
   if ($("bgm_file").files[0]) fd.append("bgm", $("bgm_file").files[0]);
   fd.append("subtitle_only", $("subtitle_only").checked);
   fd.append("beat_sync", $("beat_sync").checked);
+  fd.append("bgm_auto", $("bgm_auto").checked);
   appendSubOpts(fd, $("sub_mode").value);
   if (!$("subtitle_only").checked) {
     const picked = pickedOutputs();
@@ -213,6 +214,7 @@ function renderResults(jobId, job) {
   if (job.segment_count != null) bits.push(`선정 구간 ${job.segment_count}개`);
   const u = job.llm_usage;
   if (u && u.calls) bits.push(`LLM ~$${u.usd} (${u.calls}콜, 추정)`);
+  if (job.bgm_track) bits.push(`BGM ${job.bgm_track}${job.bgm_credit ? ` (${job.bgm_credit})` : ""}`);
   $("seg-info").textContent = bits.join(" · ");
 
   const o = job.outputs || {};

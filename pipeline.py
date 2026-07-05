@@ -280,11 +280,12 @@ def _load_beats(outdir: Path) -> list:
     return []
 
 
-def _scene_captions_safe(args, segments: list) -> list:
+def _scene_captions_safe(args, segments: list, outdir: Path | None = None) -> list:
     """무발화(scene/vision) 구간의 AI 화면 자막 — 끄거나 키가 없거나 실패하면 빈 자막.
 
     성공 시 captions를 채우고 hook/score를 segments에 병합해 숏츠 배너·인트로
-    선정까지 살린다. scene 모드의 '키 없이 무료' 경로는 그대로 보존된다.
+    선정까지 살린다. LLM이 고른 BGM 무드는 outdir/mood.json에 남겨 자동 선곡이
+    쓴다. scene 모드의 '키 없이 무료' 경로는 그대로 보존된다.
     """
     if getattr(args, "no_scene_captions", False):
         return ["" for _ in segments]
@@ -295,7 +296,11 @@ def _scene_captions_safe(args, segments: list) -> list:
         return ["" for _ in segments]
     try:
         print(f"[장면 자막] {args.llm_model} 비전으로 {len(segments)}개 장면 자막 생성…")
-        return generate_scene_captions(args.input, segments, args.llm_model)
+        captions, mood = generate_scene_captions(args.input, segments, args.llm_model)
+        if mood and outdir is not None:
+            (outdir / "mood.json").write_text(json.dumps({"mood": mood}))
+            print(f"  BGM 무드: {mood}")
+        return captions
     except Exception as e:  # noqa: BLE001 — 자막은 부가물, 실패해도 컷은 낸다
         print(f"  ⚠ AI 장면 자막 생성 실패 (자막 없이 진행): {e}")
         return ["" for _ in segments]
@@ -344,7 +349,7 @@ def analyze(args, outdir: Path) -> tuple:
                     f"--scene-threshold를 더 낮게 (예: 0.1) 시도해보세요."
                 )
         segments = snap_segments_to_beats(segments, _load_or_detect_beats(args, outdir))
-        return segments, _scene_captions_safe(args, segments), None
+        return segments, _scene_captions_safe(args, segments, outdir), None
 
     if args.mode == "vision":
         print("[분석] vision 모드 (모자이크 + 비전 LLM)")
@@ -357,7 +362,7 @@ def analyze(args, outdir: Path) -> tuple:
         if not segments:
             raise PipelineError("LLM이 선정한 장면이 없습니다. 모델을 더 큰 것으로 바꿔보세요.")
         segments = snap_segments_to_beats(segments, _load_or_detect_beats(args, outdir))
-        return segments, _scene_captions_safe(args, segments), None
+        return segments, _scene_captions_safe(args, segments, outdir), None
 
     # speech (기본) — 구간은 발화 경계 우선이라 비트 스냅은 안 하지만,
     # 펀치인·인트로가 쓰도록 비트는 감지해 캐시해 둔다.
