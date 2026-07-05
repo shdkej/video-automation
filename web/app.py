@@ -166,7 +166,7 @@ def _run_job(job_id: str, input_paths: list[Path], opts: dict) -> None:
         ]
 
         stage("썸네일 추출", 80)
-        outputs["thumbnail"] = [p.name for p in pl.build_thumbnail(args, segments, outdir)]
+        outputs["thumbnail"] = [p.name for p in pl.build_thumbnail(args, segments, captions, outdir)]
 
         stage("인트로 생성", 92)
         outputs["intro"] = pl.build_intro(args, segments, outdir).name
