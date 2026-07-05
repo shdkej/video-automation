@@ -120,6 +120,7 @@ def _args_from_opts(input_path: Path, outdir: Path, opts: dict) -> SimpleNamespa
         intro_seconds=4.0,
         no_subtitle=bool(opts.get("no_subtitle")), no_grade=False,
         no_scene_captions=not opts.get("scene_captions", True),
+        subtitle_only=bool(opts.get("subtitle_only")),
         sub_font_size=36, sub_margin_v=80, only=None,
         sub_engine=opts.get("sub_engine", "remotion"),
         sub_style=opts.get("sub_style", "fade"),
@@ -164,6 +165,24 @@ def _run_job(job_id: str, input_paths: list[Path], opts: dict) -> None:
         wanted = [w for w in pl.WANTED if w in opts.get("outputs", pl.WANTED)]
 
         outputs: dict = {}
+        if opts.get("subtitle_only"):
+            stage("자막 입히는 중", 60)
+            outputs["subtitled"] = pl.build_subtitle_only(
+                args, segments, captions, outdir, transcript=transcript,
+            ).name
+            if (outdir / "subtitled.srt").is_file():
+                outputs["srt"] = "subtitled.srt"
+            bgm = _find_bgm(JOBS_DIR / job_id)
+            if bgm:
+                stage("BGM 입히는 중", 90)
+                mixed = outdir / ".subtitled.bgm.mp4"
+                add_bgm(outdir / "subtitled.mp4", bgm, mixed,
+                        bgm_volume=float(opts.get("bgm_volume", 0.3)))
+                mixed.replace(outdir / "subtitled.mp4")
+            job["outputs"] = outputs
+            job["status"], job["progress"], job["stage"] = "done", 100, "완료"
+            return
+
         if "longform" in wanted:
             stage("롱폼 생성", 30)
             outputs["longform"] = pl.build_longform(args, segments, captions, outdir, transcript=transcript).name
@@ -279,6 +298,7 @@ async def create_job(
     shorts_ideal_seconds: float = Form(25.0),
     shorts_focus: str = Form("center"),
     bgm_volume: float = Form(0.3),
+    subtitle_only: bool = Form(False),
 ):
     if mode not in ("speech", "scene", "vision"):
         raise HTTPException(400, "mode는 speech/scene/vision 중 하나")
@@ -318,6 +338,7 @@ async def create_job(
         "status": "running", "stage": "대기", "progress": 0,
         "outputs": None, "error": None, "mode": mode,
         "source_count": len(input_paths),
+        "subtitle_only": subtitle_only,
     }
     opts = {
         "mode": mode, "target_minutes": target_minutes,
@@ -331,6 +352,7 @@ async def create_job(
         "shorts_max_seconds": shorts_max_seconds,
         "shorts_ideal_seconds": shorts_ideal_seconds,
         "shorts_focus": shorts_focus, "bgm_volume": bgm_volume,
+        "subtitle_only": subtitle_only,
     }
     threading.Thread(target=_run_job, args=(job_id, input_paths, opts), daemon=True).start()
     return {"job_id": job_id}
@@ -357,6 +379,7 @@ async def rebuild_job(
     shorts_ideal_seconds: float = Form(25.0),
     shorts_focus: str = Form("center"),
     bgm_volume: float = Form(0.3),
+    subtitle_only: bool = Form(False),
 ):
     """기존 잡의 분석(selection.json)을 재사용해 산출 옵션만 바꿔 다시 생성.
 
@@ -383,10 +406,13 @@ async def rebuild_job(
 
     prev = JOBS.get(job_id, {})
     mode = prev.get("mode", "scene")
+    # 자막만 잡의 재생성은 자막만으로 유지 (프론트가 명시하지 않아도)
+    subtitle_only = subtitle_only or bool(prev.get("subtitle_only"))
     JOBS[job_id] = {
         "status": "running", "stage": "재생성 대기", "progress": 0,
         "outputs": None, "error": None, "mode": mode,
         "source_count": prev.get("source_count", len(input_paths)),
+        "subtitle_only": subtitle_only,
     }
     opts = {
         "mode": mode, "target_minutes": target_minutes,
@@ -400,6 +426,7 @@ async def rebuild_job(
         "shorts_max_seconds": shorts_max_seconds,
         "shorts_ideal_seconds": shorts_ideal_seconds,
         "shorts_focus": shorts_focus, "bgm_volume": bgm_volume,
+        "subtitle_only": subtitle_only,
     }
     threading.Thread(target=_run_job, args=(job_id, input_paths, opts), daemon=True).start()
     return {"job_id": job_id}
@@ -422,8 +449,12 @@ def _outputs_from_dir(outdir: Path) -> dict:
         o["thumbnail"] = thumbs
     if (outdir / "intro.mp4").is_file():
         o["intro"] = "intro.mp4"
+    if (outdir / "subtitled.mp4").is_file():
+        o["subtitled"] = "subtitled.mp4"
     if (outdir / "longform.srt").is_file():
         o["srt"] = "longform.srt"
+    elif (outdir / "subtitled.srt").is_file():
+        o["srt"] = "subtitled.srt"
     return o
 
 

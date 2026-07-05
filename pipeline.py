@@ -46,7 +46,7 @@ from effects import (
     overlay_hook_text,
     reframe_vertical,
 )
-from probe import has_audio_stream, has_video_stream, probe_duration
+from probe import has_audio_stream, has_video_stream, probe_duration, probe_resolution
 from shorts_timeline import plan_short, punch_plan
 from subtitle import render_subtitled
 from subtitle_remotion import render_subtitled_remotion
@@ -287,10 +287,20 @@ def analyze(args, outdir: Path) -> tuple:
             scenes, duration, args.target_minutes * 60, args.clip_seconds,
         )
         if not segments:
-            raise PipelineError(
-                f"씬 체인지가 감지되지 않습니다 (threshold={args.scene_threshold}). "
-                f"--scene-threshold를 더 낮게 (예: 0.1) 시도해보세요."
-            )
+            if getattr(args, "subtitle_only", False):
+                # 자막만 모드는 컷 선정이 목적이 아니므로 고정 간격 구간으로 진행
+                # (한 장면짜리 영상에서 자막 타이밍 슬롯을 만들기 위함)
+                step = args.clip_seconds
+                segments = [
+                    {"start": round(t, 3), "end": round(min(t + step, duration), 3)}
+                    for t in (i * step for i in range(int(duration // step) + 1))
+                    if duration - t >= 1.0
+                ]
+            else:
+                raise PipelineError(
+                    f"씬 체인지가 감지되지 않습니다 (threshold={args.scene_threshold}). "
+                    f"--scene-threshold를 더 낮게 (예: 0.1) 시도해보세요."
+                )
         return segments, _scene_captions_safe(args, segments), None
 
     if args.mode == "vision":
@@ -565,6 +575,70 @@ def build_thumbnail(args, segments: list, captions: list, outdir: Path) -> list:
     return paths
 
 
+def subtitle_only_events(segments: list, captions: list, transcript: dict | None) -> list:
+    """자막만 모드의 이벤트 — 컷 없이 원본 타임라인 그대로.
+
+    speech는 발화별(단어 타이밍 있으면 카라오케용으로 유지),
+    scene/vision은 구간 캡션을 해당 구간에 그대로 얹는다.
+    """
+    if transcript:
+        events = []
+        for t in transcript.get("segments", []):
+            text = strip_leading_fillers(t["text"].strip())
+            if not text:
+                continue
+            ev = {"text": text, "start": round(t["start"], 3), "end": round(t["end"], 3)}
+            ws = [w for w in t.get("words", []) if w.get("word", "").strip()]
+            if ws:
+                ev["words"] = [
+                    {"text": w["word"].strip(),
+                     "start": round(max(0.0, w["start"] - t["start"]), 3),
+                     "end": round(max(0.0, w["end"] - t["start"]), 3)}
+                    for w in ws
+                ]
+            events.append(ev)
+        return events
+    return [
+        {"text": c.strip(), "start": round(s["start"], 3), "end": round(s["end"], 3)}
+        for s, c in zip(segments, captions) if c.strip()
+    ]
+
+
+def build_subtitle_only(args, segments: list, captions: list, outdir: Path, transcript=None) -> Path:
+    """컷 편집 없이 원본 영상 전체에 자막(+세로면 훅 배너)만 입힌다.
+
+    이미 완성된 숏츠/편집본에 자막만 필요할 때 쓴다. 세로 영상은 숏츠 스타일
+    (카라오케·훅 배너), 가로는 롱폼 스타일. SRT도 함께 남긴다.
+    """
+    events = subtitle_only_events(segments, captions, transcript)
+    if not events:
+        raise PipelineError("자막으로 쓸 텍스트가 없습니다 (무발화 영상은 AI 장면 자막을 켜세요).")
+    write_srt(events, outdir / "subtitled.srt")
+
+    w, h = probe_resolution(args.input)
+    vertical = h > w
+    hook = pick_thumbnail_hook(segments, captions) if vertical else None
+    final = outdir / "subtitled.mp4"
+    if args.sub_engine == "remotion":
+        render_subtitled_remotion(
+            cut_path=args.input, output=final, captions=[], segments=[], events=events,
+            hook=hook or None, mode="shorts" if vertical else "longform",
+            font_size=_SHORTS_FONT_SIZE if vertical else args.sub_font_size,
+            margin_bottom=_SHORTS_MARGIN_BOTTOM if vertical else args.sub_margin_v,
+            style=args.sub_style,
+        )
+    else:
+        ev_caps = [e["text"] for e in events]
+        ev_windows = [(e["start"], e["end"]) for e in events]
+        render_subtitled(
+            cut_path=args.input, captions=ev_caps,
+            segments=[{"start": s, "end": e} for s, e in ev_windows],
+            output=final, font_size=args.sub_font_size, margin_v=args.sub_margin_v,
+            windows=ev_windows,
+        )
+    return final
+
+
 def build_intro(args, segments: list, outdir: Path, transcript: dict | None = None) -> Path:
     """score 상위 구간 몽타주 + Remotion 훅 배너 + fade.
 
@@ -652,6 +726,12 @@ def run(args) -> None:
         print(f"  ⚠ 숏츠 {args.shorts_count}개 요청했으나 구간이 {len(segments)}개라 그만큼만 생성됩니다.")
     print()
 
+    if getattr(args, "subtitle_only", False):
+        print("[자막만] 컷 편집 없이 원본 전체에 자막을 입힙니다…")
+        out = build_subtitle_only(args, segments, captions, outdir, transcript=transcript)
+        print(f"\n완료 → {out}")
+        return
+
     produced: dict = {}
     failed: list = []
 
@@ -726,6 +806,8 @@ def main() -> None:
     parser.add_argument("--clip-seconds", type=float, default=6.0, help="scene/vision 클립 길이(초)")
     parser.add_argument("--no-scene-captions", action="store_true",
                         help="scene/vision 모드의 AI 화면 자막 생성 끄기 (기본: LLM 키 있으면 생성)")
+    parser.add_argument("--subtitle-only", action="store_true",
+                        help="컷 편집 없이 원본 전체에 자막만 입힘 (이미 완성된 숏츠/편집본용)")
     parser.add_argument("-m", "--whisper-model", default="medium", help="Whisper 모델(speech)")
     parser.add_argument("--language", default="ko", help="언어 코드(auto 가능)")
     parser.add_argument("--llm-model", default=None, help="하이라이트 선정 LLM(claude-*/gpt-*)")

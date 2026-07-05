@@ -18,10 +18,16 @@ function pickedOutputs() {
   return [...document.querySelectorAll(".out-pick:checked")].map((el) => el.value);
 }
 function refreshCtaLabel() {
+  if ($("subtitle_only").checked) { $("cta-label").textContent = "자막만 입히기"; return; }
   const n = pickedOutputs().length;
   $("cta-label").textContent = n === 0 ? "산출물을 선택하세요" : `${KO_COUNT[n]} 가지 만들기`;
 }
 document.querySelectorAll(".out-pick").forEach((el) => el.addEventListener("change", refreshCtaLabel));
+$("subtitle_only").addEventListener("change", () => {
+  // 자막만 모드에선 산출물 선택이 의미 없으므로 흐리게
+  document.querySelectorAll(".out-pick").forEach((el) => { el.closest(".toggle").style.opacity = $("subtitle_only").checked ? 0.35 : 1; });
+  refreshCtaLabel();
+});
 
 function appendSubOpts(fd, subMode) {
   const animated = subMode === "fade" || subMode === "kinetic";
@@ -123,10 +129,13 @@ $("job-form").addEventListener("submit", async (e) => {
   fd.append("clip_seconds", $("clip_sec").value);
   fd.append("bgm_volume", $("bgm_vol").value);
   if ($("bgm_file").files[0]) fd.append("bgm", $("bgm_file").files[0]);
+  fd.append("subtitle_only", $("subtitle_only").checked);
   appendSubOpts(fd, $("sub_mode").value);
-  const picked = pickedOutputs();
-  if (picked.length === 0) { showError("산출물을 하나 이상 선택해주세요."); return; }
-  picked.forEach((o) => fd.append("outputs", o));
+  if (!$("subtitle_only").checked) {
+    const picked = pickedOutputs();
+    if (picked.length === 0) { showError("산출물을 하나 이상 선택해주세요."); return; }
+    picked.forEach((o) => fd.append("outputs", o));
+  }
 
   $("submit-btn").disabled = true;
   try {
@@ -206,6 +215,7 @@ function renderResults(jobId, job) {
   const o = job.outputs || {};
   updateRecentJob(jobId, { out: outputsSummary(o) });
   let html = "";
+  if (o.subtitled) html += cut(jobId, o.subtitled, "자막본", "원본 그대로");
   if (o.longform) html += cut(jobId, o.longform, "롱폼", "16:9");
   (o.shorts || []).forEach((n, i) => (html += cut(jobId, n, `숏츠 ${i + 1}`, "9:16", { vertical: true })));
   (o.shorts_clean || []).forEach((n, i) => (html += cut(jobId, n, `숏츠 ${i + 1} 클린`, "9:16", { vertical: true })));
@@ -300,6 +310,7 @@ function updateRecentJob(id, patch) {
 
 function outputsSummary(o = {}) {
   const parts = [];
+  if (o.subtitled) parts.push("자막본");
   if (o.longform) parts.push("롱폼");
   if (o.shorts && o.shorts.length) parts.push(`숏츠${o.shorts.length}`);
   if (o.shorts_clean && o.shorts_clean.length) parts.push(`클린${o.shorts_clean.length}`);

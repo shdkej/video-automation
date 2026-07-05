@@ -32,6 +32,7 @@ from pipeline import (  # noqa: E402
     snap_to_word_bounds,
     split_media,
     strip_leading_fillers,
+    subtitle_only_events,
 )
 
 
@@ -451,6 +452,24 @@ def test_snap_to_word_bounds_snaps_within_shift():
     snapped = snap_to_word_bounds(clip, transcript)
     assert snapped["start"] == 0.3  # 가까운 단어 시작으로
     assert snapped["end"] == 3.8    # 가까운 단어 끝으로
+
+
+def test_subtitle_only_events_speech_keeps_timeline_and_words():
+    transcript = {"segments": [
+        {"start": 1.0, "end": 3.0, "text": "안녕하세요",
+         "words": [{"word": "안녕", "start": 1.0, "end": 1.8}, {"word": "하세요", "start": 1.8, "end": 3.0}]},
+        {"start": 5.0, "end": 6.0, "text": "  "},  # 빈 발화는 제외
+    ]}
+    events = subtitle_only_events([], [], transcript)
+    assert len(events) == 1
+    assert events[0]["start"] == 1.0 and events[0]["end"] == 3.0  # 원본 타임라인 그대로
+    assert events[0]["words"][0] == {"text": "안녕", "start": 0.0, "end": 0.8}  # 이벤트 기준 상대
+
+
+def test_subtitle_only_events_scene_uses_segment_captions():
+    segs = [{"start": 0.0, "end": 6.0}, {"start": 6.0, "end": 12.0}]
+    events = subtitle_only_events(segs, ["첫 장면", ""], None)
+    assert events == [{"text": "첫 장면", "start": 0.0, "end": 6.0}]  # 빈 캡션 구간 제외
 
 
 def test_snap_to_word_bounds_noop_without_transcript():

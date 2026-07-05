@@ -212,10 +212,11 @@ def render_subtitled_remotion(
     omargin = round(margin_bottom * scale)
 
     # 1) Remotion 투명 오버레이 렌더 (축소 해상도/footage fps)
-    # durationSec은 이벤트가 비어있을 때(인트로 훅 배너 전용) footage 길이를 보장한다.
+    # durationSec은 오버레이가 footage 전체를 덮도록 보장한다 — 오버레이가 더 짧으면
+    # 합성의 overlay=shortest=1이 출력 영상을 마지막 자막 시점에서 잘라버린다.
     render_overlay_webm(events, ow, oh, fps, overlay, font_size=ofont, margin_bottom=omargin,
                         style=style, palette=palette, hook=hook, mode=mode,
-                        duration_sec=probe_duration_sec(cut_path) if not events else None)
+                        duration_sec=probe_duration_sec(cut_path))
 
     # 2) ffmpeg overlay 합성 (VP8 알파 디코딩 위해 입력 앞에 -c:v libvpx, 오디오 보존).
     # 축소 렌더한 오버레이를 footage 크기로 업스케일(scale=1이면 무비용 통과) 후 합성.
