@@ -332,6 +332,18 @@ def _load_or_detect_beats(args, outdir: Path) -> list:
     return b
 
 
+def _banner_theme(outdir: Path) -> str:
+    """무드 → 훅 타이틀 룩. tension은 네온 사인, 나머지는 스티커(기본)."""
+    mpath = outdir / "mood.json"
+    if mpath.is_file():
+        try:
+            if json.loads(mpath.read_text()).get("mood") == "tension":
+                return "neon"
+        except (json.JSONDecodeError, OSError):
+            pass
+    return "sticker"
+
+
 def _load_beats(outdir: Path) -> list:
     bpath = outdir / "beats.json"
     if bpath.is_file():
@@ -652,6 +664,7 @@ def build_one_short(
                 cut_path=vert, output=subbed, captions=[], segments=[],
                 events=events, hook=hook, mode="shorts", style=args.sub_style,
                 font_size=_SHORTS_FONT_SIZE, margin_bottom=_SHORTS_MARGIN_BOTTOM,
+                banner_theme=_banner_theme(outdir),
             )
             src = subbed
         else:
@@ -746,7 +759,7 @@ def build_subtitle_only(args, segments: list, captions: list, outdir: Path, tran
             cut_path=args.input, output=final, captions=[], segments=[], events=events,
             hook=hook, mode="shorts",
             font_size=font, margin_bottom=margin,
-            style=args.sub_style,
+            style=args.sub_style, banner_theme=_banner_theme(outdir),
         )
     else:
         ev_caps = [e["text"] for e in events]
@@ -781,6 +794,7 @@ def build_intro(args, segments: list, outdir: Path, transcript: dict | None = No
                 from subtitle_remotion import render_subtitled_remotion
                 render_subtitled_remotion(
                     raw, [], [], hooked, events=[], hook=hook, mode="intro",
+                    banner_theme=_banner_theme(outdir),
                 )
                 fade_src = hooked
             except Exception as e:  # noqa: BLE001 — 배너는 장식, 실패해도 인트로는 낸다
