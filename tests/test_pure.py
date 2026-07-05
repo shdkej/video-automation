@@ -20,6 +20,7 @@ from auto_cut import (  # noqa: E402
     total_duration,
     validate_segments,
 )
+from beats import beats_from_envelope, snap_segments_to_beats, snap_to_beat  # noqa: E402
 from effects import compute_xfade_windows  # noqa: E402
 from probe import parse_resolution_csv  # noqa: E402
 from shorts_timeline import Timeline  # noqa: E402
@@ -453,6 +454,71 @@ def test_snap_to_word_bounds_snaps_within_shift():
     snapped = snap_to_word_bounds(clip, transcript)
     assert snapped["start"] == 0.3  # 가까운 단어 시작으로
     assert snapped["end"] == 3.8    # 가까운 단어 끝으로
+
+
+# ---------------------------------------------------------------------------
+# beats — 비트 감지·스냅 (리듬 싱크)
+# ---------------------------------------------------------------------------
+
+def _click_envelope(bpm=120.0, seconds=30.0, hop=0.02):
+    import numpy as np
+    n = int(seconds / hop)
+    env = np.zeros(n, dtype=np.float32)
+    step = (60.0 / bpm) / hop
+    t = 0.0
+    while t < n:
+        env[int(t)] = 1.0
+        t += step
+    return env
+
+
+def test_beats_from_envelope_recovers_click_grid():
+    beats = beats_from_envelope(_click_envelope(bpm=120), hop_sec=0.02)
+    assert len(beats) > 30
+    period = beats[1] - beats[0]
+    assert abs(period - 0.5) < 0.05  # 120 BPM ≈ 0.5초 간격
+
+
+def test_beats_from_envelope_rejects_silence_and_noise():
+    import numpy as np
+    assert beats_from_envelope(np.zeros(2000, dtype=np.float32)) == []
+    assert beats_from_envelope(np.zeros(10, dtype=np.float32)) == []
+
+
+def test_snap_to_beat_within_shift_only():
+    beats = [0.0, 0.5, 1.0, 1.5]
+    assert snap_to_beat(0.62, beats) == 0.5
+    assert snap_to_beat(3.0, beats) == 3.0  # 너무 멀면 그대로
+    assert snap_to_beat(1.2, beats, max_shift=0.1) == 1.2
+
+
+def test_snap_segments_to_beats_keeps_min_length():
+    beats = [i * 0.5 for i in range(40)]
+    segs = [{"start": 1.1, "end": 7.2, "hook": "유지"}]
+    out = snap_segments_to_beats(segs, beats)
+    assert out[0]["start"] == 1.0 and out[0]["end"] == 7.0
+    assert out[0]["hook"] == "유지"  # 다른 필드 보존
+    tiny = [{"start": 0.9, "end": 1.6}]  # 스냅하면 1.0~1.5(0.5초) → 원본 유지
+    assert snap_segments_to_beats(tiny, beats) == tiny
+
+
+def test_punch_plan_cuts_on_beats():
+    from shorts_timeline import punch_plan
+    beats = [i * 2.0 for i in range(30)]  # 2초 간격 비트
+    clips = punch_plan([(1.0, 13.0)], beats=beats)
+    # 컷 경계가 비트 시각(2,4,6,...)에 놓인다
+    inner = [round(s, 3) for s, _ in clips[1:]]
+    assert inner and all(b % 2.0 == 0 for b in inner)
+    # 손실 없음: 전체 구간이 그대로 덮인다
+    assert clips[0][0] == 1.0 and clips[-1][1] == 13.0
+    for (a, b), (c, d) in zip(clips, clips[1:]):
+        assert b == c
+
+
+def test_punch_plan_without_beats_unchanged():
+    from shorts_timeline import punch_plan
+    clips = punch_plan([(0.0, 12.0)])
+    assert clips[0][0] == 0.0 and clips[-1][1] == 12.0
 
 
 def test_parse_resolution_csv_handles_rotation_side_data():

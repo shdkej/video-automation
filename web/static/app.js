@@ -130,6 +130,7 @@ $("job-form").addEventListener("submit", async (e) => {
   fd.append("bgm_volume", $("bgm_vol").value);
   if ($("bgm_file").files[0]) fd.append("bgm", $("bgm_file").files[0]);
   fd.append("subtitle_only", $("subtitle_only").checked);
+  fd.append("beat_sync", $("beat_sync").checked);
   appendSubOpts(fd, $("sub_mode").value);
   if (!$("subtitle_only").checked) {
     const picked = pickedOutputs();

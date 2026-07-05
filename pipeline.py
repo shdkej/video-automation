@@ -46,6 +46,7 @@ from effects import (
     overlay_hook_text,
     reframe_vertical,
 )
+from beats import detect_beats, snap_segments_to_beats, snap_to_beat
 from probe import has_audio_stream, has_video_stream, probe_duration, probe_resolution
 from shorts_timeline import plan_short, punch_plan
 from subtitle import render_subtitled
@@ -208,12 +209,14 @@ def snap_to_word_bounds(clip: dict, transcript: dict | None, max_shift: float = 
 
 def pick_intro_clips(
     segments: list, intro_sec: float, transcript: dict | None = None, max_clips: int = 3,
+    beats: list | None = None,
 ) -> tuple[list, str | None]:
     """인트로 몽타주 클립 선정 — score 상위 구간을 시간순으로 잇는다.
 
     선정은 LLM의 숏폼 임팩트 score 내림차순(없는 구캐시/scene은 구간 길이 폴백),
     출력은 시간순 정렬(몽타주가 이야기 순서를 따르도록). 각 클립은 구간 앞부분
-    intro_sec/k초를 쓰고 발화 경계에 스냅한다. hook은 최고 score 구간의 것.
+    intro_sec/k초를 쓰고, 발화가 있으면 발화 경계·없으면 비트에 스냅한다.
+    hook은 최고 score 구간의 것.
     """
     has_score = any(s.get("score") is not None for s in segments)
     key = (lambda s: s.get("score") or 0) if has_score else (lambda s: s["end"] - s["start"])
@@ -227,7 +230,14 @@ def pick_intro_clips(
     clips = []
     for seg in ranked[:k]:
         end = min(seg["end"], seg["start"] + per_clip)
-        clips.append(snap_to_word_bounds({"start": seg["start"], "end": end}, transcript))
+        clip = {"start": seg["start"], "end": end}
+        if transcript:
+            clip = snap_to_word_bounds(clip, transcript)
+        elif beats:
+            ns, ne = snap_to_beat(clip["start"], beats), snap_to_beat(clip["end"], beats)
+            if ne - ns >= 0.8:
+                clip = {"start": round(ns, 3), "end": round(ne, 3)}
+        clips.append(clip)
     clips.sort(key=lambda c: c["start"])
 
     hook = next((s.get("hook") for s in ranked if s.get("hook")), None)
@@ -237,6 +247,37 @@ def pick_intro_clips(
 # ============================================================================
 # Service — 분석 (mode별로 segments + captions 한 번만 산출)
 # ============================================================================
+
+def _load_or_detect_beats(args, outdir: Path) -> list:
+    """소스 오디오의 비트 그리드 — outputs/beats.json에 캐시(재생성 재사용).
+
+    비트는 보조 신호다: 무오디오/무리듬이면 빈 목록이고 모든 스냅은 no-op.
+    """
+    if getattr(args, "no_beat_sync", False):
+        return []
+    bpath = outdir / "beats.json"
+    if bpath.is_file():
+        try:
+            return json.loads(bpath.read_text())
+        except (json.JSONDecodeError, OSError):
+            pass
+    b = detect_beats(args.input) if has_audio_stream(args.input) else []
+    bpath.write_text(json.dumps(b))
+    if b:
+        bpm = 60.0 / (b[1] - b[0]) if len(b) > 1 else 0
+        print(f"[비트] {len(b)}개 감지 (~{bpm:.0f} BPM) — 컷·펀치인을 리듬에 스냅합니다")
+    return b
+
+
+def _load_beats(outdir: Path) -> list:
+    bpath = outdir / "beats.json"
+    if bpath.is_file():
+        try:
+            return json.loads(bpath.read_text())
+        except (json.JSONDecodeError, OSError):
+            pass
+    return []
+
 
 def _scene_captions_safe(args, segments: list) -> list:
     """무발화(scene/vision) 구간의 AI 화면 자막 — 끄거나 키가 없거나 실패하면 빈 자막.
@@ -301,6 +342,7 @@ def analyze(args, outdir: Path) -> tuple:
                     f"씬 체인지가 감지되지 않습니다 (threshold={args.scene_threshold}). "
                     f"--scene-threshold를 더 낮게 (예: 0.1) 시도해보세요."
                 )
+        segments = snap_segments_to_beats(segments, _load_or_detect_beats(args, outdir))
         return segments, _scene_captions_safe(args, segments), None
 
     if args.mode == "vision":
@@ -313,9 +355,12 @@ def analyze(args, outdir: Path) -> tuple:
         mosaic_path.unlink(missing_ok=True)  # 입력 폴더에 잔존하지 않도록 정리
         if not segments:
             raise PipelineError("LLM이 선정한 장면이 없습니다. 모델을 더 큰 것으로 바꿔보세요.")
+        segments = snap_segments_to_beats(segments, _load_or_detect_beats(args, outdir))
         return segments, _scene_captions_safe(args, segments), None
 
-    # speech (기본)
+    # speech (기본) — 구간은 발화 경계 우선이라 비트 스냅은 안 하지만,
+    # 펀치인·인트로가 쓰도록 비트는 감지해 캐시해 둔다.
+    _load_or_detect_beats(args, outdir)
     print("[분석] speech 모드 (Whisper + LLM)")
     resolve_llm_model(args)
     transcript_path = args.input.with_suffix(".transcript.json")
@@ -512,7 +557,8 @@ def build_one_short(
         min_silence=args.shorts_silence_min,
         jumpcut=not args.no_shorts_jumpcut,
     )
-    clips = list(tl.intervals) if args.no_shorts_punchin else punch_plan(tl.intervals)
+    clips = (list(tl.intervals) if args.no_shorts_punchin
+             else punch_plan(tl.intervals, beats=_load_beats(outdir)))
 
     raw = outdir / f".{stem}_raw.mp4"
     vert = outdir / f".{stem}_vert.mp4"
@@ -647,7 +693,8 @@ def build_intro(args, segments: list, outdir: Path, transcript: dict | None = No
     - 훅: 최고 score 구간의 hook 문구를 Remotion 배너로 오버레이
       (sub_engine이 remotion이 아니거나 렌더 실패 시 배너 없이 진행)
     """
-    clips, hook = pick_intro_clips(segments, args.intro_seconds, transcript)
+    clips, hook = pick_intro_clips(segments, args.intro_seconds, transcript,
+                                   beats=_load_beats(outdir))
     raw = outdir / ".intro_raw.mp4"
     hooked = outdir / ".intro_hooked.mp4"
     final = outdir / "intro.mp4"
@@ -808,6 +855,8 @@ def main() -> None:
                         help="scene/vision 모드의 AI 화면 자막 생성 끄기 (기본: LLM 키 있으면 생성)")
     parser.add_argument("--subtitle-only", action="store_true",
                         help="컷 편집 없이 원본 전체에 자막만 입힘 (이미 완성된 숏츠/편집본용)")
+    parser.add_argument("--no-beat-sync", action="store_true",
+                        help="비트 싱크 끄기 (기본: 소스 오디오의 리듬에 컷·펀치인 스냅)")
     parser.add_argument("-m", "--whisper-model", default="medium", help="Whisper 모델(speech)")
     parser.add_argument("--language", default="ko", help="언어 코드(auto 가능)")
     parser.add_argument("--llm-model", default=None, help="하이라이트 선정 LLM(claude-*/gpt-*)")

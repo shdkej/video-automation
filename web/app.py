@@ -121,6 +121,7 @@ def _args_from_opts(input_path: Path, outdir: Path, opts: dict) -> SimpleNamespa
         no_subtitle=bool(opts.get("no_subtitle")), no_grade=False,
         no_scene_captions=not opts.get("scene_captions", True),
         subtitle_only=bool(opts.get("subtitle_only")),
+        no_beat_sync=not opts.get("beat_sync", True),
         sub_font_size=36, sub_margin_v=80, only=None,
         sub_engine=opts.get("sub_engine", "remotion"),
         sub_style=opts.get("sub_style", "fade"),
@@ -299,6 +300,7 @@ async def create_job(
     shorts_focus: str = Form("center"),
     bgm_volume: float = Form(0.3),
     subtitle_only: bool = Form(False),
+    beat_sync: bool = Form(True),
 ):
     if mode not in ("speech", "scene", "vision"):
         raise HTTPException(400, "mode는 speech/scene/vision 중 하나")
@@ -338,7 +340,7 @@ async def create_job(
         "status": "running", "stage": "대기", "progress": 0,
         "outputs": None, "error": None, "mode": mode,
         "source_count": len(input_paths),
-        "subtitle_only": subtitle_only,
+        "subtitle_only": subtitle_only, "beat_sync": beat_sync,
     }
     opts = {
         "mode": mode, "target_minutes": target_minutes,
@@ -352,7 +354,7 @@ async def create_job(
         "shorts_max_seconds": shorts_max_seconds,
         "shorts_ideal_seconds": shorts_ideal_seconds,
         "shorts_focus": shorts_focus, "bgm_volume": bgm_volume,
-        "subtitle_only": subtitle_only,
+        "subtitle_only": subtitle_only, "beat_sync": beat_sync,
     }
     threading.Thread(target=_run_job, args=(job_id, input_paths, opts), daemon=True).start()
     return {"job_id": job_id}
@@ -380,6 +382,7 @@ async def rebuild_job(
     shorts_focus: str = Form("center"),
     bgm_volume: float = Form(0.3),
     subtitle_only: bool = Form(False),
+    beat_sync: bool = Form(True),
 ):
     """기존 잡의 분석(selection.json)을 재사용해 산출 옵션만 바꿔 다시 생성.
 
@@ -412,7 +415,7 @@ async def rebuild_job(
         "status": "running", "stage": "재생성 대기", "progress": 0,
         "outputs": None, "error": None, "mode": mode,
         "source_count": prev.get("source_count", len(input_paths)),
-        "subtitle_only": subtitle_only,
+        "subtitle_only": subtitle_only, "beat_sync": beat_sync,
     }
     opts = {
         "mode": mode, "target_minutes": target_minutes,
@@ -426,7 +429,7 @@ async def rebuild_job(
         "shorts_max_seconds": shorts_max_seconds,
         "shorts_ideal_seconds": shorts_ideal_seconds,
         "shorts_focus": shorts_focus, "bgm_volume": bgm_volume,
-        "subtitle_only": subtitle_only,
+        "subtitle_only": subtitle_only, "beat_sync": beat_sync,
     }
     threading.Thread(target=_run_job, args=(job_id, input_paths, opts), daemon=True).start()
     return {"job_id": job_id}

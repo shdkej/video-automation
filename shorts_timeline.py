@@ -113,13 +113,26 @@ def plan_short(
     return Timeline(cut_silences(start, end, words, min_silence=min_silence))
 
 
-def punch_plan(intervals: list, period: float = 4.0) -> list:
+def punch_plan(intervals: list, period: float = 4.0, beats: list | None = None) -> list:
     """punch-in 교차용 서브클립 경계. 점프컷이 있으면 그 경계를 그대로 쓰고,
-    통짜 1개가 period*1.5보다 길면 period 간격의 가상 컷으로 쪼갠다(시간 손실 없음).
+    통짜 1개가 길면 가상 컷으로 쪼갠다(시간 손실 없음).
+
+    beats가 있으면 가상 컷을 고정 간격 대신 비트 시각에 놓는다 — 줌 전환이
+    음악 박자에 떨어진다. 컷 최소 간격 max(1.5, period/2)로 과다 컷을 막는다.
     """
     if len(intervals) != 1:
         return list(intervals)
     s, e = intervals[0]
+    if beats:
+        min_gap = max(1.5, period / 2)
+        cuts, last = [], s
+        for b in beats:
+            if s + 1.0 <= b <= e - 1.0 and b - last >= min_gap:
+                cuts.append(b)
+                last = b
+        if cuts:
+            bounds = [s, *cuts, e]
+            return list(zip(bounds[:-1], bounds[1:]))
     if e - s < period * 1.5:
         return [(s, e)]
     clips = []
