@@ -126,7 +126,10 @@ $("job-form").addEventListener("submit", async (e) => {
     const res = await fetch("/api/jobs", { method: "POST", body: fd });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || res.statusText);
     const { job_id } = await res.json();
-    saveRecentJob(job_id, $("mode").value);
+    const srcName = pickedFiles.length > 1
+      ? `${pickedFiles[0].name} 외 ${pickedFiles.length - 1}개`
+      : pickedFiles[0].name;
+    saveRecentJob(job_id, { mode: $("mode").value, name: srcName });
     hide($("form-section"));
     show($("progress-section"));
     startPolling(job_id);
@@ -194,6 +197,7 @@ function renderResults(jobId, job) {
   $("seg-info").textContent = bits.join(" · ");
 
   const o = job.outputs || {};
+  updateRecentJob(jobId, { out: outputsSummary(o) });
   let html = "";
   if (o.longform) html += cut(jobId, o.longform, "롱폼", "16:9");
   (o.shorts || []).forEach((n, i) => (html += cut(jobId, n, `숏츠 ${i + 1}`, "9:16", { vertical: true })));
@@ -260,12 +264,34 @@ function recentJobs() {
   try { return JSON.parse(localStorage.getItem(RECENT_KEY)) || []; } catch { return []; }
 }
 
-function saveRecentJob(id, mode) {
+function saveRecentJob(id, meta = {}) {
   const list = recentJobs().filter((j) => j.id !== id);
-  list.unshift({ id, mode, ts: Date.now() });
+  list.unshift({ id, ts: Date.now(), ...meta });
   localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, 15)));
   renderJobPanel();
 }
+
+function updateRecentJob(id, patch) {
+  const list = recentJobs();
+  const idx = list.findIndex((j) => j.id === id);
+  if (idx < 0) return;
+  list[idx] = { ...list[idx], ...patch };
+  localStorage.setItem(RECENT_KEY, JSON.stringify(list));
+  renderJobPanel();
+}
+
+function outputsSummary(o = {}) {
+  const parts = [];
+  if (o.longform) parts.push("롱폼");
+  if (o.shorts && o.shorts.length) parts.push(`숏츠${o.shorts.length}`);
+  if (o.shorts_clean && o.shorts_clean.length) parts.push(`클린${o.shorts_clean.length}`);
+  if (o.thumbnail && o.thumbnail.length) parts.push(`썸네일${o.thumbnail.length}`);
+  if (o.intro) parts.push("인트로");
+  return parts.join(" · ");
+}
+
+const escHtml = (s) => String(s).replace(/[&<>"']/g,
+  (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 function fmtTs(ts) {
   const d = new Date(ts);
@@ -280,8 +306,9 @@ function renderJobPanel() {
   list.forEach((j) => {
     const li = document.createElement("li");
     li.dataset.id = j.id;
-    li.innerHTML = `<span class="jp-title">${fmtTs(j.ts)} · ${j.mode || "?"}</span>
-      <span class="jp-meta"><span>#${j.id.slice(0, 6)}</span><span class="jp-badge" data-badge></span></span>`;
+    li.innerHTML = `<span class="jp-title">${escHtml(j.name || j.mode || "?")}</span>
+      <span class="jp-meta"><span>${fmtTs(j.ts)}</span><span>${escHtml(j.mode || "")}</span><span class="jp-badge" data-badge></span></span>
+      ${j.out ? `<span class="jp-out">${escHtml(j.out)}</span>` : ""}`;
     li.addEventListener("click", () => openJob(j.id, li));
     $("job-list").appendChild(li);
   });

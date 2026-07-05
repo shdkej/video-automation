@@ -494,3 +494,8 @@ h1 .amp {
     margin: 26px auto 0;
   }
 }
+.jp-out {
+  font-size: 11px;
+  color: var(--amber-soft);
+  opacity: 0.85;
+}
