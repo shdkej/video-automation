@@ -669,14 +669,17 @@ def build_subtitle_only(args, segments: list, captions: list, outdir: Path, tran
 
     w, h = probe_resolution(args.input)
     vertical = h > w
-    hook = pick_thumbnail_hook(segments, captions) if vertical else None
+    # 상단 고정 배너 + 하단 카라오케를 가로/세로 공통으로 — 자막만 모드의 기본 룩.
+    # 크기는 세로 해상도 비례(세로 숏츠 기준 56/1920, 가로는 시야가 넓어 살짝 크게).
+    hook = pick_thumbnail_hook(segments, captions) or None
+    font = max(28, round(h * (0.029 if vertical else 0.05)))
+    margin = round(h * (0.30 if vertical else 0.12))
     final = outdir / "subtitled.mp4"
     if args.sub_engine == "remotion":
         render_subtitled_remotion(
             cut_path=args.input, output=final, captions=[], segments=[], events=events,
-            hook=hook or None, mode="shorts" if vertical else "longform",
-            font_size=_SHORTS_FONT_SIZE if vertical else args.sub_font_size,
-            margin_bottom=_SHORTS_MARGIN_BOTTOM if vertical else args.sub_margin_v,
+            hook=hook, mode="shorts",
+            font_size=font, margin_bottom=margin,
             style=args.sub_style,
         )
     else:

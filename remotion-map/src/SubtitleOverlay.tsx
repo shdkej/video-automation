@@ -195,31 +195,49 @@ const Caption: React.FC<{
     extrapolateLeft: 'clamp', extrapolateRight: 'clamp',
   });
 
-  // 숏츠: 카라오케 — 실제 발화 시점에 단어 등장(words). 없으면 균일 stagger 폴백.
+  // 숏츠: 카라오케 — 실제 발화 시점에 단어 등장(words) + 현재 단어 하이라이트.
+  // words가 없으면(AI 장면 자막 등) 이벤트 길이에 비례해 단어를 퍼뜨려 같은 카라오케 느낌을 낸다.
   if (mode === 'shorts') {
     const boxIn = spring({ frame, fps, config: { damping: 20, mass: 0.5 }, durationInFrames: 8 });
-    const stagger = 2;
-    const words: { text: string; startFrame: number }[] = ev.words?.length
-      ? ev.words.map((w) => ({ text: w.text, startFrame: Math.round(w.start * fps) }))
-      : ev.text.split(/\s+/).filter(Boolean).map((t, i) => ({ text: t, startFrame: i * stagger }));
+    let words: { text: string; startFrame: number; endFrame: number }[];
+    if (ev.words?.length) {
+      words = ev.words.map((w, i, arr) => ({
+        text: w.text,
+        startFrame: Math.round(w.start * fps),
+        endFrame: Math.round((arr[i + 1]?.start ?? w.end) * fps),
+      }));
+    } else {
+      const tokens = ev.text.split(/\s+/).filter(Boolean);
+      // 앞 85% 구간에 균등 분배 — 마지막 단어도 잠시 '현재'로 머문다
+      const span = Math.max(tokens.length * 2, Math.round(durationInFrames * 0.85));
+      words = tokens.map((t, i) => ({
+        text: t,
+        startFrame: Math.round((i * span) / tokens.length),
+        endFrame: Math.round(((i + 1) * span) / tokens.length),
+      }));
+    }
     return (
       <Pill fontSize={fontSize} marginBottom={marginBottom}
         containerOpacity={Math.min(boxIn, exit)} containerY={interpolate(boxIn, [0, 1], [20, 0])}>
         {words.map((w, i) => {
           const wf = frame - w.startFrame;
-          // 스케일 펀치: 0.7 → 1.06 → 1.0 안착 (~8프레임), 1.1배 초과 금지
-          const sc = interpolate(wf, [0, 5, 8], [0.7, 1.06, 1.0], {
+          // 등장 펀치: 0.7 → 1.06 → 1.0 안착 (~8프레임)
+          const entrance = interpolate(wf, [0, 5, 8], [0.7, 1.06, 1.0], {
             extrapolateLeft: 'clamp', extrapolateRight: 'clamp',
           });
           const op = interpolate(wf, [0, 4], [0, 1], {
             extrapolateLeft: 'clamp', extrapolateRight: 'clamp',
           });
+          // 현재 발화 중인 단어: 노랑 하이라이트 + 살짝 확대 (지나가면 흰색 안착)
+          const active = frame >= w.startFrame && frame < Math.max(w.endFrame, w.startFrame + 3);
           const hot = isAccentToken(w.text);
+          const sc = Math.min(entrance, 1.1) * (active ? 1.08 : 1.0);
           return (
             <span key={i} style={{
               display: 'inline-block', marginRight: '0.28em',
-              opacity: op, transform: `scale(${Math.min(sc, 1.1)})`,
-              ...(hot ? { color: ACCENT } : accent ? { color: accent } : {}),
+              opacity: op, transform: `scale(${sc})`,
+              transition: 'none',
+              ...(active || hot ? { color: ACCENT } : accent ? { color: accent } : {}),
             }}>
               {w.text}
             </span>
