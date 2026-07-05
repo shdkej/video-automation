@@ -1,0 +1,13 @@
+.git
+.github
+__pycache__
+**/__pycache__
+web/jobs
+remotion-map/node_modules
+remotion-map/out
+tests
+docs
+*.mp4
+*.mov
+.env
+.venv
