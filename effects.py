@@ -440,7 +440,8 @@ def cut_with_xfade(
             clip_paths.append(cp)
 
         # filter_complex로 xfade(영상) + acrossfade(오디오) chain.
-        # 클립은 cut_video와 동일하게 모두 오디오 트랙을 갖는다(aac 192k).
+        # 무음 원본(드론·타임랩스 등 scene/vision 대표 케이스)은 오디오 체인을 통째로 생략.
+        has_audio = has_audio_stream(input_path)
         inputs = []
         for cp in clip_paths:
             inputs += ["-i", str(cp)]
@@ -455,18 +456,20 @@ def cut_with_xfade(
             chain.append(
                 f"{vprev}[{i}:v]xfade=transition={transition}:duration={tdur}:offset={offset:.3f}{vout}"
             )
-            # acrossfade는 두 입력 경계를 겹쳐 크로스페이드 → 영상 xfade와 총길이 일치
-            chain.append(f"{aprev}[{i}:a]acrossfade=d={tdur}{aout}")
+            if has_audio:
+                # acrossfade는 두 입력 경계를 겹쳐 크로스페이드 → 영상 xfade와 총길이 일치
+                chain.append(f"{aprev}[{i}:a]acrossfade=d={tdur}{aout}")
             vprev, aprev = vout, aout
             offset += clip_durs[i] - tdur
 
+        audio_args = (["-map", "[aout]", "-c:a", "aac", "-b:a", "192k"]
+                      if has_audio else [])
         subprocess.run(
             ["ffmpeg", "-y", "-loglevel", "error",
              *inputs,
              "-filter_complex", ";".join(chain),
-             "-map", "[vout]", "-map", "[aout]",
+             "-map", "[vout]", *audio_args,
              "-c:v", "libx264", "-preset", "fast", "-crf", "20",
-             "-c:a", "aac", "-b:a", "192k",
              str(output_path)],
             check=True,
         )
