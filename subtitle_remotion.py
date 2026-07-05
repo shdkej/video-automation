@@ -28,17 +28,29 @@ OVERLAY_MAX_HEIGHT = 1080
 
 
 def probe_fps(path: Path) -> float:
-    """첫 비디오 스트림의 평균 fps."""
+    """첫 비디오 스트림의 실제 평균 fps.
+
+    r_frame_rate는 추정 최대치라 concat 산출물에서 타임스탬프 LCM(예: 120)으로
+    부풀 수 있다 — 그대로 쓰면 오버레이 프레임 수가 몇 배로 늘어 저코어 렌더가
+    사실상 끝나지 않는다. avg_frame_rate를 우선하고 60fps로 클램프한다.
+    """
     out = subprocess.run(
         ["ffprobe", "-v", "error", "-select_streams", "v:0",
-         "-show_entries", "stream=r_frame_rate", "-of", "csv=s=,:p=0", str(path)],
+         "-show_entries", "stream=avg_frame_rate,r_frame_rate",
+         "-of", "csv=s=,:p=0", str(path)],
         capture_output=True, text=True, check=True,
     ).stdout.strip()
-    num, _, den = out.partition("/")
-    try:
-        return float(num) / float(den) if den else float(num)
-    except (ValueError, ZeroDivisionError):
-        return 30.0
+
+    def parse(rate: str) -> float:
+        num, _, den = rate.partition("/")
+        try:
+            return float(num) / float(den) if den else float(num)
+        except (ValueError, ZeroDivisionError):
+            return 0.0
+
+    rates = [parse(r) for r in out.replace("\n", ",").split(",") if r.strip()]
+    fps = next((r for r in rates if r > 0), 30.0)
+    return min(fps, 60.0)
 
 
 def probe_resolution(path: Path) -> tuple[int, int]:
@@ -140,7 +152,8 @@ def render_overlay_webm(
         "--timeout=120000",
         "--log=error",
     ]
-    subprocess.run(cmd, cwd=REMOTION_DIR, check=True)
+    # 동시 잡 1개 체제에서 렌더가 무한히 잡 슬롯을 점유하지 못하게 상한을 둔다.
+    subprocess.run(cmd, cwd=REMOTION_DIR, check=True, timeout=3600)
     Path(props_path).unlink(missing_ok=True)
 
 
