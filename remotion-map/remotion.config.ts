@@ -8,5 +8,10 @@ Config.setOverwriteOutput(true);
 if (process.env.REMOTION_BROWSER_EXECUTABLE) {
   Config.setBrowserExecutable(process.env.REMOTION_BROWSER_EXECUTABLE);
 }
-// 가용 코어를 넘으면 remotion이 렌더를 거부한다. 상한 4를 유지하되 머신 코어 수에 맞춰 클램프.
-Config.setConcurrency(Math.max(1, Math.min(4, os.cpus().length)));
+// 가용 코어를 넘으면 remotion이 렌더를 거부한다. 상한 4를 유지하되 가용 병렬성에 맞춰 클램프.
+// 컨테이너(cgroup CPU 제한) 환경에서는 os.cpus()가 호스트 코어를 그대로 보고해
+// 실제 가용치보다 크게 잡히므로 availableParallelism을 우선 사용한다.
+const cores = typeof os.availableParallelism === 'function'
+  ? os.availableParallelism()
+  : os.cpus().length;
+Config.setConcurrency(Math.max(1, Math.min(4, cores)));
