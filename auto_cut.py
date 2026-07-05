@@ -149,6 +149,31 @@ def overlaps(a_start: float, a_end: float, b_start: float, b_end: float) -> bool
     return a_start < b_end and b_start < a_end
 
 
+def segments_from_transcript(
+    transcript: dict, duration: float, gap: float = 1.5, pad: float = 0.3,
+) -> list:
+    """발화 클러스터 → 구간 폴백. LLM 선정이 전멸했을 때 컷을 최소 보장한다.
+
+    짧은 영상은 '전체 발화가 곧 하이라이트'가 맞다 — gap 이내로 이어지는
+    발화를 묶고 pad를 두른다.
+    """
+    clusters: list = []
+    for t in transcript.get("segments", []):
+        if not t.get("text", "").strip():
+            continue
+        s, e = float(t["start"]), float(t["end"])
+        if clusters and s - clusters[-1][1] <= gap:
+            clusters[-1][1] = max(clusters[-1][1], e)
+        else:
+            clusters.append([s, e])
+    return [
+        {"start": round(max(0.0, s - pad), 3),
+         "end": round(min(duration, e + pad), 3),
+         "reason": "LLM 선정 실패 — 발화 구간 폴백"}
+        for s, e in clusters if e - s >= 0.5
+    ]
+
+
 def filter_grounded_segments(llm_segments: list, transcript_segments: list) -> list:
     """LLM이 반환한 구간 중 트랜스크립트 segment 하나라도 겹치는 것만 채택."""
     grounded = []

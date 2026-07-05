@@ -29,6 +29,7 @@ from auto_cut import (
     overlaps,
     pick_scene_segments,
     resolve_llm_model,
+    segments_from_transcript,
     select_highlights,
     select_vision_segments,
     total_duration,
@@ -382,10 +383,16 @@ def analyze(args, outdir: Path) -> tuple:
     except ValueError as e:
         raise PipelineError(f"트랜스크립트 품질 미달: {e}")
 
-    raw = select_highlights(transcript, args.target_minutes, args.llm_model)
+    # 목표 길이가 영상보다 길면 그대로 요구하지 않는다 — 짧은 영상에 '3분을
+    # 만들라'는 모순된 프롬프트가 범위 밖 구간(환각)을 유발한다.
+    effective_minutes = min(args.target_minutes, max(0.1, duration / 60))
+    raw = select_highlights(transcript, effective_minutes, args.llm_model)
     segments = filter_grounded_segments(raw, transcript["segments"])
     if not segments:
-        raise PipelineError("선정 구간이 트랜스크립트와 겹치지 않습니다 (LLM 환각 의심).")
+        print("  ⚠ LLM 선정 구간이 발화와 겹치지 않음 — 발화 구간 전체를 하이라이트로 사용")
+        segments = segments_from_transcript(transcript, duration)
+    if not segments:
+        raise PipelineError("발화 구간을 찾지 못했습니다 — 음성이 있는 영상인지 확인하세요.")
     captions = [caption_for_segment(s, transcript["segments"]) for s in segments]
     return segments, captions, transcript
 

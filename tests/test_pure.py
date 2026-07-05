@@ -18,6 +18,7 @@ from auto_cut import (  # noqa: E402
     merge_scene_captions,
     overlaps,
     remap_transcript_to_cuts,
+    segments_from_transcript,
     total_duration,
     validate_segments,
 )
@@ -455,6 +456,28 @@ def test_snap_to_word_bounds_snaps_within_shift():
     snapped = snap_to_word_bounds(clip, transcript)
     assert snapped["start"] == 0.3  # 가까운 단어 시작으로
     assert snapped["end"] == 3.8    # 가까운 단어 끝으로
+
+
+def test_segments_from_transcript_clusters_speech():
+    # 실사례: 15초 영상, 파편 발화 7개 — LLM 전멸 시 전체 발화가 한 구간으로
+    transcript = {"segments": [
+        {"start": 3.1, "end": 4.2, "text": "유튜버"},
+        {"start": 4.2, "end": 6.6, "text": "어 자기 유튜버 같다"},
+        {"start": 6.6, "end": 8.2, "text": "이거 근데 엄청"},
+        {"start": 10.3, "end": 11.7, "text": "약간 좀 민망한"},
+    ]}
+    segs = segments_from_transcript(transcript, duration=14.9)
+    # 8.2→10.3 간격(2.1초)만 gap(1.5초)을 넘어 두 클러스터로 갈린다
+    assert len(segs) == 2
+    assert segs[0]["start"] == 2.8 and segs[0]["end"] == 8.5  # pad 0.3
+    assert segs[1]["start"] == 10.0 and segs[1]["end"] == 12.0
+
+
+def test_segments_from_transcript_empty_and_short():
+    assert segments_from_transcript({"segments": []}, 10.0) == []
+    # 0.5초 미만 발화만 있으면 폴백도 비어 있다 (진짜 무발화)
+    t = {"segments": [{"start": 1.0, "end": 1.3, "text": "아"}]}
+    assert segments_from_transcript(t, 10.0) == []
 
 
 def test_estimate_llm_usd_prefix_match_and_default():
