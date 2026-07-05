@@ -21,6 +21,7 @@ from auto_cut import (  # noqa: E402
     validate_segments,
 )
 from effects import compute_xfade_windows  # noqa: E402
+from probe import parse_resolution_csv  # noqa: E402
 from shorts_timeline import Timeline  # noqa: E402
 from pipeline import (  # noqa: E402
     caption_for_segment,
@@ -452,6 +453,15 @@ def test_snap_to_word_bounds_snaps_within_shift():
     snapped = snap_to_word_bounds(clip, transcript)
     assert snapped["start"] == 0.3  # 가까운 단어 시작으로
     assert snapped["end"] == 3.8    # 가까운 단어 끝으로
+
+
+def test_parse_resolution_csv_handles_rotation_side_data():
+    # 폰 촬영 영상: 회전 side data로 여분 필드/행이 붙는다 — unpack 크래시 회귀 방지
+    assert parse_resolution_csv("1920,1080") == (1920, 1080)
+    assert parse_resolution_csv("1080,1920,") == (1080, 1920)
+    assert parse_resolution_csv("1080,1920\nside_data,") == (1080, 1920)
+    with pytest.raises(ValueError):
+        parse_resolution_csv("")
 
 
 def test_subtitle_only_events_speech_keeps_timeline_and_words():

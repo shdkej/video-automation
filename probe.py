@@ -47,6 +47,15 @@ def has_video_stream(path: Path) -> bool:
     return False
 
 
+def parse_resolution_csv(out: str) -> tuple[int, int]:
+    """ffprobe csv 출력 → (width, height). 회전 side data가 있는 폰 영상은
+    여분 필드/행이 붙을 수 있어 숫자 토큰만 추려 앞의 두 개를 쓴다."""
+    nums = [p for p in out.replace("\n", ",").split(",") if p.strip().isdigit()]
+    if len(nums) < 2:
+        raise ValueError(f"해상도 파싱 실패: {out!r}")
+    return int(nums[0]), int(nums[1])
+
+
 def probe_resolution(path: Path) -> tuple[int, int]:
     """첫 비디오 스트림의 (width, height)."""
     out = subprocess.run(
@@ -54,5 +63,4 @@ def probe_resolution(path: Path) -> tuple[int, int]:
          "-show_entries", "stream=width,height", "-of", "csv=s=,:p=0", str(path)],
         check=True, capture_output=True, text=True,
     ).stdout.strip()
-    w, h = out.split(",")
-    return int(w), int(h)
+    return parse_resolution_csv(out)
