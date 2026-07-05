@@ -44,7 +44,9 @@ export const RemotionRoot: React.FC = () => {
         defaultProps={{ events: SAMPLE_EVENTS, fontSize: 44, marginBottom: 72, width: SUB_W, height: SUB_H, fps: SUB_FPS, style: 'kinetic', palette: SAMPLE_PALETTE, hook: undefined, mode: 'longform' }}
         calculateMetadata={({ props }) => {
           const fps = props.fps || SUB_FPS;
-          const lastEnd = props.events.length ? Math.max(...props.events.map((e) => e.end)) : 1;
+          const eventsEnd = props.events.length ? Math.max(...props.events.map((e) => e.end)) : 0;
+          // durationSec: 이벤트 없이 훅 배너만 얹는 인트로가 footage 전체를 덮도록
+          const lastEnd = Math.max(eventsEnd, props.durationSec ?? 0) || 1;
           return {
             durationInFrames: Math.max(1, Math.ceil((lastEnd + 0.3) * fps)),
             fps,

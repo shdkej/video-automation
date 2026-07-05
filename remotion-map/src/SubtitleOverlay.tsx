@@ -43,8 +43,9 @@ export type SubtitleProps = {
   fps: number;
   style: 'fade' | 'kinetic'; // 전역 기본 스타일
   palette: Record<string, string>; // 화자 → hex
-  hook?: string; // 숏츠 상단 후킹 배너 문구
-  mode?: 'shorts' | 'longform'; // shorts: 펀치 자막+배너, longform: fade+키워드강조
+  hook?: string; // 숏츠/인트로 상단 후킹 배너 문구
+  mode?: 'shorts' | 'longform' | 'intro'; // shorts: 펀치 자막+배너, longform: fade+키워드강조, intro: 배너 온리
+  durationSec?: number; // 이벤트 없이도 오버레이 길이를 보장 (인트로 훅 배너 전용)
 };
 
 const FONT = 'Pretendard, "Apple SD Gothic Neo", "AppleGothic", -apple-system, sans-serif';
@@ -271,6 +272,7 @@ export const SubtitleOverlay: React.FC<SubtitleProps> = ({
 }) => {
   const { fps, height } = useVideoConfig();
   const resolvedMode = mode ?? 'longform';
+  const captionMode = resolvedMode === 'shorts' ? 'shorts' : 'longform';
   // 배너는 타이틀 위계로 말 자막의 1.43배(숏츠 기준 ≈80px)
   const bannerFontSize = Math.round(fontSize * 1.43);
   return (
@@ -281,11 +283,11 @@ export const SubtitleOverlay: React.FC<SubtitleProps> = ({
         return (
           <Sequence key={i} from={from} durationInFrames={dur}>
             <Caption ev={e} durationInFrames={dur} fontSize={fontSize} marginBottom={marginBottom}
-              defaultStyle={style} mode={resolvedMode} palette={palette} />
+              defaultStyle={style} mode={captionMode} palette={palette} />
           </Sequence>
         );
       })}
-      {resolvedMode === 'shorts' && hook ? (
+      {(resolvedMode === 'shorts' || resolvedMode === 'intro') && hook ? (
         <HookBanner hook={hook} fontSize={bannerFontSize} height={height} />
       ) : null}
     </AbsoluteFill>

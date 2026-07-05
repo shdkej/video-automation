@@ -181,11 +181,55 @@ def pick_thumbnail_hook(segments: list, captions: list) -> str:
     return ""
 
 
-def pick_intro_segment(segments: list, intro_sec: float) -> dict:
-    """인트로 hook: 가장 긴 구간의 앞 intro_sec초."""
-    best = max(segments, key=lambda s: s["end"] - s["start"])
-    end = min(best["end"], best["start"] + intro_sec)
-    return {"start": best["start"], "end": end}
+def snap_to_word_bounds(clip: dict, transcript: dict | None, max_shift: float = 0.6) -> dict:
+    """클립 시작/끝을 가까운 발화(단어) 경계로 스냅 — 말이 중간에 끊긴 채 시작/끝나는 것 방지.
+
+    max_shift 안에 단어 경계가 없으면 그대로 둔다(무발화 구간). 스냅으로 클립이
+    지나치게 짧아지면(0.8초 미만) 원본을 유지한다. speech 모드 외에는 no-op.
+    """
+    if not transcript:
+        return clip
+    words = [w for ts in transcript.get("segments", []) for w in ts.get("words", [])]
+    if not words:
+        return clip
+    start, end = clip["start"], clip["end"]
+    starts = [w["start"] for w in words if abs(w["start"] - start) <= max_shift]
+    if starts:
+        start = min(starts, key=lambda t: abs(t - start))
+    ends = [w["end"] for w in words if abs(w["end"] - end) <= max_shift]
+    if ends:
+        end = min(ends, key=lambda t: abs(t - end))
+    if end - start < 0.8:
+        return clip
+    return {**clip, "start": round(start, 3), "end": round(end, 3)}
+
+
+def pick_intro_clips(
+    segments: list, intro_sec: float, transcript: dict | None = None, max_clips: int = 3,
+) -> tuple[list, str | None]:
+    """인트로 몽타주 클립 선정 — score 상위 구간을 시간순으로 잇는다.
+
+    선정은 LLM의 숏폼 임팩트 score 내림차순(없는 구캐시/scene은 구간 길이 폴백),
+    출력은 시간순 정렬(몽타주가 이야기 순서를 따르도록). 각 클립은 구간 앞부분
+    intro_sec/k초를 쓰고 발화 경계에 스냅한다. hook은 최고 score 구간의 것.
+    """
+    has_score = any(s.get("score") is not None for s in segments)
+    key = (lambda s: s.get("score") or 0) if has_score else (lambda s: s["end"] - s["start"])
+    ranked = sorted(segments, key=key, reverse=True)
+
+    k = min(max_clips, len(ranked))
+    while k > 1 and intro_sec / k < 1.2:  # 클립당 1.2초 미만이면 개수를 줄인다
+        k -= 1
+    per_clip = intro_sec / k
+
+    clips = []
+    for seg in ranked[:k]:
+        end = min(seg["end"], seg["start"] + per_clip)
+        clips.append(snap_to_word_bounds({"start": seg["start"], "end": end}, transcript))
+    clips.sort(key=lambda c: c["start"])
+
+    hook = next((s.get("hook") for s in ranked if s.get("hook")), None)
+    return clips, hook
 
 
 # ============================================================================
@@ -486,17 +530,35 @@ def build_thumbnail(args, segments: list, captions: list, outdir: Path) -> list:
     return paths
 
 
-def build_intro(args, segments: list, outdir: Path) -> Path:
-    """베스트 구간 앞 hook 클립 + fade (풀스크린 타이틀 카드 미사용)."""
-    seg = pick_intro_segment(segments, args.intro_seconds)
+def build_intro(args, segments: list, outdir: Path, transcript: dict | None = None) -> Path:
+    """score 상위 구간 몽타주 + Remotion 훅 배너 + fade.
+
+    - 선정: LLM score 상위 2~3구간을 시간순 몽타주 (구캐시/scene은 길이 폴백)
+    - 경계: speech 모드는 발화(단어) 경계 스냅으로 중간 절단 방지
+    - 훅: 최고 score 구간의 hook 문구를 Remotion 배너로 오버레이
+      (sub_engine이 remotion이 아니거나 렌더 실패 시 배너 없이 진행)
+    """
+    clips, hook = pick_intro_clips(segments, args.intro_seconds, transcript)
     raw = outdir / ".intro_raw.mp4"
+    hooked = outdir / ".intro_hooked.mp4"
     final = outdir / "intro.mp4"
     try:
-        cut_video(args.input, [seg], raw)
-        apply_fade(raw, final, fade_in=0.4, fade_out=0.4)
+        cut_video(args.input, clips, raw)
+        fade_src = raw
+        if hook and not args.no_subtitle and args.sub_engine == "remotion":
+            try:
+                from subtitle_remotion import render_subtitled_remotion
+                render_subtitled_remotion(
+                    raw, [], [], hooked, events=[], hook=hook, mode="intro",
+                )
+                fade_src = hooked
+            except Exception as e:  # noqa: BLE001 — 배너는 장식, 실패해도 인트로는 낸다
+                print(f"  ⚠ 인트로 훅 배너 렌더 실패(배너 없이 진행): {e}")
+        apply_fade(fade_src, final, fade_in=0.4, fade_out=0.4)
         return final
     finally:
         raw.unlink(missing_ok=True)
+        hooked.unlink(missing_ok=True)
 
 
 # ============================================================================
@@ -579,7 +641,7 @@ def run(args) -> None:
     step(f"[3/4] 썸네일 후보 {args.thumbnail_count}장 추출…", "thumbnail",
          lambda: build_thumbnail(args, segments, captions, outdir))
     step("[4/4] 인트로 생성…", "intro",
-         lambda: build_intro(args, segments, outdir))
+         lambda: build_intro(args, segments, outdir, transcript=transcript))
 
     print(f"\n완료 → {outdir}/")
     for key in WANTED:

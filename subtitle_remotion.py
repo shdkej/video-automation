@@ -51,6 +51,18 @@ def probe_resolution(path: Path) -> tuple[int, int]:
     return int(nums[0]), int(nums[1])
 
 
+def probe_duration_sec(path: Path) -> float:
+    out = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "csv=p=0", str(path)],
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    try:
+        return float(out)
+    except ValueError:
+        return 0.0
+
+
 def has_audio_stream(path: Path) -> bool:
     out = subprocess.run(
         ["ffprobe", "-v", "error", "-select_streams", "a",
@@ -96,6 +108,7 @@ def render_overlay_webm(
     palette: dict[str, str] | None = None,
     hook: str | None = None,
     mode: str = "longform",
+    duration_sec: float | None = None,
 ) -> None:
     """Remotion으로 투명 자막 오버레이 webm(VP8 알파) 렌더."""
     props = {
@@ -111,6 +124,9 @@ def render_overlay_webm(
     }
     if hook:
         props["hook"] = hook
+    if duration_sec:
+        # 이벤트가 없어도(예: 인트로 훅 배너만) 오버레이가 footage 전체를 덮도록.
+        props["durationSec"] = round(duration_sec, 3)
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as f:
         json.dump(props, f, ensure_ascii=False)
         props_path = f.name
@@ -176,8 +192,10 @@ def render_subtitled_remotion(
     omargin = round(margin_bottom * scale)
 
     # 1) Remotion 투명 오버레이 렌더 (축소 해상도/footage fps)
+    # durationSec은 이벤트가 비어있을 때(인트로 훅 배너 전용) footage 길이를 보장한다.
     render_overlay_webm(events, ow, oh, fps, overlay, font_size=ofont, margin_bottom=omargin,
-                        style=style, palette=palette, hook=hook, mode=mode)
+                        style=style, palette=palette, hook=hook, mode=mode,
+                        duration_sec=probe_duration_sec(cut_path) if not events else None)
 
     # 2) ffmpeg overlay 합성 (VP8 알파 디코딩 위해 입력 앞에 -c:v libvpx, 오디오 보존).
     # 축소 렌더한 오버레이를 footage 크기로 업스케일(scale=1이면 무비용 통과) 후 합성.

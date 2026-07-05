@@ -24,9 +24,11 @@ from shorts_timeline import Timeline  # noqa: E402
 from pipeline import (  # noqa: E402
     caption_for_segment,
     longform_events,
+    pick_intro_clips,
     pick_thumbnail_hook,
     rank_for_shorts,
     shorts_events,
+    snap_to_word_bounds,
     split_media,
     strip_leading_fillers,
 )
@@ -403,3 +405,63 @@ def test_pipeline_error_is_ordinary_exception():
     assert issubclass(PipelineError, Exception)
     with pytest.raises(Exception):  # noqa: B017 — BaseException이 아님을 보장
         raise PipelineError("boom")
+
+
+# ---------------------------------------------------------------------------
+# pick_intro_clips / snap_to_word_bounds — 인트로 몽타주 선정
+# ---------------------------------------------------------------------------
+
+INTRO_SEGS = [
+    {"start": 0.0, "end": 8.0, "score": 40, "hook": "낮은 훅"},
+    {"start": 10.0, "end": 13.0, "score": 95, "hook": "최고 훅!"},
+    {"start": 20.0, "end": 24.0, "score": 70},
+]
+
+
+def test_pick_intro_clips_ranks_by_score_and_sorts_by_time():
+    clips, hook = pick_intro_clips(INTRO_SEGS, intro_sec=4.5)
+    assert len(clips) == 3
+    # 선정은 score순이지만 출력은 시간순
+    assert [c["start"] for c in clips] == sorted(c["start"] for c in clips)
+    # hook은 최고 score 구간의 것
+    assert hook == "최고 훅!"
+
+
+def test_pick_intro_clips_falls_back_to_length_without_score():
+    segs = [{"start": 0.0, "end": 2.0}, {"start": 5.0, "end": 12.0}]
+    clips, hook = pick_intro_clips(segs, intro_sec=4.0, max_clips=1)
+    assert clips[0]["start"] == 5.0  # 가장 긴 구간
+    assert hook is None
+
+
+def test_pick_intro_clips_reduces_count_when_too_short():
+    # 2초 인트로에 3클립이면 클립당 0.67초 → 클립 수 축소
+    clips, _ = pick_intro_clips(INTRO_SEGS, intro_sec=2.0)
+    assert len(clips) == 1
+
+
+def test_snap_to_word_bounds_snaps_within_shift():
+    transcript = {"segments": [{"words": [
+        {"word": "안녕", "start": 0.3, "end": 0.9},
+        {"word": "하세요", "start": 0.9, "end": 1.6},
+        {"word": "여행", "start": 3.1, "end": 3.8},
+    ]}]}
+    clip = {"start": 0.5, "end": 3.5}
+    snapped = snap_to_word_bounds(clip, transcript)
+    assert snapped["start"] == 0.3  # 가까운 단어 시작으로
+    assert snapped["end"] == 3.8    # 가까운 단어 끝으로
+
+
+def test_snap_to_word_bounds_noop_without_transcript():
+    clip = {"start": 1.0, "end": 2.0}
+    assert snap_to_word_bounds(clip, None) == clip
+    assert snap_to_word_bounds(clip, {"segments": []}) == clip
+
+
+def test_snap_to_word_bounds_keeps_original_if_too_short():
+    transcript = {"segments": [{"words": [
+        {"word": "짧게", "start": 1.4, "end": 1.5},
+    ]}]}
+    clip = {"start": 1.0, "end": 1.6}
+    # 스냅하면 1.4~1.5(0.1초)로 붕괴 → 원본 유지
+    assert snap_to_word_bounds(clip, transcript) == clip

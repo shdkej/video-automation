@@ -175,7 +175,7 @@ def _run_job(job_id: str, input_paths: list[Path], opts: dict) -> None:
 
         if "intro" in wanted:
             stage("인트로 생성", 92)
-            outputs["intro"] = pl.build_intro(args, segments, outdir).name
+            outputs["intro"] = pl.build_intro(args, segments, outdir, transcript=transcript).name
 
         job["outputs"] = outputs
         job["status"], job["progress"], job["stage"] = "done", 100, "완료"
