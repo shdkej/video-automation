@@ -174,16 +174,19 @@ def _run_job(job_id: str, input_paths: list[Path], opts: dict) -> None:
                 segments, captions, args.shorts_count,
                 args.shorts_max_seconds, args.shorts_ideal_seconds,
             )
+            want_clean = bool(opts.get("shorts_clean"))
             outputs["shorts"] = [
-                pl.build_one_short(args, s, f"shorts_{n:02d}", outdir, transcript=transcript).name
+                pl.build_one_short(
+                    args, s, f"shorts_{n:02d}", outdir, transcript=transcript,
+                    clean_stem=f"shorts_{n:02d}_clean" if want_clean else None,
+                ).name
                 for n, s in enumerate(specs, 1)
             ]
-            if opts.get("shorts_clean"):
-                stage("숏츠 클린 버전 생성", 70)
-                outputs["shorts_clean"] = [
-                    pl.build_clean_short(args, s, f"shorts_{n:02d}_clean", outdir).name
-                    for n, s in enumerate(specs, 1)
-                ]
+            # 클린은 자막 직전의 동일 컷을 남긴 것 — 자막이 안 들어간 숏츠는 생성되지 않음
+            clean_names = [f"shorts_{n:02d}_clean.mp4" for n in range(1, len(specs) + 1)
+                           if (outdir / f"shorts_{n:02d}_clean.mp4").is_file()]
+            if clean_names:
+                outputs["shorts_clean"] = clean_names
 
         if "thumbnail" in wanted:
             stage("썸네일 추출", 80)

@@ -313,38 +313,6 @@ def reframe_vertical(
     )
 
 
-def cut_and_reframe_vertical(
-    input_path: Path,
-    start: float,
-    end: float,
-    output_path: Path,
-    blur_bg: bool = False,
-    focus: str = "center",
-    fade_out: float = 0.2,
-    target_w: int = 1080,
-    target_h: int = 1920,
-) -> None:
-    """클린 숏츠 전용 단일 패스: 구간 컷 + 세로 리프레임 + 오디오 페이드아웃.
-
-    build_short_footage → reframe_vertical → apply_audio_fade_out 3패스(풀 인코딩
-    2회 + 오디오 재인코딩 1회)를 인코딩 1회로 합친다. 효과가 없는 클린 버전은
-    구간이 하나뿐이라 중간 산출물이 필요 없다.
-    """
-    dur = end - start
-    cmd = ["ffmpeg", "-y", "-loglevel", "error",
-           "-ss", f"{start:.3f}", "-i", str(input_path), "-t", f"{dur:.3f}",
-           *_vertical_video_args(target_w, target_h, blur_bg, focus)]
-    if has_audio_stream(input_path):
-        st = max(0.0, dur - fade_out)
-        cmd += ["-map", "0:a?",
-                "-af", f"afade=out:st={st:.3f}:d={fade_out}",
-                "-c:a", "aac", "-b:a", "192k"]
-    cmd += ["-c:v", "libx264", "-preset", "fast", "-crf", "20",
-            "-avoid_negative_ts", "make_zero",
-            str(output_path)]
-    subprocess.run(cmd, check=True)
-
-
 # ============================================================================
 # Thumbnail — 특정 시점 프레임 1장을 JPG로
 # ============================================================================

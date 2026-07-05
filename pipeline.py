@@ -41,7 +41,6 @@ from effects import (
     build_short_footage,
     compute_xfade_windows,
     concat_sources,
-    cut_and_reframe_vertical,
     cut_with_xfade,
     extract_thumbnail,
     overlay_hook_text,
@@ -485,26 +484,17 @@ def shorts_events(spec: dict, transcript: dict | None, timeline) -> list:
     return []
 
 
-def build_clean_short(args, spec: dict, stem: str, outdir: Path) -> Path:
-    """클린 숏츠(자막·점프컷·펀치인 없음) — 단일 ffmpeg 패스.
-
-    같은 spec으로 풀 버전과 나란히 뽑아 효과 유무를 A/B 비교하는 용도.
-    build_one_short를 클린 옵션으로 다시 돌리면 3패스 풀 인코딩이라,
-    컷+세로 리프레임+오디오 페이드를 한 번에 처리한다. 블러 배경 설정은 따른다.
-    """
-    final = outdir / f"{stem}.mp4"
-    cut_and_reframe_vertical(
-        args.input, spec["start"], spec["end"], final, blur_bg=args.shorts_blur,
-        focus=getattr(args, "shorts_focus", "center"),
-    )
-    return final
-
-
-def build_one_short(args, spec: dict, stem: str, outdir: Path, transcript=None) -> Path:
+def build_one_short(
+    args, spec: dict, stem: str, outdir: Path, transcript=None, clean_stem: str | None = None,
+) -> Path:
     """단일 숏츠: 타임라인 계획(점프컷) → footage(punch-in) → 세로 → 자막 → 오디오 페이드.
 
     영상 페이드는 넣지 않는다 — 첫 프레임이 곧 커버(트렌드). 측정치(무음 제거·컷 수·
     초당 화면변화)를 출력해 A/B 비교의 근거를 남긴다.
+
+    clean_stem을 주면 자막을 얹기 직전의 동일 컷(vert)을 클린 버전으로 함께 남긴다
+    — 별도 인코딩 없이(비디오 copy + 오디오 페이드) 사실상 공짜. 자막이 안 들어가는
+    경우(no_subtitle·이벤트 없음)는 풀 버전이 곧 클린이라 생략한다.
     """
     tl = plan_short(
         spec["start"], spec["end"],
@@ -525,6 +515,8 @@ def build_one_short(args, spec: dict, stem: str, outdir: Path, transcript=None) 
 
         events = shorts_events(spec, transcript, tl)
         hook = (spec.get("hook") or spec.get("caption", "")).strip() or None
+        if clean_stem and not args.no_subtitle and events:
+            apply_audio_fade_out(vert, outdir / f"{clean_stem}.mp4")
         if args.no_subtitle or not events:
             src = vert
         elif args.sub_engine == "remotion":
@@ -679,11 +671,12 @@ def run(args) -> None:
     def _build_shorts() -> list:
         specs = rank_for_shorts(segments, captions, args.shorts_count,
                                 args.shorts_max_seconds, args.shorts_ideal_seconds)
-        outs = [build_one_short(args, s, f"shorts_{n:02d}", outdir, transcript=transcript)
+        want_clean = getattr(args, "shorts_clean", False)
+        outs = [build_one_short(args, s, f"shorts_{n:02d}", outdir, transcript=transcript,
+                                clean_stem=f"shorts_{n:02d}_clean" if want_clean else None)
                 for n, s in enumerate(specs, 1)]
-        if getattr(args, "shorts_clean", False):
-            outs += [build_clean_short(args, s, f"shorts_{n:02d}_clean", outdir)
-                     for n, s in enumerate(specs, 1)]
+        outs += [p for n in range(1, len(specs) + 1)
+                 if (p := outdir / f"shorts_{n:02d}_clean.mp4").is_file()]
         return outs
 
     step(f"[2/4] 숏츠 생성 (적정 길이 우선 상위 {args.shorts_count}개)…", "shorts", _build_shorts)
