@@ -24,7 +24,7 @@ from auto_cut import (  # noqa: E402
 )
 from beats import beats_from_envelope, snap_segments_to_beats, snap_to_beat  # noqa: E402
 from effects import compute_xfade_windows  # noqa: E402
-from probe import parse_resolution_csv  # noqa: E402
+from probe import resolution_from_probe  # noqa: E402
 from shorts_timeline import Timeline  # noqa: E402
 from pipeline import (  # noqa: E402
     caption_for_segment,
@@ -566,13 +566,20 @@ def test_punch_plan_without_beats_unchanged():
     assert clips[0][0] == 0.0 and clips[-1][1] == 12.0
 
 
-def test_parse_resolution_csv_handles_rotation_side_data():
-    # 폰 촬영 영상: 회전 side data로 여분 필드/행이 붙는다 — unpack 크래시 회귀 방지
-    assert parse_resolution_csv("1920,1080") == (1920, 1080)
-    assert parse_resolution_csv("1080,1920,") == (1080, 1920)
-    assert parse_resolution_csv("1080,1920\nside_data,") == (1080, 1920)
+def test_resolution_from_probe_applies_rotation():
+    # 폰 세로 영상: 가로 저장 + 회전 메타 → 표시 기준으로 스왑해야 한다
+    base = {"streams": [{"width": 1920, "height": 1080}]}
+    assert resolution_from_probe(base) == (1920, 1080)
+    rot = {"streams": [{"width": 1920, "height": 1080,
+                        "side_data_list": [{"rotation": -90}]}]}
+    assert resolution_from_probe(rot) == (1080, 1920)
+    legacy = {"streams": [{"width": 1280, "height": 720, "tags": {"rotate": "90"}}]}
+    assert resolution_from_probe(legacy) == (720, 1280)
+    flip180 = {"streams": [{"width": 1920, "height": 1080,
+                            "side_data_list": [{"rotation": 180}]}]}
+    assert resolution_from_probe(flip180) == (1920, 1080)
     with pytest.raises(ValueError):
-        parse_resolution_csv("")
+        resolution_from_probe({})
 
 
 def test_subtitle_only_events_speech_keeps_timeline_and_words():

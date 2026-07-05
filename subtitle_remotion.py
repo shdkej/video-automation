@@ -16,6 +16,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from probe import probe_resolution  # 회전 메타 반영 표시 해상도 (단일 출처)
+
 REMOTION_DIR = Path(__file__).parent / "remotion-map"
 REMOTION_BIN = REMOTION_DIR / "node_modules" / ".bin" / "remotion"
 ENTRY = "src/index.ts"
@@ -60,16 +62,6 @@ def probe_fps(path: Path) -> float:
     rates = [parse(r) for r in out.replace("\n", ",").split(",") if r.strip()]
     fps = next((r for r in rates if r > 0), 30.0)
     return min(fps, 60.0)
-
-
-def probe_resolution(path: Path) -> tuple[int, int]:
-    out = subprocess.run(
-        ["ffprobe", "-v", "error", "-select_streams", "v:0",
-         "-show_entries", "stream=width,height", "-of", "csv=s=,:p=0", str(path)],
-        capture_output=True, text=True, check=True,
-    ).stdout.strip()
-    nums = [p for p in out.replace("\n", ",").split(",") if p.strip().isdigit()]
-    return int(nums[0]), int(nums[1])
 
 
 def probe_duration_sec(path: Path) -> float:

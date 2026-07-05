@@ -47,20 +47,44 @@ def has_video_stream(path: Path) -> bool:
     return False
 
 
-def parse_resolution_csv(out: str) -> tuple[int, int]:
-    """ffprobe csv 출력 → (width, height). 회전 side data가 있는 폰 영상은
-    여분 필드/행이 붙을 수 있어 숫자 토큰만 추려 앞의 두 개를 쓴다."""
-    nums = [p for p in out.replace("\n", ",").split(",") if p.strip().isdigit()]
-    if len(nums) < 2:
-        raise ValueError(f"해상도 파싱 실패: {out!r}")
-    return int(nums[0]), int(nums[1])
+def resolution_from_probe(data: dict) -> tuple[int, int]:
+    """ffprobe json → 표시 기준 (width, height).
+
+    폰 촬영 영상은 가로로 저장하고 회전 메타(±90/270)로 세로 표시하는 경우가
+    많다. ffmpeg 처리는 autorotate된 표시 기준으로 돌므로 회전을 반영해
+    스왑한다 — 안 하면 세로 영상이 가로로 취급돼 자막·판별이 전부 어긋난다.
+    """
+    streams = data.get("streams") or []
+    if not streams or "width" not in streams[0]:
+        raise ValueError(f"해상도 파싱 실패: {data!r}")
+    st = streams[0]
+    w, h = int(st["width"]), int(st["height"])
+    rotation = 0
+    for sd in st.get("side_data_list") or []:
+        if "rotation" in sd:
+            try:
+                rotation = int(sd["rotation"])
+            except (TypeError, ValueError):
+                pass
+            break
+    if rotation == 0:  # 레거시 rotate 태그 폴백
+        try:
+            rotation = int((st.get("tags") or {}).get("rotate", 0))
+        except (TypeError, ValueError):
+            pass
+    if abs(rotation) % 180 == 90:
+        w, h = h, w
+    return w, h
 
 
 def probe_resolution(path: Path) -> tuple[int, int]:
-    """첫 비디오 스트림의 (width, height)."""
-    out = subprocess.run(
+    """첫 비디오 스트림의 표시 기준 (width, height) — 회전 메타 반영."""
+    import json
+
+    result = subprocess.run(
         ["ffprobe", "-v", "error", "-select_streams", "v:0",
-         "-show_entries", "stream=width,height", "-of", "csv=s=,:p=0", str(path)],
+         "-show_entries", "stream=width,height:stream_side_data=rotation:stream_tags=rotate",
+         "-of", "json", str(path)],
         check=True, capture_output=True, text=True,
-    ).stdout.strip()
-    return parse_resolution_csv(out)
+    )
+    return resolution_from_probe(json.loads(result.stdout))
