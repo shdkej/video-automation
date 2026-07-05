@@ -112,6 +112,9 @@ $("job-form").addEventListener("submit", async (e) => {
   fd.append("shorts_count", $("job-form").shorts_count.value);
   fd.append("thumbnail_count", $("job-form").thumbnail_count.value);
   fd.append("shorts_blur", $("shorts_blur").checked);
+  fd.append("shorts_jumpcut", $("shorts_jumpcut").checked);
+  fd.append("shorts_punchin", $("shorts_punchin").checked);
+  fd.append("shorts_clean", $("shorts_clean").checked);
   appendSubOpts(fd, $("sub_mode").value);
   const picked = pickedOutputs();
   if (picked.length === 0) { showError("산출물을 하나 이상 선택해주세요."); return; }
@@ -192,6 +195,7 @@ function renderResults(jobId, job) {
   let html = "";
   if (o.longform) html += cut(jobId, o.longform, "롱폼", "16:9");
   (o.shorts || []).forEach((n, i) => (html += cut(jobId, n, `숏츠 ${i + 1}`, "9:16", { vertical: true })));
+  (o.shorts_clean || []).forEach((n, i) => (html += cut(jobId, n, `숏츠 ${i + 1} 클린`, "9:16", { vertical: true })));
   if (o.intro) html += cut(jobId, o.intro, "인트로", "hook");
   (o.thumbnail || []).forEach((n, i) => (html += cut(jobId, n, `썸네일 ${i + 1}`, "JPG", { image: true })));
   $("results").innerHTML = html || "<p>생성된 산출물이 없습니다.</p>";
@@ -200,6 +204,9 @@ function renderResults(jobId, job) {
   $("rb_shorts").value = $("job-form").shorts_count.value;
   $("rb_thumb").value = $("job-form").thumbnail_count.value;
   $("rb_blur").checked = $("shorts_blur").checked;
+  $("rb_jumpcut").checked = $("shorts_jumpcut").checked;
+  $("rb_punchin").checked = $("shorts_punchin").checked;
+  $("rb_clean").checked = $("shorts_clean").checked;
   $("rb_sub").value = $("sub_mode").value;
 }
 
@@ -210,6 +217,9 @@ $("rebuild-btn").addEventListener("click", async () => {
   fd.append("shorts_count", $("rb_shorts").value);
   fd.append("thumbnail_count", $("rb_thumb").value);
   fd.append("shorts_blur", $("rb_blur").checked);
+  fd.append("shorts_jumpcut", $("rb_jumpcut").checked);
+  fd.append("shorts_punchin", $("rb_punchin").checked);
+  fd.append("shorts_clean", $("rb_clean").checked);
   appendSubOpts(fd, $("rb_sub").value);
 
   hide($("result-section"));

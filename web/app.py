@@ -106,7 +106,9 @@ def _args_from_opts(input_path: Path, outdir: Path, opts: dict) -> SimpleNamespa
         llm_model=None, cache=True,  # 같은 잡 폴더의 트랜스크립트/selection 재사용(재생성 대비)
         shorts_count=int(opts["shorts_count"]), shorts_max_seconds=45.0,
         shorts_ideal_seconds=25.0, shorts_blur=bool(opts.get("shorts_blur")),
-        shorts_silence_min=0.45, no_shorts_jumpcut=False, no_shorts_punchin=False,
+        shorts_silence_min=0.45,
+        no_shorts_jumpcut=not opts.get("shorts_jumpcut", True),
+        no_shorts_punchin=not opts.get("shorts_punchin", True),
         thumbnail_count=int(opts["thumbnail_count"]), no_thumb_text=False,
         intro_seconds=4.0,
         no_subtitle=bool(opts.get("no_subtitle")), no_grade=False,
@@ -168,6 +170,13 @@ def _run_job(job_id: str, input_paths: list[Path], opts: dict) -> None:
                 pl.build_one_short(args, s, f"shorts_{n:02d}", outdir, transcript=transcript).name
                 for n, s in enumerate(specs, 1)
             ]
+            if opts.get("shorts_clean"):
+                stage("숏츠 클린 버전 생성", 70)
+                clean_args = pl.clean_shorts_args(args)
+                outputs["shorts_clean"] = [
+                    pl.build_one_short(clean_args, s, f"shorts_{n:02d}_clean", outdir, transcript=transcript).name
+                    for n, s in enumerate(specs, 1)
+                ]
 
         if "thumbnail" in wanted:
             stage("썸네일 추출", 80)
@@ -224,6 +233,9 @@ async def create_job(
     shorts_count: int = Form(2),
     thumbnail_count: int = Form(3),
     shorts_blur: bool = Form(False),
+    shorts_jumpcut: bool = Form(True),
+    shorts_punchin: bool = Form(True),
+    shorts_clean: bool = Form(False),
     no_subtitle: bool = Form(False),
     sub_engine: str = Form("remotion"),
     sub_style: str = Form("fade"),
@@ -266,6 +278,8 @@ async def create_job(
         "mode": mode, "target_minutes": target_minutes,
         "shorts_count": shorts_count, "thumbnail_count": thumbnail_count,
         "shorts_blur": shorts_blur, "no_subtitle": no_subtitle,
+        "shorts_jumpcut": shorts_jumpcut, "shorts_punchin": shorts_punchin,
+        "shorts_clean": shorts_clean,
         "sub_engine": sub_engine, "sub_style": sub_style,
         "outputs": outputs,
     }
@@ -280,6 +294,9 @@ async def rebuild_job(
     shorts_count: int = Form(2),
     thumbnail_count: int = Form(3),
     shorts_blur: bool = Form(False),
+    shorts_jumpcut: bool = Form(True),
+    shorts_punchin: bool = Form(True),
+    shorts_clean: bool = Form(False),
     no_subtitle: bool = Form(False),
     sub_engine: str = Form("remotion"),
     sub_style: str = Form("fade"),
@@ -319,6 +336,8 @@ async def rebuild_job(
         "mode": mode, "target_minutes": target_minutes,
         "shorts_count": shorts_count, "thumbnail_count": thumbnail_count,
         "shorts_blur": shorts_blur, "no_subtitle": no_subtitle,
+        "shorts_jumpcut": shorts_jumpcut, "shorts_punchin": shorts_punchin,
+        "shorts_clean": shorts_clean,
         "sub_engine": sub_engine, "sub_style": sub_style,
         "outputs": outputs,
     }

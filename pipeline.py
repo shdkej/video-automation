@@ -458,6 +458,20 @@ def shorts_events(spec: dict, transcript: dict | None, timeline) -> list:
     return []
 
 
+def clean_shorts_args(args):
+    """효과 없는 클린 숏츠용 args 사본 — 점프컷·펀치인·자막을 모두 끈다.
+
+    같은 spec으로 풀 버전과 나란히 뽑아 효과 유무를 A/B 비교하는 용도.
+    세로 리프레임과 블러 배경 설정은 그대로 따른다.
+    """
+    import copy
+    clean = copy.copy(args)
+    clean.no_subtitle = True
+    clean.no_shorts_jumpcut = True
+    clean.no_shorts_punchin = True
+    return clean
+
+
 def build_one_short(args, spec: dict, stem: str, outdir: Path, transcript=None) -> Path:
     """단일 숏츠: 타임라인 계획(점프컷) → footage(punch-in) → 세로 → 자막 → 오디오 페이드.
 
@@ -633,11 +647,18 @@ def run(args) -> None:
 
     step("[1/4] 롱폼 생성…", "longform",
          lambda: build_longform(args, segments, captions, outdir, transcript=transcript))
-    step(f"[2/4] 숏츠 생성 (적정 길이 우선 상위 {args.shorts_count}개)…", "shorts",
-         lambda: [build_one_short(args, s, f"shorts_{n:02d}", outdir, transcript=transcript)
-                  for n, s in enumerate(
-                      rank_for_shorts(segments, captions, args.shorts_count,
-                                      args.shorts_max_seconds, args.shorts_ideal_seconds), 1)])
+    def _build_shorts() -> list:
+        specs = rank_for_shorts(segments, captions, args.shorts_count,
+                                args.shorts_max_seconds, args.shorts_ideal_seconds)
+        outs = [build_one_short(args, s, f"shorts_{n:02d}", outdir, transcript=transcript)
+                for n, s in enumerate(specs, 1)]
+        if getattr(args, "shorts_clean", False):
+            clean = clean_shorts_args(args)
+            outs += [build_one_short(clean, s, f"shorts_{n:02d}_clean", outdir, transcript=transcript)
+                     for n, s in enumerate(specs, 1)]
+        return outs
+
+    step(f"[2/4] 숏츠 생성 (적정 길이 우선 상위 {args.shorts_count}개)…", "shorts", _build_shorts)
     step(f"[3/4] 썸네일 후보 {args.thumbnail_count}장 추출…", "thumbnail",
          lambda: build_thumbnail(args, segments, captions, outdir))
     step("[4/4] 인트로 생성…", "intro",
@@ -701,6 +722,8 @@ def main() -> None:
                         help="침묵 제거 점프컷 끄기 (A/B 비교용)")
     parser.add_argument("--no-shorts-punchin", action="store_true",
                         help="컷 경계 punch-in 줌 끄기 (A/B 비교용)")
+    parser.add_argument("--shorts-clean", action="store_true",
+                        help="같은 구간의 클린 버전(자막·점프컷·펀치인 없음)도 shorts_NN_clean으로 함께 생성")
 
     # 썸네일
     parser.add_argument("--thumbnail-count", type=int, default=3, help="썸네일 후보 장수")

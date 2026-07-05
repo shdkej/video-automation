@@ -23,6 +23,7 @@ from effects import compute_xfade_windows  # noqa: E402
 from shorts_timeline import Timeline  # noqa: E402
 from pipeline import (  # noqa: E402
     caption_for_segment,
+    clean_shorts_args,
     longform_events,
     pick_intro_clips,
     pick_thumbnail_hook,
@@ -456,6 +457,19 @@ def test_snap_to_word_bounds_noop_without_transcript():
     clip = {"start": 1.0, "end": 2.0}
     assert snap_to_word_bounds(clip, None) == clip
     assert snap_to_word_bounds(clip, {"segments": []}) == clip
+
+
+def test_clean_shorts_args_disables_effects_without_touching_original():
+    from types import SimpleNamespace
+    args = SimpleNamespace(
+        no_subtitle=False, no_shorts_jumpcut=False, no_shorts_punchin=False,
+        shorts_blur=True, sub_engine="remotion",
+    )
+    clean = clean_shorts_args(args)
+    assert clean.no_subtitle and clean.no_shorts_jumpcut and clean.no_shorts_punchin
+    assert clean.shorts_blur is True  # 리프레임 설정은 유지
+    # 원본 args는 그대로 (사본이어야 풀 버전 생성에 영향 없음)
+    assert args.no_subtitle is False and args.no_shorts_jumpcut is False
 
 
 def test_snap_to_word_bounds_keeps_original_if_too_short():
