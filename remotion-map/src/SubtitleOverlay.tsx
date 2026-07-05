@@ -8,6 +8,7 @@ import {
   staticFile,
   delayRender,
   continueRender,
+  random,
 } from 'remotion';
 
 // 동봉 Pretendard ExtraBold를 헤드리스 Chromium에 등록 (PIL 엔진과 동일 폰트).
@@ -31,7 +32,7 @@ export type SubEvent = {
   start: number;
   end: number;
   speaker?: string; // 화자 키(색 매핑). 없으면 기본색
-  style?: 'fade' | 'kinetic'; // 이벤트별 스타일 override
+  style?: 'fade' | 'kinetic' | 'impact'; // 이벤트별 스타일 override
   words?: { text: string; start: number; end: number }[]; // 카라오케 단어 타이밍(이벤트 상대 초)
 };
 export type SubtitleProps = {
@@ -41,7 +42,7 @@ export type SubtitleProps = {
   width: number;
   height: number;
   fps: number;
-  style: 'fade' | 'kinetic'; // 전역 기본 스타일
+  style: 'fade' | 'kinetic' | 'impact'; // 전역 기본 스타일
   palette: Record<string, string>; // 화자 → hex
   hook?: string; // 숏츠/인트로 상단 후킹 배너 문구
   mode?: 'shorts' | 'longform' | 'intro'; // shorts: 펀치 자막+배너, longform: fade+키워드강조, intro: 배너 온리
@@ -177,12 +178,109 @@ const Pill: React.FC<{
   </AbsoluteFill>
 );
 
+// ---------------------------------------------------------------------------
+// Impact — 숏츠 트렌드 원워드 슬램: 한 번에 한 단어를 크게 쾅 + 스파크 번쩍
+// ---------------------------------------------------------------------------
+
+const SPARK_COLORS = ['#FFE14D', '#FF9F1C', '#FFFFFF'];
+
+const Sparks: React.FC<{ seed: string; fontSize: number; wf: number }> = ({ seed, fontSize, wf }) => {
+  const n = 12;
+  return (
+    <>
+      {Array.from({ length: n }, (_, i) => {
+        const key = `${seed}:${i}`;
+        const angle = random(key) * Math.PI * 2;
+        const reach = fontSize * (0.8 + random(key + 'd') * 1.0);
+        const progress = interpolate(wf, [0, 14], [0.2, 1], {
+          extrapolateLeft: 'clamp', extrapolateRight: 'clamp',
+        });
+        const op = interpolate(wf, [2, 16], [1, 0], {
+          extrapolateLeft: 'clamp', extrapolateRight: 'clamp',
+        });
+        const size = fontSize * (0.14 + random(key + 's') * 0.12);
+        const square = random(key + 'k') > 0.5;
+        return (
+          <span key={i} style={{
+            position: 'absolute',
+            left: '50%',
+            top: '50%',
+            width: size,
+            height: size,
+            background: SPARK_COLORS[i % SPARK_COLORS.length],
+            borderRadius: square ? '15%' : '50%',
+            opacity: op,
+            transform: `translate(-50%, -50%) translate(${Math.cos(angle) * reach * progress}px, ${Math.sin(angle) * reach * progress}px) rotate(${square ? 45 + wf * 14 : 0}deg)`,
+            boxShadow: `0 0 ${size * 1.4}px rgba(255,214,77,0.95), 0 0 ${size * 2.6}px rgba(255,159,28,0.5)`,
+          }} />
+        );
+      })}
+    </>
+  );
+};
+
+const ImpactCaption: React.FC<{
+  ev: SubEvent;
+  durationInFrames: number;
+  fontSize: number;
+  exit: number;
+  words: { text: string; startFrame: number; endFrame: number }[];
+}> = ({ durationInFrames, fontSize, exit, words }) => {
+  const frame = useCurrentFrame();
+  // 한 번에 한 단어 — 현재 단어를 찾고 마지막 단어는 이벤트 끝까지 유지
+  let cur = -1;
+  for (let i = 0; i < words.length; i++) {
+    if (frame >= words[i].startFrame) cur = i;
+  }
+  if (cur < 0 || frame >= durationInFrames) return null;
+  const w = words[cur];
+  const wf = frame - w.startFrame;
+  const seed = `impact:${cur}:${w.text}`;
+
+  // 슬램: 2.4배에서 쾅 내려앉고 살짝 오버슈트 후 안착. 흔들림은 안착과 함께 소멸.
+  const slam = interpolate(wf, [0, 4, 7], [2.4, 0.93, 1.0], {
+    extrapolateLeft: 'clamp', extrapolateRight: 'clamp',
+  });
+  const rot = (random(seed) - 0.5) * 14 * interpolate(wf, [0, 8], [1, 0], {
+    extrapolateLeft: 'clamp', extrapolateRight: 'clamp',
+  });
+  const op = interpolate(wf, [0, 2], [0, 1], {
+    extrapolateLeft: 'clamp', extrapolateRight: 'clamp',
+  });
+  const big = fontSize * 2.6;
+  const hot = isAccentToken(w.text);
+  return (
+    <AbsoluteFill style={{ justifyContent: 'center', alignItems: 'center' }}>
+      <div style={{
+        position: 'relative',
+        transform: `translateY(${big * 0.8}px) scale(${slam}) rotate(${rot}deg)`,
+        opacity: Math.min(op, exit),
+      }}>
+        <Sparks seed={seed} fontSize={big} wf={wf} />
+        <span style={{
+          position: 'relative',
+          color: hot ? ACCENT : '#fff',
+          fontFamily: FONT,
+          fontSize: big,
+          fontWeight: 800,
+          whiteSpace: 'nowrap',
+          WebkitTextStroke: `4px ${STROKE}`,
+          paintOrder: 'stroke fill',
+          textShadow: `${STROKE_SHADOW}, 0 0 0.3em rgba(255,225,77,0.95), 0 0 0.7em rgba(255,180,40,0.8), 0 0 1.4em rgba(255,140,20,0.5)`,
+        }}>
+          {w.text}
+        </span>
+      </div>
+    </AbsoluteFill>
+  );
+};
+
 const Caption: React.FC<{
   ev: SubEvent;
   durationInFrames: number;
   fontSize: number;
   marginBottom: number;
-  defaultStyle: 'fade' | 'kinetic';
+  defaultStyle: 'fade' | 'kinetic' | 'impact';
   mode: 'shorts' | 'longform';
   palette: Record<string, string>;
 }> = ({ ev, durationInFrames, fontSize, marginBottom, defaultStyle, mode, palette }) => {
@@ -215,6 +313,12 @@ const Caption: React.FC<{
         startFrame: Math.round((i * span) / tokens.length),
         endFrame: Math.round(((i + 1) * span) / tokens.length),
       }));
+    }
+    if ((ev.style ?? defaultStyle) === 'impact') {
+      return (
+        <ImpactCaption ev={ev} durationInFrames={durationInFrames}
+          fontSize={fontSize} exit={exit} words={words} />
+      );
     }
     return (
       <Pill fontSize={fontSize} marginBottom={marginBottom}

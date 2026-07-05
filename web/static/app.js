@@ -30,10 +30,10 @@ $("subtitle_only").addEventListener("change", () => {
 });
 
 function appendSubOpts(fd, subMode) {
-  const animated = subMode === "fade" || subMode === "kinetic";
+  const animated = subMode === "fade" || subMode === "kinetic" || subMode === "impact";
   fd.append("no_subtitle", subMode === "off");
   fd.append("sub_engine", animated ? "remotion" : "pil");
-  fd.append("sub_style", subMode === "kinetic" ? "kinetic" : "fade");
+  fd.append("sub_style", subMode === "kinetic" || subMode === "impact" ? subMode : "fade");
 }
 
 // ---------- 모드 카드 ----------

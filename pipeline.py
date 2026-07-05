@@ -591,7 +591,7 @@ def build_one_short(
         elif args.sub_engine == "remotion":
             render_subtitled_remotion(
                 cut_path=vert, output=subbed, captions=[], segments=[],
-                events=events, hook=hook, mode="shorts",
+                events=events, hook=hook, mode="shorts", style=args.sub_style,
                 font_size=_SHORTS_FONT_SIZE, margin_bottom=_SHORTS_MARGIN_BOTTOM,
             )
             src = subbed
@@ -916,7 +916,7 @@ def main() -> None:
         help="자막 엔진. remotion: 투명 애니메이션(기본, 숏츠 펀치+hook 배너), pil: PIL PNG 정적",
     )
     parser.add_argument(
-        "--sub-style", choices=["fade", "kinetic"], default="fade",
+        "--sub-style", choices=["fade", "kinetic", "impact"], default="fade",
         help="remotion 엔진 자막 스타일. fade: 전체 페이드, kinetic: 단어별 순차 등장",
     )
 

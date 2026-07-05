@@ -370,8 +370,8 @@ async def create_job(
         raise HTTPException(400, f"outputs는 {'/'.join(pl.WANTED)} 중에서 1개 이상")
     if sub_engine not in ("pil", "remotion"):
         raise HTTPException(400, "sub_engine은 pil/remotion 중 하나")
-    if sub_style not in ("fade", "kinetic"):
-        raise HTTPException(400, "sub_style은 fade/kinetic 중 하나")
+    if sub_style not in ("fade", "kinetic", "impact"):
+        raise HTTPException(400, "sub_style은 fade/kinetic/impact 중 하나")
     if shorts_focus not in ("left", "center", "right"):
         raise HTTPException(400, "shorts_focus는 left/center/right 중 하나")
     if not files:
