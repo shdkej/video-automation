@@ -126,6 +126,7 @@ $("job-form").addEventListener("submit", async (e) => {
     const res = await fetch("/api/jobs", { method: "POST", body: fd });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || res.statusText);
     const { job_id } = await res.json();
+    saveRecentJob(job_id, $("mode").value);
     hide($("form-section"));
     show($("progress-section"));
     startPolling(job_id);
@@ -251,3 +252,88 @@ function reset() {
 }
 $("reset-btn").addEventListener("click", reset);
 $("error-reset-btn").addEventListener("click", reset);
+
+// ---------- 최근 작업 패널 (localStorage + 서버 상태) ----------
+const RECENT_KEY = "reelroom_recent_jobs";
+
+function recentJobs() {
+  try { return JSON.parse(localStorage.getItem(RECENT_KEY)) || []; } catch { return []; }
+}
+
+function saveRecentJob(id, mode) {
+  const list = recentJobs().filter((j) => j.id !== id);
+  list.unshift({ id, mode, ts: Date.now() });
+  localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, 15)));
+  renderJobPanel();
+}
+
+function fmtTs(ts) {
+  const d = new Date(ts);
+  const p = (n) => String(n).padStart(2, "0");
+  return `${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+function renderJobPanel() {
+  const list = recentJobs();
+  $("jp-empty").style.display = list.length ? "none" : "";
+  $("job-list").innerHTML = "";
+  list.forEach((j) => {
+    const li = document.createElement("li");
+    li.dataset.id = j.id;
+    li.innerHTML = `<span class="jp-title">${fmtTs(j.ts)} · ${j.mode || "?"}</span>
+      <span class="jp-meta"><span>#${j.id.slice(0, 6)}</span><span class="jp-badge" data-badge></span></span>`;
+    li.addEventListener("click", () => openJob(j.id, li));
+    $("job-list").appendChild(li);
+  });
+  highlightActiveJob();
+}
+
+function highlightActiveJob() {
+  [...$("job-list").children].forEach((li) =>
+    li.classList.toggle("active", li.dataset.id === currentJobId));
+}
+
+async function openJob(id, li) {
+  if (li && li.classList.contains("expired")) return;
+  if (pollTimer) clearInterval(pollTimer);
+  try {
+    const res = await fetch(`/api/jobs/${id}`);
+    if (res.status === 404) {
+      // 서버에서 정리됨(24시간/개수 한도 또는 재시작) — 목록에 만료로 표시
+      if (li) {
+        li.classList.add("expired");
+        const b = li.querySelector("[data-badge]");
+        b.textContent = "만료";
+        b.classList.add("expired-txt");
+      }
+      return;
+    }
+    const job = await res.json();
+    [$("form-section"), $("error-section"), $("result-section"), $("progress-section")].forEach(hide);
+    currentJobId = id;
+    if (job.status === "running") {
+      show($("progress-section"));
+      startPolling(id);
+    } else if (job.status === "error") {
+      showError(job.error || "알 수 없는 오류");
+    } else {
+      renderResults(id, job);
+    }
+    highlightActiveJob();
+  } catch (err) {
+    showError(err.message);
+  }
+}
+
+// 초기 렌더 + 새로고침 복귀 — 가장 최근 잡이 아직 돌고 있으면 자동으로 이어서 보여준다
+renderJobPanel();
+(async () => {
+  const last = recentJobs()[0];
+  if (!last) return;
+  try {
+    const res = await fetch(`/api/jobs/${last.id}`);
+    if (!res.ok) return;
+    const job = await res.json();
+    if (job.status === "running") openJob(last.id);
+  } catch { /* 서버 정리됨 — 조용히 무시 */ }
+})();

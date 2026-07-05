@@ -347,19 +347,53 @@ async def rebuild_job(
     return {"job_id": job_id}
 
 
+def _outputs_from_dir(outdir: Path) -> dict:
+    """산출물 폴더에서 outputs 딕셔너리 재구성 — 서버 재시작 후 결과 열람용."""
+    o: dict = {}
+    if (outdir / "longform.mp4").is_file():
+        o["longform"] = "longform.mp4"
+    shorts = sorted(p.name for p in outdir.glob("shorts_*.mp4")
+                    if not p.name.endswith("_clean.mp4"))
+    if shorts:
+        o["shorts"] = shorts
+    clean = sorted(p.name for p in outdir.glob("shorts_*_clean.mp4"))
+    if clean:
+        o["shorts_clean"] = clean
+    thumbs = sorted(p.name for p in outdir.glob("thumbnail*.jpg"))
+    if thumbs:
+        o["thumbnail"] = thumbs
+    if (outdir / "intro.mp4").is_file():
+        o["intro"] = "intro.mp4"
+    return o
+
+
 @app.get("/api/jobs/{job_id}")
 async def get_job(job_id: str):
     job = JOBS.get(job_id)
-    if not job:
+    if job:
+        return job
+    # 인메모리 상태가 없어도(서버 재시작) 산출물이 디스크에 남아 있으면 재구성해 준다.
+    outdir = JOBS_DIR / job_id / "outputs"
+    outputs = _outputs_from_dir(outdir) if outdir.is_dir() else {}
+    if not outputs:
         raise HTTPException(404, "잡 없음")
-    return job
+    segment_count = None
+    sel = outdir / "selection.json"
+    if sel.is_file():
+        try:
+            segment_count = len(json.loads(sel.read_text()))
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {
+        "status": "done", "stage": "완료", "progress": 100,
+        "outputs": outputs, "error": None, "mode": None,
+        "source_count": None, "segment_count": segment_count,
+    }
 
 
 @app.get("/api/jobs/{job_id}/file/{name}")
 async def get_file(job_id: str, name: str):
-    if job_id not in JOBS:
-        raise HTTPException(404, "잡 없음")
-    # path traversal 방지 — outdir 안의 파일만
+    # path traversal 방지 — outdir 안의 파일만 (인메모리 상태와 무관하게 디스크 기준)
     outdir = (JOBS_DIR / job_id / "outputs").resolve()
     target = (outdir / name).resolve()
     if not str(target).startswith(str(outdir)) or not target.is_file():

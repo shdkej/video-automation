@@ -431,3 +431,66 @@ h1 .amp {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
+
+/* ============================================================
+   최근 작업 패널 — 넓은 화면에선 우측 고정, 좁으면 본문 아래
+   ============================================================ */
+.job-panel {
+  position: fixed;
+  top: 96px;
+  right: 24px;
+  width: 236px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px 12px 10px;
+  z-index: 50;
+}
+.jp-head {
+  font-family: var(--film);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--paper-dim);
+  margin-bottom: 8px;
+  padding-left: 4px;
+}
+.jp-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 56vh;
+  overflow-y: auto;
+}
+.jp-list li {
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.jp-list li:hover { background: var(--surface-2); border-color: var(--line); }
+.jp-list li.active { background: var(--surface-2); border-color: var(--line-bright); }
+.jp-list li.expired { opacity: 0.45; cursor: default; }
+.jp-title { font-size: 13px; color: var(--paper); }
+.jp-meta {
+  font-family: var(--film);
+  font-size: 11px;
+  color: var(--muted);
+  display: flex;
+  gap: 8px;
+}
+.jp-badge:empty { display: none; }
+.jp-badge.running { color: var(--rec); }
+.jp-badge.expired-txt { color: var(--muted); }
+.jp-empty { font-size: 12px; color: var(--muted); margin: 2px 0 4px; padding-left: 4px; }
+@media (max-width: 1459px) {
+  .job-panel {
+    position: static;
+    width: auto;
+    max-width: 920px;
+    margin: 26px auto 0;
+  }
+}
