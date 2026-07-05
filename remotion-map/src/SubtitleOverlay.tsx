@@ -109,17 +109,19 @@ const HookBanner: React.FC<{ hook: string; fontSize: number; height: number }> =
         style={{
           position: 'absolute',
           top,
-          maxWidth: 'calc(100% - 100px)',
+          // 렌더 해상도와 무관하게 같은 레이아웃이 나오도록 비례 단위만 쓴다
+          // (고정 px는 축소 렌더에서 텍스트 공간을 과점유해 조기 줄바꿈/말줄임 유발)
+          maxWidth: '86%',
           background: '#FFE14D',
-          borderRadius: 16,
-          padding: '18px 32px',
+          borderRadius: '0.35em',
+          padding: '0.4em 0.7em',
           color: '#111',
           fontFamily: FONT,
           fontSize,
           fontWeight: 800,
           lineHeight,
           textAlign: 'center',
-          boxShadow: '0 6px 20px rgba(0,0,0,0.35)',
+          boxShadow: '0 0.13em 0.45em rgba(0,0,0,0.35)',
         }}
       >
         <span
@@ -128,7 +130,8 @@ const HookBanner: React.FC<{ hook: string; fontSize: number; height: number }> =
             WebkitLineClamp: 2,
             WebkitBoxOrient: 'vertical',
             overflow: 'hidden',
-            maxHeight: `${Math.round(fontSize * lineHeight * 2)}px`,
+            // px 반올림은 축소 렌더에서 2번째 줄을 서브픽셀 차이로 잘라낸다 — em으로
+            maxHeight: `${lineHeight * 2}em`,
           }}
         >
           {highlightSpans(hook, 99).map((s, i) => (

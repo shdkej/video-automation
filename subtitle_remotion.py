@@ -28,10 +28,12 @@ COMPOSITION = "SubtitleOverlay"
 def _render_entry() -> str:
     return "build" if (BUNDLE_DIR / "index.html").exists() else ENTRY
 
-# 오버레이 렌더 해상도 상한(세로 px). footage가 이보다 크면(예: 4K) 비례 축소해
-# 렌더한 뒤 합성 단계에서 footage 크기로 업스케일한다. 4K 알파 VP8 인코딩은
-# 저코어 머신에서 비현실적으로 느려(0.008x) 사실상 렌더가 끝나지 않기 때문.
-OVERLAY_MAX_HEIGHT = 1080
+# 오버레이 렌더 해상도 상한(세로 px). footage가 이보다 크면 비례 축소해
+# 렌더한 뒤 합성 단계에서 footage 크기로 업스케일한다. 자막·배너는 벡터 렌더라
+# 업스케일 손실이 작고, 렌더 시간은 픽셀 수에 비례한다 — 1080→720으로 낮춰
+# 1코어 서버에서 렌더를 절반으로 줄였다(실측 118s→59s). 배너/자막 레이아웃은
+# 비례 단위라 해상도와 무관하게 동일하다.
+OVERLAY_MAX_HEIGHT = 720
 
 
 def probe_fps(path: Path) -> float:
