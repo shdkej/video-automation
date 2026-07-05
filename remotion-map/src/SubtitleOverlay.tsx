@@ -107,8 +107,10 @@ function highlightSpans(text: string, maxHits: number): { word: string; accent: 
 // ---------------------------------------------------------------------------
 
 const CREAM = '#FBF6EA';
-const SOFT_SHADOW =
-  '0 0.03em 0.06em rgba(40,30,20,0.45), 0 0.11em 0.4em rgba(40,30,20,0.45), 0 0.22em 0.8em rgba(40,30,20,0.3)';
+// 타이틀 네온: 민트 글로우 (은은한 발광 — 사인보드가 아니라 빛나는 텍스트)
+const NEON_FILL = '#EFFFFB';
+const NEON_GLOW =
+  '0 0 0.08em #7CFBE9, 0 0 0.25em #19E3C2, 0 0 0.55em rgba(25,227,194,0.75), 0 0.03em 0.08em rgba(0,0,0,0.5)';
 
 const HookBanner: React.FC<{
   hook: string; fontSize: number; height: number; context?: string;
@@ -153,11 +155,11 @@ const HookBanner: React.FC<{
           </svg>
           <div style={{
             fontFamily: `MobilePOP, ${FONT}`,
-            color: CREAM,
+            color: NEON_FILL,
             fontSize,
             lineHeight,
             textAlign: 'center',
-            textShadow: SOFT_SHADOW,
+            textShadow: NEON_GLOW,
           }}>
             <span style={{
               display: '-webkit-box',
@@ -192,15 +194,13 @@ const Pill: React.FC<{
         opacity: containerOpacity,
         transform: `translateY(${containerY}px)`,
         maxWidth: '88%',
-        color: '#fff',
+        color: '#FDFBF6',
         fontFamily: FONT,
         fontSize,
         fontWeight: 800,
-        lineHeight: 1.3,
+        lineHeight: 1.35,
         textAlign: 'center',
-        WebkitTextStroke: `3px ${STROKE}`,
-        paintOrder: 'stroke fill',
-        textShadow: STROKE_SHADOW,
+        textShadow: '0 0.03em 0.07em rgba(20,15,10,0.55), 0 0.12em 0.45em rgba(20,15,10,0.45)',
         whiteSpace: 'pre-wrap',
       }}
     >
@@ -324,10 +324,9 @@ const Caption: React.FC<{
     extrapolateLeft: 'clamp', extrapolateRight: 'clamp',
   });
 
-  // 숏츠: 카라오케 — 실제 발화 시점에 단어 등장(words) + 현재 단어 하이라이트.
-  // words가 없으면(AI 장면 자막 등) 이벤트 길이에 비례해 단어를 퍼뜨려 같은 카라오케 느낌을 낸다.
-  if (mode === 'shorts') {
-    const boxIn = spring({ frame, fps, config: { damping: 20, mass: 0.5 }, durationInFrames: 8 });
+  // 숏츠: 미니멀 — 문장 통째 fade + 강조 토큰 색만 (카라오케 제거, 사용자 결정).
+  // 'impact' 스타일만 원워드 슬램 유지. words 타이밍은 impact 전용으로 계산.
+  if (mode === 'shorts' && (ev.style ?? defaultStyle) === 'impact') {
     let words: { text: string; startFrame: number; endFrame: number }[];
     if (ev.words?.length) {
       words = ev.words.map((w, i, arr) => ({
@@ -337,7 +336,6 @@ const Caption: React.FC<{
       }));
     } else {
       const tokens = ev.text.split(/\s+/).filter(Boolean);
-      // 앞 85% 구간에 균등 분배 — 마지막 단어도 잠시 '현재'로 머문다
       const span = Math.max(tokens.length * 2, Math.round(durationInFrames * 0.85));
       words = tokens.map((t, i) => ({
         text: t,
@@ -345,40 +343,9 @@ const Caption: React.FC<{
         endFrame: Math.round(((i + 1) * span) / tokens.length),
       }));
     }
-    if ((ev.style ?? defaultStyle) === 'impact') {
-      return (
-        <ImpactCaption ev={ev} durationInFrames={durationInFrames}
-          fontSize={fontSize} exit={exit} words={words} />
-      );
-    }
     return (
-      <Pill fontSize={fontSize} marginBottom={marginBottom}
-        containerOpacity={Math.min(boxIn, exit)} containerY={interpolate(boxIn, [0, 1], [20, 0])}>
-        {words.map((w, i) => {
-          const wf = frame - w.startFrame;
-          // 등장 펀치: 0.7 → 1.06 → 1.0 안착 (~8프레임)
-          const entrance = interpolate(wf, [0, 5, 8], [0.7, 1.06, 1.0], {
-            extrapolateLeft: 'clamp', extrapolateRight: 'clamp',
-          });
-          const op = interpolate(wf, [0, 4], [0, 1], {
-            extrapolateLeft: 'clamp', extrapolateRight: 'clamp',
-          });
-          // 현재 발화 중인 단어: 노랑 하이라이트 + 살짝 확대 (지나가면 흰색 안착)
-          const active = frame >= w.startFrame && frame < Math.max(w.endFrame, w.startFrame + 3);
-          const hot = isAccentToken(w.text);
-          const sc = Math.min(entrance, 1.1) * (active ? 1.08 : 1.0);
-          return (
-            <span key={i} style={{
-              display: 'inline-block', marginRight: '0.28em',
-              opacity: op, transform: `scale(${sc})`,
-              transition: 'none',
-              ...(active || hot ? { color: ACCENT } : accent ? { color: accent } : {}),
-            }}>
-              {w.text}
-            </span>
-          );
-        })}
-      </Pill>
+      <ImpactCaption ev={ev} durationInFrames={durationInFrames}
+        fontSize={fontSize} exit={exit} words={words} />
     );
   }
 
