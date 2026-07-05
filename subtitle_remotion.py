@@ -19,7 +19,14 @@ from pathlib import Path
 REMOTION_DIR = Path(__file__).parent / "remotion-map"
 REMOTION_BIN = REMOTION_DIR / "node_modules" / ".bin" / "remotion"
 ENTRY = "src/index.ts"
+# 사전 번들(`npx remotion bundle`)이 있으면 렌더마다 반복되던 웹팩 번들링을 건너뛴다.
+# 이미지 빌드 시 생성해 두며, 없으면(로컬 개발) 엔트리에서 즉석 번들링으로 폴백.
+BUNDLE_DIR = REMOTION_DIR / "build"
 COMPOSITION = "SubtitleOverlay"
+
+
+def _render_entry() -> str:
+    return "build" if (BUNDLE_DIR / "index.html").exists() else ENTRY
 
 # 오버레이 렌더 해상도 상한(세로 px). footage가 이보다 크면(예: 4K) 비례 축소해
 # 렌더한 뒤 합성 단계에서 footage 크기로 업스케일한다. 4K 알파 VP8 인코딩은
@@ -144,7 +151,7 @@ def render_overlay_webm(
         props_path = f.name
 
     cmd = [
-        str(REMOTION_BIN), "render", ENTRY, COMPOSITION, str(out_webm.resolve()),
+        str(REMOTION_BIN), "render", _render_entry(), COMPOSITION, str(out_webm.resolve()),
         f"--props={props_path}",
         "--codec=vp8", "--image-format=png", "--pixel-format=yuva420p",
         # 고해상도(4K)·저코어 머신에서 모듈 레벨 폰트 delayRender가 기본 30s를 넘겨

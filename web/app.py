@@ -173,9 +173,8 @@ def _run_job(job_id: str, input_paths: list[Path], opts: dict) -> None:
             ]
             if opts.get("shorts_clean"):
                 stage("숏츠 클린 버전 생성", 70)
-                clean_args = pl.clean_shorts_args(args)
                 outputs["shorts_clean"] = [
-                    pl.build_one_short(clean_args, s, f"shorts_{n:02d}_clean", outdir, transcript=transcript).name
+                    pl.build_clean_short(args, s, f"shorts_{n:02d}_clean", outdir).name
                     for n, s in enumerate(specs, 1)
                 ]
 

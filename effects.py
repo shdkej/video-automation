@@ -266,19 +266,12 @@ def concat_videos(clips: list[Path], output_path: Path, reencode: bool = True) -
 # Vertical reframe — 가로 영상을 숏폼 9:16로 (center-crop / blur 배경)
 # ============================================================================
 
-def reframe_vertical(
-    input_path: Path,
-    output_path: Path,
-    target_w: int = 1080,
-    target_h: int = 1920,
-    blur_bg: bool = False,
-) -> None:
-    """가로(또는 임의 비율) 영상을 세로 9:16로 변환.
+def _vertical_video_args(target_w: int, target_h: int, blur_bg: bool) -> list:
+    """세로 9:16 변환 ffmpeg 인자 — reframe_vertical과 cut_and_reframe_vertical의 단일 출처.
 
     blur_bg=False: 9:16을 가득 채우도록 확대 후 가운데를 crop (좌우가 잘림).
     blur_bg=True:  원본을 흐린 배경 위에 폭 맞춰 얹음 (잘림 없음, 레터박스 대체).
     """
-    audio_map = ["-map", "0:a?"]  # 오디오 있으면 매핑, 없으면 조용히 생략
     if blur_bg:
         fc = (
             f"[0:v]split[a][b];"
@@ -287,21 +280,63 @@ def reframe_vertical(
             f"[b]scale={target_w}:{target_h}:force_original_aspect_ratio=decrease[fg];"
             f"[bg][fg]overlay=(W-w)/2:(H-h)/2[vout]"
         )
-        video_args = ["-filter_complex", fc, "-map", "[vout]", *audio_map]
-    else:
-        vf = (
-            f"scale={target_w}:{target_h}:force_original_aspect_ratio=increase,"
-            f"crop={target_w}:{target_h}"
-        )
-        video_args = ["-vf", vf, "-map", "0:v:0", *audio_map]
+        return ["-filter_complex", fc, "-map", "[vout]"]
+    vf = (
+        f"scale={target_w}:{target_h}:force_original_aspect_ratio=increase,"
+        f"crop={target_w}:{target_h}"
+    )
+    return ["-vf", vf, "-map", "0:v:0"]
+
+
+def reframe_vertical(
+    input_path: Path,
+    output_path: Path,
+    target_w: int = 1080,
+    target_h: int = 1920,
+    blur_bg: bool = False,
+) -> None:
+    """가로(또는 임의 비율) 영상을 세로 9:16로 변환."""
+    video_args = _vertical_video_args(target_w, target_h, blur_bg)
     subprocess.run(
         ["ffmpeg", "-y", "-loglevel", "error",
          "-i", str(input_path), *video_args,
+         "-map", "0:a?",  # 오디오 있으면 매핑, 없으면 조용히 생략
          "-c:v", "libx264", "-preset", "fast", "-crf", "20",
          "-c:a", "copy",
          str(output_path)],
         check=True,
     )
+
+
+def cut_and_reframe_vertical(
+    input_path: Path,
+    start: float,
+    end: float,
+    output_path: Path,
+    blur_bg: bool = False,
+    fade_out: float = 0.2,
+    target_w: int = 1080,
+    target_h: int = 1920,
+) -> None:
+    """클린 숏츠 전용 단일 패스: 구간 컷 + 세로 리프레임 + 오디오 페이드아웃.
+
+    build_short_footage → reframe_vertical → apply_audio_fade_out 3패스(풀 인코딩
+    2회 + 오디오 재인코딩 1회)를 인코딩 1회로 합친다. 효과가 없는 클린 버전은
+    구간이 하나뿐이라 중간 산출물이 필요 없다.
+    """
+    dur = end - start
+    cmd = ["ffmpeg", "-y", "-loglevel", "error",
+           "-ss", f"{start:.3f}", "-i", str(input_path), "-t", f"{dur:.3f}",
+           *_vertical_video_args(target_w, target_h, blur_bg)]
+    if has_audio_stream(input_path):
+        st = max(0.0, dur - fade_out)
+        cmd += ["-map", "0:a?",
+                "-af", f"afade=out:st={st:.3f}:d={fade_out}",
+                "-c:a", "aac", "-b:a", "192k"]
+    cmd += ["-c:v", "libx264", "-preset", "fast", "-crf", "20",
+            "-avoid_negative_ts", "make_zero",
+            str(output_path)]
+    subprocess.run(cmd, check=True)
 
 
 # ============================================================================

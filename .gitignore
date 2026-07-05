@@ -42,3 +42,4 @@ web/jobs/
 
 # Playwright 작업물
 .playwright-mcp/
+remotion-map/build/

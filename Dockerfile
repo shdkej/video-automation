@@ -20,6 +20,9 @@ RUN cd remotion-map && npm ci --no-audit --no-fund
 
 COPY . .
 
+# Remotion 웹팩 번들을 미리 생성 — 렌더마다 반복되던 번들링(수십 초/회) 제거
+RUN cd remotion-map && npx remotion bundle
+
 ENV REMOTION_BROWSER_EXECUTABLE=/usr/bin/chromium
 
 EXPOSE 8000

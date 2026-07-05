@@ -40,6 +40,7 @@ from effects import (
     build_short_footage,
     compute_xfade_windows,
     concat_sources,
+    cut_and_reframe_vertical,
     cut_with_xfade,
     extract_thumbnail,
     overlay_hook_text,
@@ -480,18 +481,18 @@ def shorts_events(spec: dict, transcript: dict | None, timeline) -> list:
     return []
 
 
-def clean_shorts_args(args):
-    """효과 없는 클린 숏츠용 args 사본 — 점프컷·펀치인·자막을 모두 끈다.
+def build_clean_short(args, spec: dict, stem: str, outdir: Path) -> Path:
+    """클린 숏츠(자막·점프컷·펀치인 없음) — 단일 ffmpeg 패스.
 
     같은 spec으로 풀 버전과 나란히 뽑아 효과 유무를 A/B 비교하는 용도.
-    세로 리프레임과 블러 배경 설정은 그대로 따른다.
+    build_one_short를 클린 옵션으로 다시 돌리면 3패스 풀 인코딩이라,
+    컷+세로 리프레임+오디오 페이드를 한 번에 처리한다. 블러 배경 설정은 따른다.
     """
-    import copy
-    clean = copy.copy(args)
-    clean.no_subtitle = True
-    clean.no_shorts_jumpcut = True
-    clean.no_shorts_punchin = True
-    return clean
+    final = outdir / f"{stem}.mp4"
+    cut_and_reframe_vertical(
+        args.input, spec["start"], spec["end"], final, blur_bg=args.shorts_blur,
+    )
+    return final
 
 
 def build_one_short(args, spec: dict, stem: str, outdir: Path, transcript=None) -> Path:
@@ -675,8 +676,7 @@ def run(args) -> None:
         outs = [build_one_short(args, s, f"shorts_{n:02d}", outdir, transcript=transcript)
                 for n, s in enumerate(specs, 1)]
         if getattr(args, "shorts_clean", False):
-            clean = clean_shorts_args(args)
-            outs += [build_one_short(clean, s, f"shorts_{n:02d}_clean", outdir, transcript=transcript)
+            outs += [build_clean_short(args, s, f"shorts_{n:02d}_clean", outdir)
                      for n, s in enumerate(specs, 1)]
         return outs
 

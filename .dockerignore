@@ -5,6 +5,7 @@ __pycache__
 web/jobs
 remotion-map/node_modules
 remotion-map/out
+remotion-map/build
 tests
 docs
 *.mp4
