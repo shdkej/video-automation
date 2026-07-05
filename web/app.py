@@ -151,25 +151,31 @@ def _run_job(job_id: str, input_paths: list[Path], opts: dict) -> None:
         (outdir / "captions.json").write_text(json.dumps(captions, ensure_ascii=False, indent=2))
         job["segment_count"] = len(segments)
 
+        wanted = [w for w in pl.WANTED if w in opts.get("outputs", pl.WANTED)]
+
         outputs: dict = {}
-        stage("롱폼 생성", 30)
-        outputs["longform"] = pl.build_longform(args, segments, captions, outdir, transcript=transcript).name
+        if "longform" in wanted:
+            stage("롱폼 생성", 30)
+            outputs["longform"] = pl.build_longform(args, segments, captions, outdir, transcript=transcript).name
 
-        stage("숏츠 생성", 55)
-        specs = pl.rank_for_shorts(
-            segments, captions, args.shorts_count,
-            args.shorts_max_seconds, args.shorts_ideal_seconds,
-        )
-        outputs["shorts"] = [
-            pl.build_one_short(args, s, f"shorts_{n:02d}", outdir, transcript=transcript).name
-            for n, s in enumerate(specs, 1)
-        ]
+        if "shorts" in wanted:
+            stage("숏츠 생성", 55)
+            specs = pl.rank_for_shorts(
+                segments, captions, args.shorts_count,
+                args.shorts_max_seconds, args.shorts_ideal_seconds,
+            )
+            outputs["shorts"] = [
+                pl.build_one_short(args, s, f"shorts_{n:02d}", outdir, transcript=transcript).name
+                for n, s in enumerate(specs, 1)
+            ]
 
-        stage("썸네일 추출", 80)
-        outputs["thumbnail"] = [p.name for p in pl.build_thumbnail(args, segments, captions, outdir)]
+        if "thumbnail" in wanted:
+            stage("썸네일 추출", 80)
+            outputs["thumbnail"] = [p.name for p in pl.build_thumbnail(args, segments, captions, outdir)]
 
-        stage("인트로 생성", 92)
-        outputs["intro"] = pl.build_intro(args, segments, outdir).name
+        if "intro" in wanted:
+            stage("인트로 생성", 92)
+            outputs["intro"] = pl.build_intro(args, segments, outdir).name
 
         job["outputs"] = outputs
         job["status"], job["progress"], job["stage"] = "done", 100, "완료"
@@ -221,9 +227,12 @@ async def create_job(
     no_subtitle: bool = Form(False),
     sub_engine: str = Form("remotion"),
     sub_style: str = Form("fade"),
+    outputs: list[str] = Form(list(pl.WANTED)),
 ):
     if mode not in ("speech", "scene", "vision"):
         raise HTTPException(400, "mode는 speech/scene/vision 중 하나")
+    if not outputs or set(outputs) - set(pl.WANTED):
+        raise HTTPException(400, f"outputs는 {'/'.join(pl.WANTED)} 중에서 1개 이상")
     if sub_engine not in ("pil", "remotion"):
         raise HTTPException(400, "sub_engine은 pil/remotion 중 하나")
     if sub_style not in ("fade", "kinetic"):
@@ -258,6 +267,7 @@ async def create_job(
         "shorts_count": shorts_count, "thumbnail_count": thumbnail_count,
         "shorts_blur": shorts_blur, "no_subtitle": no_subtitle,
         "sub_engine": sub_engine, "sub_style": sub_style,
+        "outputs": outputs,
     }
     threading.Thread(target=_run_job, args=(job_id, input_paths, opts), daemon=True).start()
     return {"job_id": job_id}
@@ -273,12 +283,15 @@ async def rebuild_job(
     no_subtitle: bool = Form(False),
     sub_engine: str = Form("remotion"),
     sub_style: str = Form("fade"),
+    outputs: list[str] = Form(list(pl.WANTED)),
 ):
     """기존 잡의 분석(selection.json)을 재사용해 산출 옵션만 바꿔 다시 생성.
 
     Whisper/LLM 같은 비싼 분석은 cache=True로 재활용되고 build(ffmpeg)만 다시 돈다.
     mode 등 분석 자체를 바꾸려면 새로 업로드해야 한다.
     """
+    if not outputs or set(outputs) - set(pl.WANTED):
+        raise HTTPException(400, f"outputs는 {'/'.join(pl.WANTED)} 중에서 1개 이상")
     job_dir = JOBS_DIR / job_id
     if not job_dir.is_dir():
         raise HTTPException(404, "잡 없음")
@@ -307,6 +320,7 @@ async def rebuild_job(
         "shorts_count": shorts_count, "thumbnail_count": thumbnail_count,
         "shorts_blur": shorts_blur, "no_subtitle": no_subtitle,
         "sub_engine": sub_engine, "sub_style": sub_style,
+        "outputs": outputs,
     }
     threading.Thread(target=_run_job, args=(job_id, input_paths, opts), daemon=True).start()
     return {"job_id": job_id}

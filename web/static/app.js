@@ -13,6 +13,16 @@ let pickedFiles = []; // 업로드 순서 = 타임라인 순서
 let pollTimer = null;
 
 // 자막 select(off/pil/fade/kinetic) → 백엔드 옵션 3종으로 분해
+const KO_COUNT = ["", "한", "두", "세", "네"];
+function pickedOutputs() {
+  return [...document.querySelectorAll(".out-pick:checked")].map((el) => el.value);
+}
+function refreshCtaLabel() {
+  const n = pickedOutputs().length;
+  $("cta-label").textContent = n === 0 ? "산출물을 선택하세요" : `${KO_COUNT[n]} 가지 만들기`;
+}
+document.querySelectorAll(".out-pick").forEach((el) => el.addEventListener("change", refreshCtaLabel));
+
 function appendSubOpts(fd, subMode) {
   const animated = subMode === "fade" || subMode === "kinetic";
   fd.append("no_subtitle", subMode === "off");
@@ -103,6 +113,9 @@ $("job-form").addEventListener("submit", async (e) => {
   fd.append("thumbnail_count", $("job-form").thumbnail_count.value);
   fd.append("shorts_blur", $("shorts_blur").checked);
   appendSubOpts(fd, $("sub_mode").value);
+  const picked = pickedOutputs();
+  if (picked.length === 0) { showError("산출물을 하나 이상 선택해주세요."); return; }
+  picked.forEach((o) => fd.append("outputs", o));
 
   $("submit-btn").disabled = true;
   try {
