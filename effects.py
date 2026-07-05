@@ -266,11 +266,14 @@ def concat_videos(clips: list[Path], output_path: Path, reencode: bool = True) -
 # Vertical reframe — 가로 영상을 숏폼 9:16로 (center-crop / blur 배경)
 # ============================================================================
 
-def _vertical_video_args(target_w: int, target_h: int, blur_bg: bool) -> list:
+def _vertical_video_args(
+    target_w: int, target_h: int, blur_bg: bool, focus: str = "center",
+) -> list:
     """세로 9:16 변환 ffmpeg 인자 — reframe_vertical과 cut_and_reframe_vertical의 단일 출처.
 
-    blur_bg=False: 9:16을 가득 채우도록 확대 후 가운데를 crop (좌우가 잘림).
-    blur_bg=True:  원본을 흐린 배경 위에 폭 맞춰 얹음 (잘림 없음, 레터박스 대체).
+    blur_bg=False: 9:16을 가득 채우도록 확대 후 crop. focus(left/center/right)로
+                   가로 영상에서 어느 쪽을 살릴지 정한다 (피사체가 옆에 있을 때).
+    blur_bg=True:  원본을 흐린 배경 위에 폭 맞춰 얹음 (잘림 없음 — focus 무관).
     """
     if blur_bg:
         fc = (
@@ -281,9 +284,10 @@ def _vertical_video_args(target_w: int, target_h: int, blur_bg: bool) -> list:
             f"[bg][fg]overlay=(W-w)/2:(H-h)/2[vout]"
         )
         return ["-filter_complex", fc, "-map", "[vout]"]
+    x = {"left": "0", "right": "iw-ow"}.get(focus, "(iw-ow)/2")
     vf = (
         f"scale={target_w}:{target_h}:force_original_aspect_ratio=increase,"
-        f"crop={target_w}:{target_h}"
+        f"crop={target_w}:{target_h}:{x}:(ih-oh)/2"
     )
     return ["-vf", vf, "-map", "0:v:0"]
 
@@ -294,9 +298,10 @@ def reframe_vertical(
     target_w: int = 1080,
     target_h: int = 1920,
     blur_bg: bool = False,
+    focus: str = "center",
 ) -> None:
     """가로(또는 임의 비율) 영상을 세로 9:16로 변환."""
-    video_args = _vertical_video_args(target_w, target_h, blur_bg)
+    video_args = _vertical_video_args(target_w, target_h, blur_bg, focus)
     subprocess.run(
         ["ffmpeg", "-y", "-loglevel", "error",
          "-i", str(input_path), *video_args,
@@ -314,6 +319,7 @@ def cut_and_reframe_vertical(
     end: float,
     output_path: Path,
     blur_bg: bool = False,
+    focus: str = "center",
     fade_out: float = 0.2,
     target_w: int = 1080,
     target_h: int = 1920,
@@ -327,7 +333,7 @@ def cut_and_reframe_vertical(
     dur = end - start
     cmd = ["ffmpeg", "-y", "-loglevel", "error",
            "-ss", f"{start:.3f}", "-i", str(input_path), "-t", f"{dur:.3f}",
-           *_vertical_video_args(target_w, target_h, blur_bg)]
+           *_vertical_video_args(target_w, target_h, blur_bg, focus)]
     if has_audio_stream(input_path):
         st = max(0.0, dur - fade_out)
         cmd += ["-map", "0:a?",

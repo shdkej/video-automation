@@ -13,14 +13,16 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import subprocess
 import sys
 import threading
 import time
 import uuid
+import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 
-from fastapi import FastAPI, Form, HTTPException, UploadFile
+from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -28,6 +30,7 @@ from fastapi.staticfiles import StaticFiles
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 import pipeline as pl  # noqa: E402
+from effects import add_bgm  # noqa: E402
 
 BASE = Path(__file__).resolve().parent
 JOBS_DIR = BASE / "jobs"
@@ -101,11 +104,15 @@ def _args_from_opts(input_path: Path, outdir: Path, opts: dict) -> SimpleNamespa
     return SimpleNamespace(
         input=input_path, audio=None, outdir=outdir,
         mode=opts["mode"], target_minutes=float(opts["target_minutes"]),
-        scene_threshold=0.3, clip_seconds=6.0,
+        scene_threshold=float(opts.get("scene_threshold", 0.3)),
+        clip_seconds=float(opts.get("clip_seconds", 6.0)),
         whisper_model=opts.get("whisper_model", "medium"), language="ko",
         llm_model=None, cache=True,  # 같은 잡 폴더의 트랜스크립트/selection 재사용(재생성 대비)
-        shorts_count=int(opts["shorts_count"]), shorts_max_seconds=45.0,
-        shorts_ideal_seconds=25.0, shorts_blur=bool(opts.get("shorts_blur")),
+        shorts_count=int(opts["shorts_count"]),
+        shorts_max_seconds=float(opts.get("shorts_max_seconds", 45.0)),
+        shorts_ideal_seconds=float(opts.get("shorts_ideal_seconds", 25.0)),
+        shorts_blur=bool(opts.get("shorts_blur")),
+        shorts_focus=opts.get("shorts_focus", "center"),
         shorts_silence_min=0.45,
         no_shorts_jumpcut=not opts.get("shorts_jumpcut", True),
         no_shorts_punchin=not opts.get("shorts_punchin", True),
@@ -186,6 +193,22 @@ def _run_job(job_id: str, input_paths: list[Path], opts: dict) -> None:
             stage("인트로 생성", 92)
             outputs["intro"] = pl.build_intro(args, segments, outdir, transcript=transcript).name
 
+        if (outdir / "longform.srt").is_file():
+            outputs["srt"] = "longform.srt"
+
+        bgm = _find_bgm(JOBS_DIR / job_id)
+        if bgm:
+            stage("BGM 입히는 중", 96)
+            videos_out = ([outputs.get("longform")] if outputs.get("longform") else []) \
+                + outputs.get("shorts", []) + outputs.get("shorts_clean", []) \
+                + ([outputs.get("intro")] if outputs.get("intro") else [])
+            vol = float(opts.get("bgm_volume", 0.3))
+            for name in videos_out:
+                src = outdir / name
+                mixed = outdir / f".{name}.bgm.mp4"
+                add_bgm(src, bgm, mixed, bgm_volume=vol)
+                mixed.replace(src)
+
         job["outputs"] = outputs
         job["status"], job["progress"], job["stage"] = "done", 100, "완료"
     except Exception as e:  # noqa: BLE001 — 잡 단위 격리 (PipelineError 포함)
@@ -197,6 +220,11 @@ def _run_job(job_id: str, input_paths: list[Path], opts: dict) -> None:
 # ============================================================================
 # API
 # ============================================================================
+
+def _find_bgm(job_dir: Path) -> Path | None:
+    """잡 폴더의 BGM 파일 — 재생성 때도 재사용된다."""
+    return next(iter(job_dir.glob("bgm.*")), None)
+
 
 def _save_uploads(files: list[UploadFile], job_dir: Path) -> list[Path]:
     """업로드를 청크 단위로 저장하며 잡 총합 크기를 제한한다.
@@ -228,6 +256,7 @@ def _save_uploads(files: list[UploadFile], job_dir: Path) -> list[Path]:
 @app.post("/api/jobs")
 async def create_job(
     files: list[UploadFile],
+    bgm: UploadFile | None = File(None),
     mode: str = Form("scene"),
     target_minutes: float = Form(3.0),
     shorts_count: int = Form(2),
@@ -241,6 +270,12 @@ async def create_job(
     sub_engine: str = Form("remotion"),
     sub_style: str = Form("fade"),
     outputs: list[str] = Form(list(pl.WANTED)),
+    scene_threshold: float = Form(0.3),
+    clip_seconds: float = Form(6.0),
+    shorts_max_seconds: float = Form(45.0),
+    shorts_ideal_seconds: float = Form(25.0),
+    shorts_focus: str = Form("center"),
+    bgm_volume: float = Form(0.3),
 ):
     if mode not in ("speech", "scene", "vision"):
         raise HTTPException(400, "mode는 speech/scene/vision 중 하나")
@@ -250,6 +285,8 @@ async def create_job(
         raise HTTPException(400, "sub_engine은 pil/remotion 중 하나")
     if sub_style not in ("fade", "kinetic"):
         raise HTTPException(400, "sub_style은 fade/kinetic 중 하나")
+    if shorts_focus not in ("left", "center", "right"):
+        raise HTTPException(400, "shorts_focus는 left/center/right 중 하나")
     if not files:
         raise HTTPException(400, "영상 파일이 필요합니다")
     # 동시 잡 상한 — 슬롯이 없으면 즉시 거부(429). 슬롯은 _run_job finally에서 반환.
@@ -265,6 +302,10 @@ async def create_job(
     # 업로드 저장 — 확장자만 취해 안전한 파일명으로 (여러 개면 순서 보존)
     try:
         input_paths = _save_uploads(files, job_dir)
+        if bgm and bgm.filename:
+            ext = Path(bgm.filename).suffix.lower() or ".mp3"
+            with open(job_dir / f"bgm{ext}", "wb") as f:
+                shutil.copyfileobj(bgm.file, f)
     except HTTPException:
         _RUNNING.release()  # 저장 실패 시 슬롯 반환(스레드 시작 전이므로 여기서)
         shutil.rmtree(job_dir, ignore_errors=True)
@@ -283,6 +324,10 @@ async def create_job(
         "shorts_clean": shorts_clean, "scene_captions": scene_captions,
         "sub_engine": sub_engine, "sub_style": sub_style,
         "outputs": outputs,
+        "scene_threshold": scene_threshold, "clip_seconds": clip_seconds,
+        "shorts_max_seconds": shorts_max_seconds,
+        "shorts_ideal_seconds": shorts_ideal_seconds,
+        "shorts_focus": shorts_focus, "bgm_volume": bgm_volume,
     }
     threading.Thread(target=_run_job, args=(job_id, input_paths, opts), daemon=True).start()
     return {"job_id": job_id}
@@ -303,6 +348,12 @@ async def rebuild_job(
     sub_engine: str = Form("remotion"),
     sub_style: str = Form("fade"),
     outputs: list[str] = Form(list(pl.WANTED)),
+    scene_threshold: float = Form(0.3),
+    clip_seconds: float = Form(6.0),
+    shorts_max_seconds: float = Form(45.0),
+    shorts_ideal_seconds: float = Form(25.0),
+    shorts_focus: str = Form("center"),
+    bgm_volume: float = Form(0.3),
 ):
     """기존 잡의 분석(selection.json)을 재사용해 산출 옵션만 바꿔 다시 생성.
 
@@ -342,6 +393,10 @@ async def rebuild_job(
         "shorts_clean": shorts_clean, "scene_captions": scene_captions,
         "sub_engine": sub_engine, "sub_style": sub_style,
         "outputs": outputs,
+        "scene_threshold": scene_threshold, "clip_seconds": clip_seconds,
+        "shorts_max_seconds": shorts_max_seconds,
+        "shorts_ideal_seconds": shorts_ideal_seconds,
+        "shorts_focus": shorts_focus, "bgm_volume": bgm_volume,
     }
     threading.Thread(target=_run_job, args=(job_id, input_paths, opts), daemon=True).start()
     return {"job_id": job_id}
@@ -364,6 +419,8 @@ def _outputs_from_dir(outdir: Path) -> dict:
         o["thumbnail"] = thumbs
     if (outdir / "intro.mp4").is_file():
         o["intro"] = "intro.mp4"
+    if (outdir / "longform.srt").is_file():
+        o["srt"] = "longform.srt"
     return o
 
 
@@ -391,6 +448,122 @@ async def get_job(job_id: str):
     }
 
 
+def _transcript_path(job_id: str) -> Path | None:
+    job_dir = JOBS_DIR / job_id
+    return next(iter(job_dir.glob("input_*.transcript.json")), None)
+
+
+@app.get("/api/jobs/{job_id}/analysis")
+async def get_analysis(job_id: str):
+    """편집자 검토용 분석 데이터 — 선정 구간·자막·훅 (+ speech는 발화 텍스트)."""
+    outdir = JOBS_DIR / job_id / "outputs"
+    sel = outdir / "selection.json"
+    if not sel.is_file():
+        raise HTTPException(404, "분석 없음")
+    segments = json.loads(sel.read_text())
+    cap = outdir / "captions.json"
+    captions = json.loads(cap.read_text()) if cap.is_file() else ["" for _ in segments]
+
+    transcript_texts = None
+    tpath = _transcript_path(job_id)
+    if tpath:
+        tsegs = json.loads(tpath.read_text()).get("segments", [])
+        transcript_texts = [
+            {"i": i, "start": t["start"], "end": t["end"], "text": t["text"]}
+            for i, t in enumerate(tsegs)
+        ]
+    return {"segments": segments, "captions": captions, "transcript": transcript_texts}
+
+
+@app.post("/api/jobs/{job_id}/analysis")
+async def update_analysis(job_id: str, payload: dict = Body(...)):
+    """편집자 교정 저장 — 구간 조정/제외, 자막·훅 수정, 발화 텍스트 교정.
+
+    파일(selection/captions/transcript)만 고쳐 두면 재생성(rebuild)이 캐시로
+    읽어가므로 별도 재분석 없이 반영된다.
+    """
+    st = JOBS.get(job_id, {})
+    if st.get("status") == "running":
+        raise HTTPException(409, "작업이 진행 중입니다. 끝난 뒤 교정하세요.")
+    outdir = JOBS_DIR / job_id / "outputs"
+    sel = outdir / "selection.json"
+    if not sel.is_file():
+        raise HTTPException(404, "분석 없음")
+
+    if "segments" in payload:
+        segments = payload["segments"]
+        captions = payload.get("captions", [])
+        if not isinstance(segments, list) or not segments:
+            raise HTTPException(400, "segments는 1개 이상이어야 합니다")
+        if len(captions) != len(segments):
+            raise HTTPException(400, "captions 길이가 segments와 같아야 합니다")
+        for s in segments:
+            try:
+                if not float(s["start"]) < float(s["end"]):
+                    raise ValueError
+            except (KeyError, TypeError, ValueError):
+                raise HTTPException(400, "각 구간은 start < end 숫자여야 합니다")
+        sel.write_text(json.dumps(segments, ensure_ascii=False, indent=2))
+        (outdir / "captions.json").write_text(json.dumps(captions, ensure_ascii=False, indent=2))
+
+    if payload.get("transcript"):
+        tpath = _transcript_path(job_id)
+        if tpath:
+            data = json.loads(tpath.read_text())
+            tsegs = data.get("segments", [])
+            for item in payload["transcript"]:
+                i = item.get("i")
+                text = str(item.get("text", "")).strip()
+                if isinstance(i, int) and 0 <= i < len(tsegs) and text and tsegs[i]["text"].strip() != text:
+                    tsegs[i]["text"] = text
+                    tsegs[i].pop("words", None)  # 교정된 발화는 단어 타이밍 무효 — 카라오케는 균일 폴백
+            tpath.write_text(json.dumps(data, ensure_ascii=False))
+    return {"ok": True}
+
+
+@app.get("/api/jobs/{job_id}/frame")
+async def get_frame(job_id: str, t: float):
+    """소스 타임라인 t초의 미리보기 프레임 — 구간 검토용 (캐시)."""
+    job_dir = JOBS_DIR / job_id
+    merged = job_dir / "outputs" / "_merged_source.mp4"
+    src = merged if merged.is_file() else next(
+        (p for p in sorted(job_dir.glob("input_*"))
+         if p.is_file() and not p.name.endswith(".transcript.json")), None)
+    if not src:
+        raise HTTPException(404, "원본 없음")
+    fdir = job_dir / ".frames"
+    fdir.mkdir(exist_ok=True)
+    fp = fdir / f"f_{max(0.0, t):.1f}.jpg".replace(".", "_", 1)
+    if not fp.is_file():
+        r = subprocess.run(
+            ["ffmpeg", "-y", "-loglevel", "error", "-ss", f"{max(0.0, t):.2f}",
+             "-i", str(src), "-frames:v", "1", "-vf", "scale=240:-2", "-q:v", "5", str(fp)],
+            capture_output=True,
+        )
+        if r.returncode != 0 or not fp.is_file():
+            raise HTTPException(404, "프레임 추출 실패")
+    return FileResponse(fp, media_type="image/jpeg")
+
+
+@app.get("/api/jobs/{job_id}/archive")
+async def get_archive(job_id: str):
+    """산출물 전체 zip — mp4 재압축은 무의미하므로 무압축 저장."""
+    outdir = JOBS_DIR / job_id / "outputs"
+    if not outdir.is_dir():
+        raise HTTPException(404, "잡 없음")
+    files = [p for p in outdir.iterdir()
+             if p.is_file() and not p.name.startswith((".", "_"))]
+    if not files:
+        raise HTTPException(404, "산출물 없음")
+    bundle = JOBS_DIR / job_id / "bundle.zip"
+    newest = max(p.stat().st_mtime for p in files)
+    if not bundle.is_file() or bundle.stat().st_mtime < newest:
+        with zipfile.ZipFile(bundle, "w", zipfile.ZIP_STORED) as z:
+            for p in files:
+                z.write(p, p.name)
+    return FileResponse(bundle, filename=f"reelroom_{job_id}.zip", media_type="application/zip")
+
+
 @app.get("/api/jobs/{job_id}/file/{name}")
 async def get_file(job_id: str, name: str):
     # path traversal 방지 — outdir 안의 파일만 (인메모리 상태와 무관하게 디스크 기준)
@@ -398,7 +571,7 @@ async def get_file(job_id: str, name: str):
     target = (outdir / name).resolve()
     if not str(target).startswith(str(outdir)) or not target.is_file():
         raise HTTPException(404, "파일 없음")
-    download = name.endswith((".mp4", ".jpg"))
+    download = name.endswith((".mp4", ".jpg", ".srt"))
     return FileResponse(
         target,
         filename=name if download else None,

@@ -33,6 +33,7 @@ from auto_cut import (
     total_duration,
     transcribe_video,
     validate_transcript_quality,
+    write_srt,
 )
 from effects import (
     apply_audio_fade_out,
@@ -391,6 +392,9 @@ def build_longform(
         windows = compute_xfade_windows(segments, tdur=_XFADE_TDUR)
 
         events = longform_events(segments, captions, transcript, windows)
+        # 자막을 burn-in하지 않아도 SRT는 남긴다 — 유튜브 자막 파일 업로드용
+        if any(e["text"].strip() for e in events):
+            write_srt(events, outdir / "longform.srt")
         if args.no_subtitle or not any(e["text"].strip() for e in events):
             raw.replace(final)
             return final
@@ -491,6 +495,7 @@ def build_clean_short(args, spec: dict, stem: str, outdir: Path) -> Path:
     final = outdir / f"{stem}.mp4"
     cut_and_reframe_vertical(
         args.input, spec["start"], spec["end"], final, blur_bg=args.shorts_blur,
+        focus=getattr(args, "shorts_focus", "center"),
     )
     return final
 
@@ -515,7 +520,8 @@ def build_one_short(args, spec: dict, stem: str, outdir: Path, transcript=None) 
     final = outdir / f"{stem}.mp4"
     try:
         build_short_footage(args.input, clips, raw, punchin=not args.no_shorts_punchin)
-        reframe_vertical(raw, vert, blur_bg=args.shorts_blur)
+        reframe_vertical(raw, vert, blur_bg=args.shorts_blur,
+                         focus=getattr(args, "shorts_focus", "center"))
 
         events = shorts_events(spec, transcript, tl)
         hook = (spec.get("hook") or spec.get("caption", "")).strip() or None

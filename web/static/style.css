@@ -499,3 +499,81 @@ h1 .amp {
   color: var(--amber-soft);
   opacity: 0.85;
 }
+
+/* ============================================================
+   고급 옵션 · 결과 확장 (zip/srt · 비교 · 교정)
+   ============================================================ */
+details.adv { margin: 18px 0 0; }
+details.adv > summary {
+  font-family: var(--film);
+  font-size: 12px;
+  color: var(--paper-dim);
+  cursor: pointer;
+  letter-spacing: 0.06em;
+}
+details.adv > summary small { color: var(--muted); margin-left: 6px; }
+details.adv .options { margin-top: 12px; }
+.bgm-opt input[type="file"] { font-size: 12px; color: var(--paper-dim); }
+
+.dl-extra { display: inline-flex; gap: 10px; margin-left: auto; }
+.dl-extra .dl { font-family: var(--film); font-size: 12px; }
+
+.cmp-head {
+  font-family: var(--film);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  color: var(--paper-dim);
+  margin: 26px 0 10px;
+}
+.cmp-head small { color: var(--muted); margin-left: 6px; }
+.cmp-row { margin-bottom: 18px; }
+.cmp-videos { display: flex; gap: 10px; margin-top: 8px; }
+.cmp-videos video {
+  width: 180px;
+  aspect-ratio: 9 / 16;
+  background: #000;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+}
+
+.ed-grid-head {
+  font-family: var(--film);
+  font-size: 11px;
+  color: var(--muted);
+  display: flex;
+  gap: 14px;
+  margin: 14px 0 6px;
+}
+.ed-grid-head small { text-transform: none; }
+.ed-row {
+  display: grid;
+  grid-template-columns: 36px 96px 150px 1fr;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+.ed-row img { width: 96px; border-radius: 6px; border: 1px solid var(--line); }
+.ed-time { display: flex; gap: 6px; }
+.ed-time input, .ed-texts input {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--paper);
+  padding: 5px 8px;
+  font-size: 13px;
+  width: 100%;
+}
+.ed-time input { width: 68px; }
+.ed-texts { display: flex; flex-direction: column; gap: 6px; }
+.ed-trow { display: flex; gap: 10px; align-items: center; padding: 5px 0; }
+.ed-tt { font-family: var(--film); font-size: 11px; color: var(--muted); width: 44px; }
+.ed-trow input {
+  flex: 1;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--paper);
+  padding: 5px 8px;
+  font-size: 13px;
+}

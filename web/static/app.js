@@ -116,6 +116,13 @@ $("job-form").addEventListener("submit", async (e) => {
   fd.append("shorts_punchin", $("shorts_punchin").checked);
   fd.append("shorts_clean", $("shorts_clean").checked);
   fd.append("scene_captions", $("scene_captions").checked);
+  fd.append("shorts_focus", $("shorts_focus").value);
+  fd.append("shorts_max_seconds", $("shorts_max").value);
+  fd.append("shorts_ideal_seconds", $("shorts_ideal").value);
+  fd.append("scene_threshold", $("scene_th").value);
+  fd.append("clip_seconds", $("clip_sec").value);
+  fd.append("bgm_volume", $("bgm_vol").value);
+  if ($("bgm_file").files[0]) fd.append("bgm", $("bgm_file").files[0]);
   appendSubOpts(fd, $("sub_mode").value);
   const picked = pickedOutputs();
   if (picked.length === 0) { showError("산출물을 하나 이상 선택해주세요."); return; }
@@ -206,6 +213,12 @@ function renderResults(jobId, job) {
   (o.thumbnail || []).forEach((n, i) => (html += cut(jobId, n, `썸네일 ${i + 1}`, "JPG", { image: true })));
   $("results").innerHTML = html || "<p>생성된 산출물이 없습니다.</p>";
 
+  $("dl-extra").innerHTML =
+    `<a class="dl" href="/api/jobs/${jobId}/archive">전부 받기 ↓zip</a>` +
+    (o.srt ? `<a class="dl" href="${fileUrl(jobId, o.srt)}" download>자막 ↓srt</a>` : "");
+  renderCompare(jobId, o);
+  resetEditPanel(jobId);
+
   // 재생성 폼을 직전 옵션으로 초기화
   $("rb_shorts").value = $("job-form").shorts_count.value;
   $("rb_thumb").value = $("job-form").thumbnail_count.value;
@@ -216,8 +229,8 @@ function renderResults(jobId, job) {
   $("rb_sub").value = $("sub_mode").value;
 }
 
-// 분석 재사용 재생성 — 산출 옵션만 바꿔 다시
-$("rebuild-btn").addEventListener("click", async () => {
+// 분석 재사용 재생성 — 산출 옵션만 바꿔 다시 (교정 저장 후에도 재사용)
+async function doRebuild() {
   if (!currentJobId) return;
   const fd = new FormData();
   fd.append("shorts_count", $("rb_shorts").value);
@@ -226,6 +239,10 @@ $("rebuild-btn").addEventListener("click", async () => {
   fd.append("shorts_jumpcut", $("rb_jumpcut").checked);
   fd.append("shorts_punchin", $("rb_punchin").checked);
   fd.append("shorts_clean", $("rb_clean").checked);
+  fd.append("shorts_focus", $("shorts_focus").value);
+  fd.append("shorts_max_seconds", $("shorts_max").value);
+  fd.append("shorts_ideal_seconds", $("shorts_ideal").value);
+  fd.append("bgm_volume", $("bgm_vol").value);
   appendSubOpts(fd, $("rb_sub").value);
 
   hide($("result-section"));
@@ -239,7 +256,8 @@ $("rebuild-btn").addEventListener("click", async () => {
   } catch (err) {
     showError(err.message);
   }
-});
+}
+$("rebuild-btn").addEventListener("click", doRebuild);
 
 function showError(msg) {
   if (pollTimer) clearInterval(pollTimer);
@@ -364,3 +382,128 @@ renderJobPanel();
     if (job.status === "running") openJob(last.id);
   } catch { /* 서버 정리됨 — 조용히 무시 */ }
 })();
+
+// ---------- 클린 vs 풀 비교 재생 ----------
+function renderCompare(jobId, o) {
+  const el = $("compare");
+  el.innerHTML = "";
+  const full = o.shorts || [];
+  const clean = o.shorts_clean || [];
+  const n = Math.min(full.length, clean.length);
+  if (!n) return;
+  let html = `<div class="cmp-head">효과 비교 <small>왼쪽 풀 효과 · 오른쪽 클린</small></div>`;
+  for (let i = 0; i < n; i++) {
+    html += `<div class="cmp-row" data-i="${i}">
+      <button type="button" class="cta-sm cmp-play" data-i="${i}">숏츠 ${i + 1} 동시 재생 ▶</button>
+      <div class="cmp-videos">
+        <video src="${fileUrl(jobId, full[i])}" preload="metadata" muted></video>
+        <video src="${fileUrl(jobId, clean[i])}" preload="metadata" muted></video>
+      </div>
+    </div>`;
+  }
+  el.innerHTML = html;
+  el.querySelectorAll(".cmp-play").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const row = btn.closest(".cmp-row");
+      row.querySelectorAll("video").forEach((v) => { v.currentTime = 0; v.play(); });
+    });
+  });
+}
+
+// ---------- 구간·자막 교정 패널 ----------
+let editData = null;      // GET /analysis 원본
+let editJobId = null;
+
+function resetEditPanel(jobId) {
+  editJobId = jobId;
+  editData = null;
+  $("edit-panel").open = false;
+  $("edit-body").innerHTML = `<p class="jp-empty">불러오는 중…</p>`;
+  $("edit-status").textContent = "";
+}
+
+$("edit-panel").addEventListener("toggle", () => {
+  if ($("edit-panel").open && !editData && editJobId) loadEditPanel(editJobId);
+});
+
+const secToMmss = (s) => {
+  const m = Math.floor(s / 60);
+  return `${m}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+};
+
+async function loadEditPanel(jobId) {
+  try {
+    const res = await fetch(`/api/jobs/${jobId}/analysis`);
+    if (!res.ok) throw new Error("분석 데이터가 없습니다 (정리됐을 수 있음)");
+    editData = await res.json();
+  } catch (err) {
+    $("edit-body").innerHTML = `<p class="jp-empty">${escHtml(err.message)}</p>`;
+    return;
+  }
+  const segs = editData.segments || [];
+  const caps = editData.captions || [];
+  let html = `<div class="ed-grid-head"><span>사용</span><span>장면</span><span>시작~끝 (초)</span><span>자막 / 훅</span></div>`;
+  segs.forEach((s, i) => {
+    const mid = ((s.start + s.end) / 2).toFixed(1);
+    html += `<div class="ed-row" data-i="${i}">
+      <label class="ed-use"><input type="checkbox" checked></label>
+      <img src="/api/jobs/${jobId}/frame?t=${mid}" alt="장면 ${i + 1}" loading="lazy">
+      <span class="ed-time">
+        <input type="number" class="ed-start" value="${s.start}" step="0.1" min="0">
+        <input type="number" class="ed-end" value="${s.end}" step="0.1" min="0">
+      </span>
+      <span class="ed-texts">
+        <input type="text" class="ed-caption" value="${escHtml(caps[i] || "")}" placeholder="자막(장면 캡션)">
+        <input type="text" class="ed-hook" value="${escHtml(s.hook || "")}" placeholder="훅 배너 문구">
+      </span>
+    </div>`;
+  });
+  if (editData.transcript && editData.transcript.length) {
+    html += `<div class="ed-grid-head"><span colspan="4">발화 자막 교정 <small>Whisper 오인식 수정 — 고친 문장은 카라오케 대신 통자막으로</small></span></div>`;
+    editData.transcript.forEach((t) => {
+      html += `<div class="ed-trow" data-i="${t.i}">
+        <span class="ed-tt">${secToMmss(t.start)}</span>
+        <input type="text" class="ed-ttext" value="${escHtml(t.text)}">
+      </div>`;
+    });
+  }
+  $("edit-body").innerHTML = html;
+}
+
+$("edit-save-btn").addEventListener("click", async () => {
+  if (!editData || !editJobId) return;
+  const rows = [...document.querySelectorAll("#edit-body .ed-row")];
+  const segments = [];
+  const captions = [];
+  for (const row of rows) {
+    if (!row.querySelector(".ed-use input").checked) continue;
+    const i = Number(row.dataset.i);
+    const start = parseFloat(row.querySelector(".ed-start").value);
+    const end = parseFloat(row.querySelector(".ed-end").value);
+    if (!(start < end)) { $("edit-status").textContent = `구간 ${i + 1}: 시작이 끝보다 앞서야 합니다`; return; }
+    const seg = { ...editData.segments[i], start, end };
+    const hook = row.querySelector(".ed-hook").value.trim();
+    if (hook) seg.hook = hook; else delete seg.hook;
+    segments.push(seg);
+    captions.push(row.querySelector(".ed-caption").value.trim());
+  }
+  if (!segments.length) { $("edit-status").textContent = "구간을 최소 1개는 남겨야 합니다"; return; }
+
+  const transcript = [...document.querySelectorAll("#edit-body .ed-trow")].map((r) => ({
+    i: Number(r.dataset.i), text: r.querySelector(".ed-ttext").value,
+  }));
+
+  $("edit-status").textContent = "저장 중…";
+  try {
+    const res = await fetch(`/api/jobs/${editJobId}/analysis`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ segments, captions, transcript }),
+    });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || res.statusText);
+    $("edit-status").textContent = "";
+    doRebuild();
+  } catch (err) {
+    $("edit-status").textContent = err.message;
+  }
+});

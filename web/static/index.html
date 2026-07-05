@@ -96,6 +96,46 @@
           <label class="toggle"><input type="checkbox" id="scene_captions" checked><span class="tg-box"></span>AI 장면 자막(무발화 영상, scene·vision)</label>
         </div>
 
+        <details class="adv">
+          <summary>고급 옵션 <small>크롭 초점 · 숏츠 길이 · 씬 감도 · BGM</small></summary>
+          <div class="options">
+            <label class="opt">
+              <span class="opt-label">세로 크롭 초점</span>
+              <select id="shorts_focus">
+                <option value="center" selected>중앙</option>
+                <option value="left">왼쪽</option>
+                <option value="right">오른쪽</option>
+              </select>
+            </label>
+            <label class="opt">
+              <span class="opt-label">숏츠 최대<em>초</em></span>
+              <input type="number" id="shorts_max" value="45" min="10" max="90" step="5">
+            </label>
+            <label class="opt">
+              <span class="opt-label">숏츠 적정<em>초</em></span>
+              <input type="number" id="shorts_ideal" value="25" min="5" max="60" step="5">
+            </label>
+            <label class="opt">
+              <span class="opt-label">씬 감도<em>낮을수록 민감</em></span>
+              <input type="number" id="scene_th" value="0.3" min="0.05" max="0.9" step="0.05">
+            </label>
+            <label class="opt">
+              <span class="opt-label">씬 클립 길이<em>초</em></span>
+              <input type="number" id="clip_sec" value="6" min="2" max="20">
+            </label>
+          </div>
+          <div class="options">
+            <label class="opt bgm-opt">
+              <span class="opt-label">BGM<em>영상 산출물 전체에 깔림</em></span>
+              <input type="file" id="bgm_file" accept="audio/*">
+            </label>
+            <label class="opt">
+              <span class="opt-label">BGM 볼륨</span>
+              <input type="number" id="bgm_vol" value="0.3" min="0.05" max="1" step="0.05">
+            </label>
+          </div>
+        </details>
+
         <p class="mode-note" id="mode-note"></p>
         <button type="submit" id="submit-btn" class="cta">
           <span id="cta-label">네 가지 만들기</span>
@@ -126,8 +166,19 @@
       <div class="result-head">
         <h2>완성</h2>
         <span class="result-meta" id="seg-info"></span>
+        <span class="dl-extra" id="dl-extra"></span>
       </div>
       <div id="results" class="reel"></div>
+      <div id="compare"></div>
+
+      <details id="edit-panel" class="rebuild">
+        <summary>구간·자막 교정 <small>컷 빼기·타이밍 조정·자막/훅 수정 후 재생성</small></summary>
+        <div id="edit-body"><p class="jp-empty">불러오는 중…</p></div>
+        <div class="rebuild-opts">
+          <button type="button" id="edit-save-btn" class="cta-sm">교정 저장하고 다시 만들기 →</button>
+          <span class="jp-empty" id="edit-status"></span>
+        </div>
+      </details>
 
       <details id="rebuild" class="rebuild">
         <summary>옵션 바꿔 다시 만들기 <small>분석 재사용 — 업로드·인식 없이 빠르게</small></summary>
