@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from auto_cut import (  # noqa: E402
     PipelineError,
     filter_grounded_segments,
+    merge_scene_captions,
     overlaps,
     remap_transcript_to_cuts,
     total_duration,
@@ -457,6 +458,25 @@ def test_snap_to_word_bounds_noop_without_transcript():
     clip = {"start": 1.0, "end": 2.0}
     assert snap_to_word_bounds(clip, None) == clip
     assert snap_to_word_bounds(clip, {"segments": []}) == clip
+
+
+def test_merge_scene_captions_fills_captions_and_enriches_segments():
+    segs = [{"start": 0.0, "end": 6.0}, {"start": 10.0, "end": 16.0}]
+    data = {"scenes": [
+        {"idx": 1, "caption": "이 골목에서 한참 서 있었다", "hook": "여기 어디게?", "score": 80},
+        {"idx": 2, "caption": "오늘의 하이라이트", "hook": "", "score": "높음"},  # score 형식 오류
+        {"idx": 9, "caption": "범위 밖"},  # 무시
+        {"idx": "x", "caption": "형식 오류"},  # 무시
+    ]}
+    caps = merge_scene_captions(segs, data)
+    assert caps == ["이 골목에서 한참 서 있었다", "오늘의 하이라이트"]
+    assert segs[0]["hook"] == "여기 어디게?" and segs[0]["score"] == 80.0
+    assert "hook" not in segs[1] and "score" not in segs[1]  # 빈 hook·잘못된 score는 병합 안 함
+
+
+def test_merge_scene_captions_empty_response():
+    segs = [{"start": 0.0, "end": 6.0}]
+    assert merge_scene_captions(segs, {}) == [""]
 
 
 def test_clean_shorts_args_disables_effects_without_touching_original():

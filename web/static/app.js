@@ -115,6 +115,7 @@ $("job-form").addEventListener("submit", async (e) => {
   fd.append("shorts_jumpcut", $("shorts_jumpcut").checked);
   fd.append("shorts_punchin", $("shorts_punchin").checked);
   fd.append("shorts_clean", $("shorts_clean").checked);
+  fd.append("scene_captions", $("scene_captions").checked);
   appendSubOpts(fd, $("sub_mode").value);
   const picked = pickedOutputs();
   if (picked.length === 0) { showError("산출물을 하나 이상 선택해주세요."); return; }

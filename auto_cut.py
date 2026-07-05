@@ -478,6 +478,99 @@ def call_openai_vision(model: str, prompt: str, image_path: Path) -> str:
     return response.choices[0].message.content
 
 
+def build_segment_mosaic(video_path: Path, times: list, output_path: Path) -> None:
+    """지정 시각들의 프레임을 순서대로 배열한 그리드 한 장 — 장면 자막 생성용.
+
+    build_mosaic_image는 고정 간격 샘플이라 선정 구간과 어긋난다.
+    여기선 각 구간의 대표 시각 프레임을 뽑아 왼쪽→오른쪽, 위→아래로 붙인다.
+    """
+    import math
+    import shutil
+
+    tmpdir = output_path.parent / f".{output_path.stem}_frames"
+    tmpdir.mkdir(exist_ok=True)
+    try:
+        for i, t in enumerate(times):
+            subprocess.run(
+                ["ffmpeg", "-y", "-loglevel", "error",
+                 "-ss", f"{t:.3f}", "-i", str(video_path),
+                 "-frames:v", "1", "-vf", "scale=320:180",
+                 str(tmpdir / f"f_{i:03d}.jpg")],
+                check=True,
+            )
+        cols = min(4, len(times))
+        rows = math.ceil(len(times) / cols)
+        subprocess.run(
+            ["ffmpeg", "-y", "-loglevel", "error",
+             "-framerate", "1", "-i", str(tmpdir / "f_%03d.jpg"),
+             "-vf", f"tile={cols}x{rows}", "-frames:v", "1", "-q:v", "3",
+             str(output_path)],
+            check=True,
+        )
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def build_scene_caption_prompt(n: int) -> str:
+    return f"""이 이미지는 한 영상에서 선정한 {n}개 장면을 왼쪽→오른쪽, 위→아래 순서로 배열한 그리드다. i번째 칸이 i번째 장면이다.
+
+무발화 영상에 화면 자막을 입힌다. 요즘 릴스/숏츠 트렌드처럼 장면을 설명하지 말고, 보는 사람의 감정을 건드리는 짧은 한 줄을 쓴다.
+
+각 장면마다:
+- caption: 화면 하단에 얹을 자막. 한국어 구어체 반말, 8~18자 한 줄. 상황·감정·여운 중심 (예: 이 골목에서 한참 서 있었다 / 오늘의 하이라이트는 이거).
+- hook: 그 장면으로 숏츠를 만들 때 상단 배너에 띄울 후킹 문구. 15자 이내, 의문·숫자·반전 중 하나.
+- score: 숏폼 임팩트 0~100.
+
+규칙: 이모지·특수문자·따옴표 금지. 이미지에 보이는 것만 근거로 하고 없는 사실을 지어내지 않는다.
+
+JSON만 출력: {{"scenes": [{{"idx": 1, "caption": "...", "hook": "...", "score": 50}}, ...]}}"""
+
+
+def generate_scene_captions(video_path: Path, segments: list, model: str) -> list:
+    """무발화(scene/vision) 구간에 릴스 톤 화면 자막 생성.
+
+    구간 대표 프레임 그리드 1장 + 비전 LLM 1콜. captions 리스트를 반환하고,
+    hook/score는 segments에 직접 병합한다(selection.json 캐시에 함께 보존).
+    """
+    times = [(s["start"] + s["end"]) / 2 for s in segments]
+    mosaic = video_path.with_suffix(".captions.jpg")
+    build_segment_mosaic(video_path, times, mosaic)
+    provider = detect_provider(model)
+    prompt = build_scene_caption_prompt(len(segments))
+    try:
+        text = (
+            call_anthropic_vision(model, prompt, mosaic) if provider == "anthropic"
+            else call_openai_vision(model, prompt, mosaic)
+        )
+    finally:
+        mosaic.unlink(missing_ok=True)
+
+    return merge_scene_captions(segments, extract_json_block(text))
+
+
+def merge_scene_captions(segments: list, data: dict) -> list:
+    """LLM 응답을 captions 리스트로 변환하고 hook/score를 segments에 병합.
+
+    idx가 범위를 벗어나거나 형식이 어긋난 항목은 조용히 버린다 — 일부만
+    유효해도 그만큼은 살린다.
+    """
+    captions = ["" for _ in segments]
+    for sc in data.get("scenes", []):
+        try:
+            i = int(sc.get("idx", 0)) - 1
+        except (TypeError, ValueError):
+            continue
+        if not 0 <= i < len(segments):
+            continue
+        captions[i] = str(sc.get("caption", "")).strip()
+        hook = str(sc.get("hook", "")).strip()
+        if hook:
+            segments[i]["hook"] = hook
+        if isinstance(sc.get("score"), (int, float)):
+            segments[i]["score"] = float(sc["score"])
+    return captions
+
+
 def select_vision_segments(
     video_path: Path, duration: float, model: str,
     target_minutes: float, clip_seconds: float,

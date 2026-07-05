@@ -23,6 +23,7 @@ from auto_cut import (
     cut_video,
     detect_scene_changes,
     filter_grounded_segments,
+    generate_scene_captions,
     mux_audio_into_video,
     overlaps,
     pick_scene_segments,
@@ -236,6 +237,27 @@ def pick_intro_clips(
 # Service — 분석 (mode별로 segments + captions 한 번만 산출)
 # ============================================================================
 
+def _scene_captions_safe(args, segments: list) -> list:
+    """무발화(scene/vision) 구간의 AI 화면 자막 — 끄거나 키가 없거나 실패하면 빈 자막.
+
+    성공 시 captions를 채우고 hook/score를 segments에 병합해 숏츠 배너·인트로
+    선정까지 살린다. scene 모드의 '키 없이 무료' 경로는 그대로 보존된다.
+    """
+    if getattr(args, "no_scene_captions", False):
+        return ["" for _ in segments]
+    try:
+        resolve_llm_model(args)
+    except PipelineError:
+        print("  ⚠ AI 장면 자막 생략 — LLM 키 없음 (자막 없이 진행)")
+        return ["" for _ in segments]
+    try:
+        print(f"[장면 자막] {args.llm_model} 비전으로 {len(segments)}개 장면 자막 생성…")
+        return generate_scene_captions(args.input, segments, args.llm_model)
+    except Exception as e:  # noqa: BLE001 — 자막은 부가물, 실패해도 컷은 낸다
+        print(f"  ⚠ AI 장면 자막 생성 실패 (자막 없이 진행): {e}")
+        return ["" for _ in segments]
+
+
 def analyze(args, outdir: Path) -> tuple:
     """입력 영상 → (segments, captions, transcript). 산출 4종이 공유하는 단일 분석.
 
@@ -268,7 +290,7 @@ def analyze(args, outdir: Path) -> tuple:
                 f"씬 체인지가 감지되지 않습니다 (threshold={args.scene_threshold}). "
                 f"--scene-threshold를 더 낮게 (예: 0.1) 시도해보세요."
             )
-        return segments, ["" for _ in segments], None
+        return segments, _scene_captions_safe(args, segments), None
 
     if args.mode == "vision":
         print("[분석] vision 모드 (모자이크 + 비전 LLM)")
@@ -280,7 +302,7 @@ def analyze(args, outdir: Path) -> tuple:
         mosaic_path.unlink(missing_ok=True)  # 입력 폴더에 잔존하지 않도록 정리
         if not segments:
             raise PipelineError("LLM이 선정한 장면이 없습니다. 모델을 더 큰 것으로 바꿔보세요.")
-        return segments, ["" for _ in segments], None
+        return segments, _scene_captions_safe(args, segments), None
 
     # speech (기본)
     print("[분석] speech 모드 (Whisper + LLM)")
@@ -703,6 +725,8 @@ def main() -> None:
     parser.add_argument("-t", "--target-minutes", type=float, default=10.0, help="롱폼 목표 길이(분)")
     parser.add_argument("--scene-threshold", type=float, default=0.3, help="scene 모드 임계값")
     parser.add_argument("--clip-seconds", type=float, default=6.0, help="scene/vision 클립 길이(초)")
+    parser.add_argument("--no-scene-captions", action="store_true",
+                        help="scene/vision 모드의 AI 화면 자막 생성 끄기 (기본: LLM 키 있으면 생성)")
     parser.add_argument("-m", "--whisper-model", default="medium", help="Whisper 모델(speech)")
     parser.add_argument("--language", default="ko", help="언어 코드(auto 가능)")
     parser.add_argument("--llm-model", default=None, help="하이라이트 선정 LLM(claude-*/gpt-*)")
