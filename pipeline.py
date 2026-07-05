@@ -332,16 +332,15 @@ def _load_or_detect_beats(args, outdir: Path) -> list:
     return b
 
 
-def _banner_theme(outdir: Path) -> str:
-    """무드 → 훅 타이틀 룩. tension은 네온 사인, 나머지는 스티커(기본)."""
+def _hook_context(outdir: Path) -> str | None:
+    """타이틀 위 종이 라벨 문구 — 장면 자막 LLM이 뽑은 상황 한 줄 (없으면 라벨 생략)."""
     mpath = outdir / "mood.json"
     if mpath.is_file():
         try:
-            if json.loads(mpath.read_text()).get("mood") == "tension":
-                return "neon"
+            return json.loads(mpath.read_text()).get("context") or None
         except (json.JSONDecodeError, OSError):
             pass
-    return "sticker"
+    return None
 
 
 def _load_beats(outdir: Path) -> list:
@@ -370,10 +369,11 @@ def _scene_captions_safe(args, segments: list, outdir: Path | None = None) -> li
         return ["" for _ in segments]
     try:
         print(f"[장면 자막] {args.llm_model} 비전으로 {len(segments)}개 장면 자막 생성…")
-        captions, mood = generate_scene_captions(args.input, segments, args.llm_model)
-        if mood and outdir is not None:
-            (outdir / "mood.json").write_text(json.dumps({"mood": mood}))
-            print(f"  BGM 무드: {mood}")
+        captions, mood, context = generate_scene_captions(args.input, segments, args.llm_model)
+        if outdir is not None and (mood or context):
+            (outdir / "mood.json").write_text(
+                json.dumps({"mood": mood, "context": context}, ensure_ascii=False))
+            print(f"  BGM 무드: {mood} / 라벨: {context}")
         return captions
     except Exception as e:  # noqa: BLE001 — 자막은 부가물, 실패해도 컷은 낸다
         print(f"  ⚠ AI 장면 자막 생성 실패 (자막 없이 진행): {e}")
@@ -664,7 +664,7 @@ def build_one_short(
                 cut_path=vert, output=subbed, captions=[], segments=[],
                 events=events, hook=hook, mode="shorts", style=args.sub_style,
                 font_size=_SHORTS_FONT_SIZE, margin_bottom=_SHORTS_MARGIN_BOTTOM,
-                banner_theme=_banner_theme(outdir),
+                hook_context=_hook_context(outdir),
             )
             src = subbed
         else:
@@ -759,7 +759,7 @@ def build_subtitle_only(args, segments: list, captions: list, outdir: Path, tran
             cut_path=args.input, output=final, captions=[], segments=[], events=events,
             hook=hook, mode="shorts",
             font_size=font, margin_bottom=margin,
-            style=args.sub_style, banner_theme=_banner_theme(outdir),
+            style=args.sub_style, hook_context=_hook_context(outdir),
         )
     else:
         ev_caps = [e["text"] for e in events]
@@ -794,7 +794,7 @@ def build_intro(args, segments: list, outdir: Path, transcript: dict | None = No
                 from subtitle_remotion import render_subtitled_remotion
                 render_subtitled_remotion(
                     raw, [], [], hooked, events=[], hook=hook, mode="intro",
-                    banner_theme=_banner_theme(outdir),
+                    hook_context=_hook_context(outdir),
                 )
                 fade_src = hooked
             except Exception as e:  # noqa: BLE001 — 배너는 장식, 실패해도 인트로는 낸다

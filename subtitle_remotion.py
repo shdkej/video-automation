@@ -122,7 +122,7 @@ def render_overlay_webm(
     hook: str | None = None,
     mode: str = "longform",
     duration_sec: float | None = None,
-    banner_theme: str | None = None,
+    hook_context: str | None = None,
 ) -> None:
     """Remotion으로 투명 자막 오버레이 webm(VP8 알파) 렌더."""
     props = {
@@ -138,8 +138,8 @@ def render_overlay_webm(
     }
     if hook:
         props["hook"] = hook
-    if banner_theme:
-        props["bannerTheme"] = banner_theme
+    if hook_context:
+        props["hookContext"] = hook_context
     if duration_sec:
         # 이벤트가 없어도(예: 인트로 훅 배너만) 오버레이가 footage 전체를 덮도록.
         props["durationSec"] = round(duration_sec, 3)
@@ -175,7 +175,7 @@ def render_subtitled_remotion(
     hook: str | None = None,
     mode: str = "longform",
     events: list[dict] | None = None,
-    banner_theme: str | None = None,
+    hook_context: str | None = None,
 ) -> dict:
     """컷 영상에 Remotion 애니메이션 자막을 합성. subtitle.render_subtitled 대체.
 
@@ -214,7 +214,7 @@ def render_subtitled_remotion(
     # 합성의 overlay=shortest=1이 출력 영상을 마지막 자막 시점에서 잘라버린다.
     render_overlay_webm(events, ow, oh, fps, overlay, font_size=ofont, margin_bottom=omargin,
                         style=style, palette=palette, hook=hook, mode=mode,
-                        duration_sec=probe_duration_sec(cut_path), banner_theme=banner_theme)
+                        duration_sec=probe_duration_sec(cut_path), hook_context=hook_context)
 
     # 2) ffmpeg overlay 합성 (VP8 알파 디코딩 위해 입력 앞에 -c:v libvpx, 오디오 보존).
     # 축소 렌더한 오버레이를 footage 크기로 업스케일(scale=1이면 무비용 통과) 후 합성.
