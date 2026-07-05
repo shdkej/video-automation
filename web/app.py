@@ -30,6 +30,7 @@ from fastapi.staticfiles import StaticFiles
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 import pipeline as pl  # noqa: E402
+from auto_cut import get_llm_usage, reset_llm_usage  # noqa: E402
 from effects import add_bgm  # noqa: E402
 
 BASE = Path(__file__).resolve().parent
@@ -132,6 +133,7 @@ def _run_job(job_id: str, input_paths: list[Path], opts: dict) -> None:
     job = JOBS[job_id]
     outdir = JOBS_DIR / job_id / "outputs"
     outdir.mkdir(parents=True, exist_ok=True)
+    reset_llm_usage()  # 동시 잡 1개 전제 — 잡 단위 LLM 비용 추정 누적
 
     def stage(name: str, pct: int) -> None:
         job["stage"], job["progress"] = name, pct
@@ -237,6 +239,7 @@ def _run_job(job_id: str, input_paths: list[Path], opts: dict) -> None:
     except Exception as e:  # noqa: BLE001 — 잡 단위 격리 (PipelineError 포함)
         job["status"], job["error"] = "error", str(e)
     finally:
+        job["llm_usage"] = get_llm_usage()  # 추정치 — 정확 청구는 프로바이더 대시보드
         _RUNNING.release()  # 동시 잡 슬롯 반환
 
 

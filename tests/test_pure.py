@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from auto_cut import (  # noqa: E402
     PipelineError,
+    estimate_llm_usd,
     filter_grounded_segments,
     merge_scene_captions,
     overlaps,
@@ -454,6 +455,15 @@ def test_snap_to_word_bounds_snaps_within_shift():
     snapped = snap_to_word_bounds(clip, transcript)
     assert snapped["start"] == 0.3  # 가까운 단어 시작으로
     assert snapped["end"] == 3.8    # 가까운 단어 끝으로
+
+
+def test_estimate_llm_usd_prefix_match_and_default():
+    # gpt-4o-mini: $0.15/$0.60 per 1M
+    assert abs(estimate_llm_usd("gpt-4o-mini", 1_000_000, 1_000_000) - 0.75) < 1e-9
+    # 프리픽스 매칭 (gpt-4o-mini-2024-xx도 mini 단가)
+    assert estimate_llm_usd("gpt-4o-mini-2024-07-18", 1_000_000, 0) == estimate_llm_usd("gpt-4o-mini", 1_000_000, 0)
+    # 미지의 모델은 기본 단가로 (0이 아니라 일정한 추정 기준)
+    assert estimate_llm_usd("some-future-model", 1_000_000, 0) > 0
 
 
 # ---------------------------------------------------------------------------

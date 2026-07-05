@@ -359,6 +359,44 @@ def build_highlight_prompt(transcript: dict, target_minutes: float) -> str:
 """
 
 
+# ---------------------------------------------------------------------------
+# LLM 사용량 추정 — 잡 단위 누적 (동시 잡 1개 전제라 전역으로 충분)
+# 정확한 청구는 각 프로바이더 대시보드 기준. 여기 단가는 일정한 추정 기준일 뿐.
+# ---------------------------------------------------------------------------
+
+# USD / 1M tokens (input, output) — 프리픽스 매칭, 없으면 gpt-4o-mini 단가로 추정
+LLM_PRICE_PER_MTOK = {
+    "gpt-4o-mini": (0.15, 0.60),
+    "gpt-4o": (2.50, 10.00),
+    "claude-haiku": (0.80, 4.00),
+    "claude-sonnet": (3.00, 15.00),
+    "claude": (3.00, 15.00),
+}
+
+LLM_USAGE = {"calls": 0, "input_tokens": 0, "output_tokens": 0, "usd": 0.0}
+
+
+def reset_llm_usage() -> None:
+    LLM_USAGE.update(calls=0, input_tokens=0, output_tokens=0, usd=0.0)
+
+
+def get_llm_usage() -> dict:
+    return {**LLM_USAGE, "usd": round(LLM_USAGE["usd"], 4)}
+
+
+def estimate_llm_usd(model: str, input_tokens: int, output_tokens: int) -> float:
+    price = next((p for prefix, p in LLM_PRICE_PER_MTOK.items()
+                  if str(model).startswith(prefix)), LLM_PRICE_PER_MTOK["gpt-4o-mini"])
+    return input_tokens / 1e6 * price[0] + output_tokens / 1e6 * price[1]
+
+
+def _track_llm_usage(model: str, input_tokens: int, output_tokens: int) -> None:
+    LLM_USAGE["calls"] += 1
+    LLM_USAGE["input_tokens"] += int(input_tokens or 0)
+    LLM_USAGE["output_tokens"] += int(output_tokens or 0)
+    LLM_USAGE["usd"] += estimate_llm_usd(model, int(input_tokens or 0), int(output_tokens or 0))
+
+
 def call_anthropic(model: str, prompt: str) -> str:
     from anthropic import Anthropic
 
@@ -367,6 +405,7 @@ def call_anthropic(model: str, prompt: str) -> str:
         max_tokens=8192,
         messages=[{"role": "user", "content": prompt}],
     )
+    _track_llm_usage(model, response.usage.input_tokens, response.usage.output_tokens)
     return response.content[0].text
 
 
@@ -378,6 +417,8 @@ def call_openai(model: str, prompt: str) -> str:
         messages=[{"role": "user", "content": prompt}],
         response_format={"type": "json_object"},
     )
+    if response.usage:
+        _track_llm_usage(model, response.usage.prompt_tokens, response.usage.completion_tokens)
     return response.choices[0].message.content
 
 
@@ -454,6 +495,7 @@ def call_anthropic_vision(model: str, prompt: str, image_path: Path) -> str:
             ],
         }],
     )
+    _track_llm_usage(model, response.usage.input_tokens, response.usage.output_tokens)
     return response.content[0].text
 
 
@@ -475,6 +517,8 @@ def call_openai_vision(model: str, prompt: str, image_path: Path) -> str:
         }],
         response_format={"type": "json_object"},
     )
+    if response.usage:
+        _track_llm_usage(model, response.usage.prompt_tokens, response.usage.completion_tokens)
     return response.choices[0].message.content
 
 

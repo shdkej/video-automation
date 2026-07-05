@@ -24,6 +24,7 @@ from auto_cut import (
     detect_scene_changes,
     filter_grounded_segments,
     generate_scene_captions,
+    get_llm_usage,
     mux_audio_into_video,
     overlaps,
     pick_scene_segments,
@@ -811,6 +812,10 @@ def run(args) -> None:
          lambda: build_thumbnail(args, segments, captions, outdir))
     step("[4/4] 인트로 생성…", "intro",
          lambda: build_intro(args, segments, outdir, transcript=transcript))
+
+    usage = get_llm_usage()
+    if usage["calls"]:
+        print(f"\nLLM 사용 추정: {usage['calls']}콜 · ~${usage['usd']} (정확 청구는 대시보드)")
 
     print(f"\n완료 → {outdir}/")
     for key in WANTED:

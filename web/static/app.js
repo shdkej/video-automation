@@ -211,6 +211,8 @@ function renderResults(jobId, job) {
   const bits = [];
   if (job.source_count > 1) bits.push(`${job.source_count}개 소스 결합`);
   if (job.segment_count != null) bits.push(`선정 구간 ${job.segment_count}개`);
+  const u = job.llm_usage;
+  if (u && u.calls) bits.push(`LLM ~$${u.usd} (${u.calls}콜, 추정)`);
   $("seg-info").textContent = bits.join(" · ");
 
   const o = job.outputs || {};
