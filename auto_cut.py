@@ -590,13 +590,12 @@ def build_scene_caption_prompt(n: int) -> str:
 - hook: 그 장면으로 숏츠를 만들 때 상단 배너에 띄울 후킹 문구. 15자 이내, 의문·숫자·반전 중 하나.
 - score: 숏폼 임팩트 0~100.
 
-그리고 영상 전체에 대해:
-- mood: BGM 무드 하나 — calm(잔잔한 풍경·감성) / upbeat(활기찬 이동·시티) / cinematic(웅장한 하이라이트) / warm(따뜻한 일상·음식) / tension(긴박·반전).
-- context: 타이틀 위 종이 라벨에 쓸 상황 한 줄. 6~12자, 이미지에 실제로 보이는 장소·시간대 기반 (형식 예: 호수의 아침 / 야시장 골목). 예시 문구를 그대로 쓰지 말고, 지명은 이미지에서 확실히 식별될 때만 쓴다.
+그리고 영상 전체에 어울리는 BGM 무드를 하나 고른다:
+- mood: calm(잔잔한 풍경·감성) / upbeat(활기찬 이동·시티) / cinematic(웅장한 하이라이트) / warm(따뜻한 일상·음식) / tension(긴박·반전) 중 하나.
 
 규칙: 이모지·특수문자·따옴표 금지. 이미지에 보이는 것만 근거로 하고 없는 사실을 지어내지 않는다.
 
-JSON만 출력: {{"mood": "calm", "context": "...", "scenes": [{{"idx": 1, "caption": "...", "hook": "...", "score": 50}}, ...]}}"""
+JSON만 출력: {{"mood": "calm", "scenes": [{{"idx": 1, "caption": "...", "hook": "...", "score": 50}}, ...]}}"""
 
 
 BGM_MOODS = ("calm", "upbeat", "cinematic", "warm", "tension")
@@ -605,9 +604,9 @@ BGM_MOODS = ("calm", "upbeat", "cinematic", "warm", "tension")
 def generate_scene_captions(video_path: Path, segments: list, model: str) -> tuple:
     """무발화(scene/vision) 구간에 릴스 톤 화면 자막 생성.
 
-    구간 대표 프레임 그리드 1장 + 비전 LLM 1콜. (captions, mood, context)를 반환하고,
+    구간 대표 프레임 그리드 1장 + 비전 LLM 1콜. (captions, mood)를 반환하고,
     hook/score는 segments에 직접 병합한다(selection.json 캐시에 함께 보존).
-    mood는 BGM 자동 선곡용, context는 타이틀 종이 라벨용 — 없으면 None.
+    mood는 BGM 자동 선곡용 — 유효하지 않으면 None.
     """
     times = [(s["start"] + s["end"]) / 2 for s in segments]
     mosaic = video_path.with_suffix(".captions.jpg")
@@ -624,8 +623,7 @@ def generate_scene_captions(video_path: Path, segments: list, model: str) -> tup
 
     data = extract_json_block(text)
     mood = str(data.get("mood", "")).strip()
-    context = str(data.get("context", "")).strip()[:14] or None
-    return merge_scene_captions(segments, data), (mood if mood in BGM_MOODS else None), context
+    return merge_scene_captions(segments, data), mood if mood in BGM_MOODS else None
 
 
 def merge_scene_captions(segments: list, data: dict) -> list:

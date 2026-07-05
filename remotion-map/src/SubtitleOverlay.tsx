@@ -26,13 +26,6 @@ pretendard
   })
   .catch(() => continueRender(pretendardHandle));
 
-// 훅 타이틀 폰트 — 원스토어 모바일POP (감성 릴스 라운드 볼드, 무료 상업용)
-const popHandle = delayRender('load-mobilepop');
-new FontFace('MobilePOP', `url(${staticFile('ONEMobilePOP.woff')}) format('woff')`)
-  .load()
-  .then((f) => { document.fonts.add(f); continueRender(popHandle); })
-  .catch(() => continueRender(popHandle));
-
 // 컷 영상 타임라인(초) 기준 자막 이벤트.
 export type SubEvent = {
   text: string;
@@ -54,7 +47,6 @@ export type SubtitleProps = {
   hook?: string; // 숏츠/인트로 상단 후킹 배너 문구
   mode?: 'shorts' | 'longform' | 'intro'; // shorts: 펀치 자막+배너, longform: fade+키워드강조, intro: 배너 온리
   durationSec?: number; // 이벤트 없이도 오버레이 길이를 보장 (인트로 훅 배너 전용)
-  hookContext?: string; // 타이틀 위 종이 라벨 문구 (상황 한 줄, 없으면 라벨 생략)
 };
 
 const FONT = 'Pretendard, "Apple SD Gothic Neo", "AppleGothic", -apple-system, sans-serif';
@@ -100,77 +92,51 @@ function highlightSpans(text: string, maxHits: number): { word: string; accent: 
 }
 
 // ---------------------------------------------------------------------------
-// HookBanner — 감성 소프트 타이틀 (레퍼런스: 감성 릴스 문법)
-// 크림 화이트 라운드 볼드 + 은은한 확산 그림자, 박스·테두리 없음.
-// context가 있으면 위에 마스킹테이프 종이 라벨, 왼쪽에 손낙서 강조선.
+// HookBanner — 미니멀 타이틀: Pretendard ExtraBold + 크림 + 은은한 확산 그림자.
+// 박스·테두리·라벨·네온 없음(사용자 결정). 왼쪽 손낙서 강조선만 포인트로.
 // frame 0부터 완전 노출(커버 프레임), 레이아웃은 전부 비례 단위.
 // ---------------------------------------------------------------------------
 
 const CREAM = '#FBF6EA';
-// 타이틀 네온: 민트 글로우 (은은한 발광 — 사인보드가 아니라 빛나는 텍스트)
-const NEON_FILL = '#EFFFFB';
-const NEON_GLOW =
-  '0 0 0.08em #7CFBE9, 0 0 0.25em #19E3C2, 0 0 0.55em rgba(25,227,194,0.75), 0 0.03em 0.08em rgba(0,0,0,0.5)';
+const SOFT_SHADOW =
+  '0 0.03em 0.06em rgba(40,30,20,0.45), 0 0.11em 0.4em rgba(40,30,20,0.45), 0 0.22em 0.8em rgba(40,30,20,0.3)';
 
 const HookBanner: React.FC<{
-  hook: string; fontSize: number; height: number; context?: string;
-}> = ({ hook, fontSize, height, context }) => {
+  hook: string; fontSize: number; height: number;
+}> = ({ hook, fontSize, height }) => {
   const top = Math.round(height * 0.1);
   const lineHeight = 1.35;
   return (
     <AbsoluteFill style={{ alignItems: 'center' }}>
-      <div style={{ position: 'absolute', top, display: 'flex', flexDirection: 'column',
-                    alignItems: 'center', maxWidth: '90%' }}>
-        {context ? (
-          <div style={{
-            position: 'relative',
-            background: 'rgba(255,253,248,0.92)',
-            color: '#5a5248',
-            fontFamily: FONT,
-            fontSize: fontSize * 0.36,
-            fontWeight: 800,
-            padding: '0.3em 1.05em',
-            borderRadius: 2,
-            transform: 'rotate(-1.2deg)',
-            boxShadow: '0 0.15em 0.6em rgba(40,30,20,0.25)',
-            marginBottom: fontSize * 0.28,
+      <div style={{ position: 'absolute', top, maxWidth: '90%' }}>
+        <svg viewBox="0 0 40 40" style={{
+          position: 'absolute', left: '-1.15em', top: '0.05em',
+          width: '0.95em', height: '0.95em', fontSize,
+        }}>
+          <g stroke={CREAM} strokeWidth={3.4} strokeLinecap="round" opacity={0.95}>
+            <line x1="6" y1="34" x2="16" y2="24" />
+            <line x1="14" y1="38" x2="22" y2="30" />
+            <line x1="3" y1="26" x2="12" y2="18" />
+          </g>
+        </svg>
+        <div style={{
+          fontFamily: FONT,
+          fontWeight: 800,
+          color: CREAM,
+          fontSize,
+          lineHeight,
+          textAlign: 'center',
+          textShadow: SOFT_SHADOW,
+        }}>
+          <span style={{
+            display: '-webkit-box',
+            WebkitLineClamp: 3,
+            WebkitBoxOrient: 'vertical',
+            overflow: 'hidden',
+            maxHeight: `${lineHeight * 3}em`,
           }}>
-            <span style={{
-              position: 'absolute', left: '-0.7em', top: '-0.4em', width: '1.7em', height: '0.85em',
-              background: 'rgba(255,255,255,0.55)', transform: 'rotate(-38deg)', display: 'block',
-            }} />
-            {context}
-          </div>
-        ) : null}
-        <div style={{ position: 'relative' }}>
-          <svg viewBox="0 0 40 40" style={{
-            position: 'absolute', left: '-1.15em', top: '0.05em',
-            width: '0.95em', height: '0.95em', fontSize,
-          }}>
-            <g stroke={CREAM} strokeWidth={3.4} strokeLinecap="round" opacity={0.95}>
-              <line x1="6" y1="34" x2="16" y2="24" />
-              <line x1="14" y1="38" x2="22" y2="30" />
-              <line x1="3" y1="26" x2="12" y2="18" />
-            </g>
-          </svg>
-          <div style={{
-            fontFamily: `MobilePOP, ${FONT}`,
-            color: NEON_FILL,
-            fontSize,
-            lineHeight,
-            textAlign: 'center',
-            textShadow: NEON_GLOW,
-          }}>
-            <span style={{
-              display: '-webkit-box',
-              WebkitLineClamp: 3,
-              WebkitBoxOrient: 'vertical',
-              overflow: 'hidden',
-              maxHeight: `${lineHeight * 3}em`,
-            }}>
-              {hook}
-            </span>
-          </div>
+            {hook}
+          </span>
         </div>
       </div>
     </AbsoluteFill>
@@ -391,7 +357,7 @@ const Caption: React.FC<{
 
 // 투명 배경 자막 오버레이. alpha 코덱(vp8)으로 렌더 → ffmpeg overlay로 실사 위에 합성.
 export const SubtitleOverlay: React.FC<SubtitleProps> = ({
-  events, fontSize, marginBottom, style, palette, hook, mode, hookContext,
+  events, fontSize, marginBottom, style, palette, hook, mode,
 }) => {
   const { fps, height } = useVideoConfig();
   const resolvedMode = mode ?? 'longform';
@@ -411,7 +377,7 @@ export const SubtitleOverlay: React.FC<SubtitleProps> = ({
         );
       })}
       {(resolvedMode === 'shorts' || resolvedMode === 'intro') && hook ? (
-        <HookBanner hook={hook} fontSize={bannerFontSize} height={height} context={hookContext} />
+        <HookBanner hook={hook} fontSize={bannerFontSize} height={height} />
       ) : null}
     </AbsoluteFill>
   );
