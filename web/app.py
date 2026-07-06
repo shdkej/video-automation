@@ -33,7 +33,7 @@ import pipeline as pl  # noqa: E402
 from auto_cut import BGM_MOODS, get_llm_usage, reset_llm_usage  # noqa: E402
 from beats import detect_beats  # noqa: E402
 from probe import probe_resolution  # noqa: E402
-from effects import add_bgm  # noqa: E402
+from effects import add_bgm, add_sfx  # noqa: E402
 from web.media_library import resolve_library_file  # noqa: E402
 
 BASE = Path(__file__).resolve().parent
@@ -186,6 +186,12 @@ def _run_job(job_id: str, input_paths: list[Path], opts: dict) -> None:
             ).name
             if (outdir / "subtitled.srt").is_file():
                 outputs["srt"] = "subtitled.srt"
+            # 자막만 모드는 원본 타임라인 그대로 — 구간 시작 시각에 효과음
+            sfx_evs = [(float(s["start"]), resolve_library_file(SFX_DIR, s["sfx"]))
+                       for s in segments if s.get("sfx")]
+            if any(p for _, p in sfx_evs):
+                stage("효과음 입히는 중", 85)
+                _mix_sfx_into(outdir, "subtitled.mp4", sfx_evs)
             bgm = _pick_bgm(job_id, outdir, opts, job)
             if bgm:
                 stage("BGM 입히는 중", 90)
@@ -201,6 +207,7 @@ def _run_job(job_id: str, input_paths: list[Path], opts: dict) -> None:
             stage("롱폼 생성", 30)
             outputs["longform"] = pl.build_longform(args, segments, captions, outdir, transcript=transcript).name
 
+        specs: list = []  # 숏츠 spec — 효과음 매핑에 재사용
         if "shorts" in wanted:
             stage("숏츠 생성", 55)
             specs = pl.rank_for_shorts(
@@ -231,6 +238,20 @@ def _run_job(job_id: str, input_paths: list[Path], opts: dict) -> None:
 
         if (outdir / "longform.srt").is_file():
             outputs["srt"] = "longform.srt"
+
+        # 구간별 효과음 — BGM보다 먼저 돌려야 BGM 페이드가 전체에 걸린다.
+        # 클린 버전·인트로는 제외(클린 = 효과 없는 동일 컷).
+        if any(s.get("sfx") for s in segments):
+            stage("효과음 입히는 중", 94)
+            if outputs.get("longform"):
+                _mix_sfx_into(outdir, outputs["longform"], [
+                    (t, resolve_library_file(SFX_DIR, n))
+                    for t, n in pl.sfx_events_longform(segments)
+                ])
+            for spec, name in zip(specs, outputs.get("shorts", [])):
+                n = pl.sfx_for_short(spec, segments)
+                if n:
+                    _mix_sfx_into(outdir, name, [(0.0, resolve_library_file(SFX_DIR, n))])
 
         bgm = _pick_bgm(job_id, outdir, opts, job)
         if bgm:
@@ -265,6 +286,9 @@ def _find_bgm(job_dir: Path) -> Path | None:
 
 # BGM 라이브러리 — hostPath 마운트(파드 교체에도 유지), 무드 폴더별 mp3 + 메타(.json)
 MUSIC_DIR = BASE / "music"
+
+# SFX 라이브러리 — 합성 기본 세트(레포 동봉, scripts/make_sfx.py), mp3 추가로 확장
+SFX_DIR = BASE / "sfx"
 
 
 def _track_meta(p: Path) -> dict:
@@ -308,6 +332,17 @@ def _auto_pick_bgm(outdir: Path) -> Path | None:
         return abs(bpm - target_bpm) if (bpm and target_bpm) else 9999.0
 
     return min(tracks, key=distance)
+
+
+def _mix_sfx_into(outdir: Path, name: str, events: list) -> None:
+    """산출물 파일에 효과음 이벤트를 제자리 믹싱. 해석 실패(None) 이벤트는 버린다."""
+    events = [(t, p) for t, p in events if p is not None]
+    if not events:
+        return
+    src = outdir / name
+    mixed = outdir / f".{name}.sfx.mp4"
+    add_sfx(src, events, mixed)
+    mixed.replace(src)
 
 
 def _pick_bgm(job_id: str, outdir: Path, opts: dict, job: dict) -> Path | None:
@@ -589,6 +624,30 @@ async def list_music():
     return {"moods": lib}
 
 
+@app.get("/api/sfx")
+async def list_sfx():
+    """효과음 라이브러리 목록 — meta.json의 한글 라벨 포함."""
+    meta = {}
+    mpath = SFX_DIR / "meta.json"
+    if mpath.is_file():
+        try:
+            meta = json.loads(mpath.read_text())
+        except (json.JSONDecodeError, OSError):
+            pass
+    items = ([{"name": p.name, "label": meta.get(p.name, p.stem)}
+              for p in sorted(SFX_DIR.glob("*.mp3"))] if SFX_DIR.is_dir() else [])
+    return {"sfx": items}
+
+
+@app.get("/api/sfx/{name}")
+async def get_sfx_file(name: str):
+    """효과음 서빙 — 구간 상세의 미리듣기용."""
+    p = resolve_library_file(SFX_DIR, name)
+    if p is None:
+        raise HTTPException(404, "효과음 없음")
+    return FileResponse(p)
+
+
 @app.get("/api/music/{mood}/{name}")
 async def get_music_file(mood: str, name: str):
     """라이브러리 곡 서빙 — 결과 화면 미리듣기용."""
@@ -675,6 +734,9 @@ async def update_analysis(job_id: str, payload: dict = Body(...)):
                     raise ValueError
             except (KeyError, TypeError, ValueError):
                 raise HTTPException(400, "각 구간은 start < end 숫자여야 합니다")
+            sfx = s.get("sfx")
+            if sfx and resolve_library_file(SFX_DIR, str(sfx)) is None:
+                raise HTTPException(400, f"효과음 없음: {sfx}")
         sel.write_text(json.dumps(segments, ensure_ascii=False, indent=2))
         (outdir / "captions.json").write_text(json.dumps(captions, ensure_ascii=False, indent=2))
 

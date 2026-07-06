@@ -534,6 +534,48 @@ def apply_audio_fade_out(input_path: Path, output_path: Path, fade: float = 0.2)
 # BGM mux — 영상에 배경음 + (선택) 페이드아웃
 # ============================================================================
 
+def add_sfx(
+    input_path: Path,
+    events: list[tuple[float, Path]],
+    output_path: Path,
+    gain: float = 0.9,
+) -> None:
+    """(초, 파일) 이벤트들의 시점에 효과음을 오버레이 믹싱. 원본 오디오·길이 유지.
+
+    영상 길이를 넘는 이벤트는 버린다. BGM보다 먼저 돌려야 BGM 페이드가 전체에 걸린다.
+    """
+    vdur = probe_duration(input_path)
+    events = [(t, p) for t, p in events if 0 <= t < vdur]
+    if not events:
+        return
+    inputs: list[str] = []
+    filters: list[str] = []
+    labels: list[str] = []
+    for i, (t, p) in enumerate(events, start=1):
+        inputs += ["-i", str(p)]
+        ms = int(t * 1000)
+        filters.append(f"[{i}:a]volume={gain},adelay={ms}|{ms}[s{i}]")
+        labels.append(f"[s{i}]")
+    if has_audio_stream(input_path):
+        base = "[0:a]"
+    else:
+        filters.append(f"anullsrc=r=48000:cl=stereo,atrim=duration={vdur:.3f}[base]")
+        base = "[base]"
+    n = len(events) + 1
+    filter_complex = ";".join(filters) + \
+        f";{base}{''.join(labels)}amix=inputs={n}:duration=first:normalize=0:dropout_transition=0[aout]"
+
+    subprocess.run(
+        ["ffmpeg", "-y", "-loglevel", "error",
+         "-i", str(input_path), *inputs,
+         "-filter_complex", filter_complex,
+         "-map", "0:v", "-map", "[aout]",
+         "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+         str(output_path)],
+        check=True,
+    )
+
+
 def add_bgm(
     input_path: Path,
     bgm_path: Path,

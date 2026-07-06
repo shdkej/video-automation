@@ -161,6 +161,31 @@ def rank_for_shorts(
     return out
 
 
+def sfx_events_longform(segments: list, tdur: float = 0.3) -> list:
+    """롱폼 출력 타임라인의 효과음 이벤트 [(초, 이름)] — 각 구간의 가시 시작 시점.
+
+    xfade가 클립을 tdur만큼 겹쳐 총길이를 줄이므로 단순 누적이 아니라
+    compute_xfade_windows의 가시 시작을 쓴다 (구간 1개여도 동작).
+    """
+    windows = compute_xfade_windows(segments, tdur=tdur)
+    return [
+        (round(w_start, 3), seg["sfx"])
+        for seg, (w_start, _) in zip(segments, windows)
+        if seg.get("sfx")
+    ]
+
+
+def sfx_for_short(spec: dict, segments: list) -> str | None:
+    """숏츠 spec과 겹치는 원본 구간의 효과음 이름 — 숏츠 시작(0초)에 재생.
+
+    spec은 rank_for_shorts가 구간을 절단했을 수 있어 시간 겹침으로 매칭한다.
+    """
+    for seg in segments:
+        if seg.get("sfx") and overlaps(spec["start"], spec["end"], seg["start"], seg["end"]):
+            return seg["sfx"]
+    return None
+
+
 def pick_thumbnail_times(segments: list, count: int) -> list:
     """썸네일 후보 시점: 구간들을 시간축으로 균등 분산해 각 중앙. 최대 count개."""
     if not segments:
