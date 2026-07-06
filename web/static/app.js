@@ -639,10 +639,11 @@ const TC_POSITIONS = [
   "middle-left", "middle-center", "middle-right",
   "bottom-left", "bottom-center", "bottom-right",
 ];
+const DEFAULT_TC_TEXT = "오늘의 하이라이트\n지금 공개합니다";
 const TC_TEMPLATE = `
   <div class="ed-row-flex">
     <div class="ed-col">
-      <textarea class="tc-text thumb-input" rows="2" placeholder="비우면 자동 (훅 문구) — 엔터로 줄바꿈"></textarea>
+      <textarea class="tc-text thumb-input" rows="2" placeholder="비우면 자동 (훅 문구) — 엔터로 줄바꿈">${DEFAULT_TC_TEXT}</textarea>
       <div class="font-picks tc-fonts">
         <button type="button" data-font="pretendard" class="selected" style="font-family:'Pretendard';font-weight:800">프리텐다드</button>
         <button type="button" data-font="blackhan" style="font-family:'BlackHanSansW'">블랙한산스</button>
@@ -687,8 +688,8 @@ function createThumbControls(rootId, getBase, getAutoText) {
   const root = $(rootId);
   root.innerHTML = TC_TEMPLATE;
   const q = (sel) => root.querySelector(sel);
-  // 기본값: 크기 150%·상단 중앙 (백엔드 DEFAULT_THUMB_*와 동일)
-  const state = { text: "", font: "pretendard", scale: 1.5, weight: "bold", effect: "none", pos: "top-center" };
+  // 기본값: 2줄 문구·크기 150%·상단 중앙 (지우면 자동 훅 문구)
+  const state = { text: DEFAULT_TC_TEXT, font: "pretendard", scale: 1.5, weight: "bold", effect: "none", pos: "top-center" };
   let timer = null;
   let lastUrl = null;
 
@@ -773,8 +774,8 @@ function createThumbControls(rootId, getBase, getAutoText) {
     state,
     refresh,
     reset() {
-      Object.assign(state, { text: "", font: "pretendard", scale: 1.5, weight: "bold", effect: "none", pos: "top-center" });
-      q(".tc-text").value = "";
+      Object.assign(state, { text: DEFAULT_TC_TEXT, font: "pretendard", scale: 1.5, weight: "bold", effect: "none", pos: "top-center" });
+      q(".tc-text").value = DEFAULT_TC_TEXT;
       q(".tc-scale").value = 150;
       q(".tc-scale-val").textContent = "150%";
       syncSel(".tc-fonts", "font", "pretendard");
