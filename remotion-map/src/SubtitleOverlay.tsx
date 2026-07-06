@@ -92,52 +92,53 @@ function highlightSpans(text: string, maxHits: number): { word: string; accent: 
 }
 
 // ---------------------------------------------------------------------------
-// HookBanner — 미니멀 타이틀: Pretendard ExtraBold + 크림 + 은은한 확산 그림자.
-// 박스·테두리·라벨·네온 없음(사용자 결정). 왼쪽 손낙서 강조선만 포인트로.
-// frame 0부터 완전 노출(커버 프레임), 레이아웃은 전부 비례 단위.
+// HookBanner — 숏츠 상단 후킹 배너 (전체 길이 상시 표시, frame 0부터 완전 노출)
+// 노란 박스 + 검정 볼드 (원본 버전 — 사용자 결정으로 복원)
 // ---------------------------------------------------------------------------
 
-const CREAM = '#FBF6EA';
-const SOFT_SHADOW =
-  '0 0.03em 0.06em rgba(40,30,20,0.45), 0 0.11em 0.4em rgba(40,30,20,0.45), 0 0.22em 0.8em rgba(40,30,20,0.3)';
+// 노랑 띠 타이틀 위에서는 노랑 ACCENT가 죽으므로 강조를 레드로 (배너 전용).
+const BANNER_HIGHLIGHT = '#E11D2A';
 
-const HookBanner: React.FC<{
-  hook: string; fontSize: number; height: number;
-}> = ({ hook, fontSize, height }) => {
-  const top = Math.round(height * 0.1);
-  const lineHeight = 1.35;
+const HookBanner: React.FC<{ hook: string; fontSize: number; height: number }> = ({
+  hook, fontSize, height,
+}) => {
+  // 첫 프레임이 곧 커버 — 슬라이드인 없이 frame 0부터 완전 노출 (트렌드 표준)
+  const top = Math.round(height * 0.13); // 상단 10% 세이프존 비우고 13% 지점
+  const lineHeight = 1.2;
   return (
-    <AbsoluteFill style={{ alignItems: 'center' }}>
-      <div style={{ position: 'absolute', top, maxWidth: '90%' }}>
-        <svg viewBox="0 0 40 40" style={{
-          position: 'absolute', left: '-1.15em', top: '0.05em',
-          width: '0.95em', height: '0.95em', fontSize,
-        }}>
-          <g stroke={CREAM} strokeWidth={3.4} strokeLinecap="round" opacity={0.95}>
-            <line x1="6" y1="34" x2="16" y2="24" />
-            <line x1="14" y1="38" x2="22" y2="30" />
-            <line x1="3" y1="26" x2="12" y2="18" />
-          </g>
-        </svg>
-        <div style={{
+    <AbsoluteFill style={{ justifyContent: 'flex-start', alignItems: 'center' }}>
+      <div
+        style={{
+          position: 'absolute',
+          top,
+          // 렌더 해상도와 무관하게 같은 레이아웃이 나오도록 비례 단위만 쓴다
+          maxWidth: '86%',
+          background: '#FFE14D',
+          borderRadius: '0.35em',
+          padding: '0.4em 0.7em',
+          color: '#111',
           fontFamily: FONT,
-          fontWeight: 800,
-          color: CREAM,
           fontSize,
+          fontWeight: 800,
           lineHeight,
           textAlign: 'center',
-          textShadow: SOFT_SHADOW,
-        }}>
-          <span style={{
+          boxShadow: '0 0.13em 0.45em rgba(0,0,0,0.35)',
+        }}
+      >
+        <span
+          style={{
             display: '-webkit-box',
-            WebkitLineClamp: 3,
+            WebkitLineClamp: 2,
             WebkitBoxOrient: 'vertical',
             overflow: 'hidden',
-            maxHeight: `${lineHeight * 3}em`,
-          }}>
-            {hook}
-          </span>
-        </div>
+            // px 반올림은 축소 렌더에서 2번째 줄을 서브픽셀 차이로 잘라낸다 — em으로
+            maxHeight: `${lineHeight * 2}em`,
+          }}
+        >
+          {highlightSpans(hook, 99).map((s, i) => (
+            <span key={i} style={s.accent ? { color: BANNER_HIGHLIGHT, whiteSpace: 'nowrap' } : undefined}>{s.word}</span>
+          ))}
+        </span>
       </div>
     </AbsoluteFill>
   );
@@ -362,8 +363,8 @@ export const SubtitleOverlay: React.FC<SubtitleProps> = ({
   const { fps, height } = useVideoConfig();
   const resolvedMode = mode ?? 'longform';
   const captionMode = resolvedMode === 'shorts' ? 'shorts' : 'longform';
-  // 타이틀 위계 — 박스 없는 키치 룩이라 말 자막의 1.6배로 존재감을 준다
-  const bannerFontSize = Math.round(fontSize * 1.6);
+  // 배너는 타이틀 위계로 말 자막의 1.43배(숏츠 기준 ≈80px)
+  const bannerFontSize = Math.round(fontSize * 1.43);
   return (
     <AbsoluteFill>
       {events.map((e, i) => {
