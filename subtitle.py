@@ -51,7 +51,15 @@ def find_korean_font() -> tuple[str, int]:
 
 
 def wrap_text(text: str, font: ImageFont.FreeTypeFont, max_width: int) -> list[str]:
-    """어절(공백) 단위로 max_width(px)를 넘지 않게 줄바꿈. 세로 숏츠 자막 잘림 방지."""
+    """어절(공백) 단위로 max_width(px)를 넘지 않게 줄바꿈. 세로 숏츠 자막 잘림 방지.
+
+    수동 줄바꿈(\\n)이 있으면 그 분할을 우선하고, 각 줄 안에서만 자동 줄바꿈한다.
+    """
+    if "\n" in text:
+        lines: list[str] = []
+        for part in text.split("\n"):
+            lines.extend(wrap_text(part, font, max_width) if part.strip() else [" "])
+        return lines
     words = text.split()
     if not words:
         return [text]
@@ -97,7 +105,7 @@ def render_caption_png(
     except (OSError, IndexError):
         font = ImageFont.truetype(font_path, font_size)
 
-    lines = wrap_text(text, font, max_width) if max_width else [text]
+    lines = wrap_text(text, font, max_width) if max_width else text.split("\n")
     metrics = [font.getbbox(ln) for ln in lines]
     line_hs = [b[3] - b[1] for b in metrics]
     text_w = max((b[2] - b[0]) for b in metrics)

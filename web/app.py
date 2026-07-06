@@ -34,6 +34,7 @@ from auto_cut import BGM_MOODS, get_llm_usage, reset_llm_usage  # noqa: E402
 from beats import detect_beats  # noqa: E402
 from probe import probe_resolution  # noqa: E402
 from effects import add_bgm  # noqa: E402
+from web.media_library import resolve_library_file  # noqa: E402
 
 BASE = Path(__file__).resolve().parent
 JOBS_DIR = BASE / "jobs"
@@ -185,12 +186,7 @@ def _run_job(job_id: str, input_paths: list[Path], opts: dict) -> None:
             ).name
             if (outdir / "subtitled.srt").is_file():
                 outputs["srt"] = "subtitled.srt"
-            bgm = _find_bgm(JOBS_DIR / job_id)
-            if bgm is None and opts.get("bgm_auto", True):
-                bgm = _auto_pick_bgm(outdir)
-                if bgm:
-                    job["bgm_track"] = bgm.name
-                    job["bgm_credit"] = _track_meta(bgm).get("credit")
+            bgm = _pick_bgm(job_id, outdir, opts, job)
             if bgm:
                 stage("BGM 입히는 중", 90)
                 mixed = outdir / ".subtitled.bgm.mp4"
@@ -236,12 +232,7 @@ def _run_job(job_id: str, input_paths: list[Path], opts: dict) -> None:
         if (outdir / "longform.srt").is_file():
             outputs["srt"] = "longform.srt"
 
-        bgm = _find_bgm(JOBS_DIR / job_id)
-        if bgm is None and opts.get("bgm_auto", True):
-            bgm = _auto_pick_bgm(outdir)
-            if bgm:
-                job["bgm_track"] = bgm.name
-                job["bgm_credit"] = _track_meta(bgm).get("credit")
+        bgm = _pick_bgm(job_id, outdir, opts, job)
         if bgm:
             stage("BGM 입히는 중", 96)
             videos_out = ([outputs.get("longform")] if outputs.get("longform") else []) \
@@ -317,6 +308,31 @@ def _auto_pick_bgm(outdir: Path) -> Path | None:
         return abs(bpm - target_bpm) if (bpm and target_bpm) else 9999.0
 
     return min(tracks, key=distance)
+
+
+def _pick_bgm(job_id: str, outdir: Path, opts: dict, job: dict) -> Path | None:
+    """BGM 결정 — 명시 선택(bgm_choice) > 업로드 곡 > 무드 자동 선곡 > 없음.
+
+    bgm_choice: "auto"(기존 동작) | "off" | "무드/파일.mp3"(라이브러리 명시 선택).
+    명시 선택이 유효하지 않으면 노트를 남기고 자동 경로로 폴백한다.
+    """
+    choice = str(opts.get("bgm_choice", "auto"))
+    if choice == "off":
+        return None
+    if choice != "auto":
+        track = resolve_library_file(MUSIC_DIR, choice)
+        if track is not None:
+            job["bgm_track"] = track.name
+            job["bgm_credit"] = _track_meta(track).get("credit")
+            return track
+        job.setdefault("notes", []).append(f"선택한 BGM({choice}) 없음 — 자동 선곡으로 대체")
+    bgm = _find_bgm(JOBS_DIR / job_id)
+    if bgm is None and opts.get("bgm_auto", True):
+        bgm = _auto_pick_bgm(outdir)
+        if bgm:
+            job["bgm_track"] = bgm.name
+            job["bgm_credit"] = _track_meta(bgm).get("credit")
+    return bgm
 
 
 def _save_uploads(files: list[UploadFile], job_dir: Path) -> list[Path]:
@@ -457,6 +473,7 @@ async def rebuild_job(
     subtitle_only: bool = Form(False),
     beat_sync: bool = Form(True),
     bgm_auto: bool = Form(True),
+    bgm_choice: str = Form("auto"),
 ):
     """기존 잡의 분석(selection.json)을 재사용해 산출 옵션만 바꿔 다시 생성.
 
@@ -505,7 +522,7 @@ async def rebuild_job(
         "shorts_ideal_seconds": shorts_ideal_seconds,
         "shorts_focus": shorts_focus, "bgm_volume": bgm_volume,
         "subtitle_only": subtitle_only, "beat_sync": beat_sync,
-        "bgm_auto": bgm_auto,
+        "bgm_auto": bgm_auto, "bgm_choice": bgm_choice,
     }
     threading.Thread(target=_run_job, args=(job_id, input_paths, opts), daemon=True).start()
     return {"job_id": job_id}
@@ -570,6 +587,17 @@ async def list_music():
         lib[mood] = ([{"name": p.name, **_track_meta(p)} for p in sorted(d.glob("*.mp3"))]
                      if d.is_dir() else [])
     return {"moods": lib}
+
+
+@app.get("/api/music/{mood}/{name}")
+async def get_music_file(mood: str, name: str):
+    """라이브러리 곡 서빙 — 결과 화면 미리듣기용."""
+    if mood not in BGM_MOODS:
+        raise HTTPException(404, "무드 없음")
+    p = resolve_library_file(MUSIC_DIR, f"{mood}/{name}")
+    if p is None:
+        raise HTTPException(404, "곡 없음")
+    return FileResponse(p)
 
 
 @app.post("/api/music/{mood}")
