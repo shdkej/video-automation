@@ -13,6 +13,24 @@ const MODE_NOTES = {
 let pickedFiles = []; // 업로드 순서 = 타임라인 순서
 let pollTimer = null;
 
+// ---------- 완료 알림 (탭이 백그라운드일 때만) ----------
+const BASE_TITLE = document.title;
+function requestNotifyPermission() {
+  if ("Notification" in window && Notification.permission === "default") {
+    Notification.requestPermission().catch(() => {});
+  }
+}
+function notifyDone(ok, msg) {
+  if (!document.hidden) return;
+  document.title = (ok ? "✅ 완성" : "⚠️ 오류") + " — Reel Room";
+  if ("Notification" in window && Notification.permission === "granted") {
+    try { new Notification(ok ? "Reel Room — 완성" : "Reel Room — 처리 중단", { body: msg || "" }); } catch { /* 무시 */ }
+  }
+}
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) document.title = BASE_TITLE;
+});
+
 // 자막 select(off/pil/fade/kinetic) → 백엔드 옵션 3종으로 분해
 const KO_COUNT = ["", "한", "두", "세", "네"];
 function pickedOutputs() {
@@ -108,6 +126,23 @@ function renderFileList() {
 }
 
 // ---------- 제출 ----------
+// fetch는 업로드 진행률을 못 주므로 XHR — 모바일 업링크에선 업로드가 수 분 걸린다
+function uploadWithProgress(url, fd, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", url);
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(e.loaded, e.total); };
+    xhr.onload = () => {
+      let body = {};
+      try { body = JSON.parse(xhr.responseText); } catch { /* 비JSON 응답 */ }
+      if (xhr.status >= 200 && xhr.status < 300) resolve(body);
+      else reject(new Error(body.detail || xhr.statusText || `HTTP ${xhr.status}`));
+    };
+    xhr.onerror = () => reject(new Error("네트워크 오류 — 업로드에 실패했습니다"));
+    xhr.send(fd);
+  });
+}
+
 $("job-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   if (pickedFiles.length === 0) { dz.classList.add("dragging"); setTimeout(() => dz.classList.remove("dragging"), 600); return; }
@@ -141,16 +176,24 @@ $("job-form").addEventListener("submit", async (e) => {
   }
 
   $("submit-btn").disabled = true;
+  requestNotifyPermission();
+  hide($("form-section"));
+  show($("progress-section"));
+  updateStepper(0);
+  $("bar-fill").style.width = "0%";
+  $("stage-text").textContent = "업로드 준비…";
   try {
-    const res = await fetch("/api/jobs", { method: "POST", body: fd });
-    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || res.statusText);
-    const { job_id } = await res.json();
+    const { job_id } = await uploadWithProgress("/api/jobs", fd, (loaded, total) => {
+      const pct = Math.round((loaded / total) * 100);
+      $("bar-fill").style.width = pct + "%";
+      $("stage-text").textContent = pct >= 100
+        ? "업로드 완료 — 처리 대기 중…"
+        : `업로드 중 · ${pct}% (${fmtSize(loaded)} / ${fmtSize(total)})`;
+    });
     const srcName = pickedFiles.length > 1
       ? `${pickedFiles[0].name} 외 ${pickedFiles.length - 1}개`
       : pickedFiles[0].name;
     saveRecentJob(job_id, { mode: $("mode").value, name: srcName });
-    hide($("form-section"));
-    show($("progress-section"));
     startPolling(job_id);
   } catch (err) {
     showError(err.message);
@@ -175,9 +218,21 @@ function updateStepper(progress) {
 }
 
 let currentJobId = null;
+function stopPolling() {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+}
 function startPolling(jobId) {
+  if (bgJobId === jobId) clearBgWatch();
   currentJobId = jobId;
+  stopPolling();
+  let lastHiddenPoll = 0;
   pollTimer = setInterval(async () => {
+    // 탭이 백그라운드면 5초 간격으로만 — 모바일 배터리·데이터 절약
+    if (document.hidden) {
+      const now = Date.now();
+      if (now - lastHiddenPoll < 5000) return;
+      lastHiddenPoll = now;
+    }
     try {
       const res = await fetch(`/api/jobs/${jobId}`);
       const job = await res.json();
@@ -185,26 +240,106 @@ function startPolling(jobId) {
       $("bar-fill").style.width = p + "%";
       $("stage-text").textContent = `${job.stage || ""} · ${p}%`;
       updateStepper(p);
-      if (job.status === "done") { clearInterval(pollTimer); renderResults(jobId, job); }
-      else if (job.status === "error") { clearInterval(pollTimer); showError(job.error || "알 수 없는 오류"); }
-    } catch (err) { clearInterval(pollTimer); showError(err.message); }
+      if (job.status === "done") {
+        stopPolling();
+        notifyDone(true, "산출물이 준비됐습니다");
+        renderResults(jobId, job);
+      } else if (job.status === "error") {
+        stopPolling();
+        notifyDone(false, job.error || "");
+        showError(job.error || "알 수 없는 오류");
+      }
+    } catch (err) { stopPolling(); showError(err.message); }
   }, 1000);
 }
 
+// ---------- 백그라운드 잡 배너 — 진행 중인 잡을 두고 다른 잡을 볼 때 복귀 도선 ----------
+let bgJobId = null;
+let bgTimer = null;
+function clearBgWatch() {
+  bgJobId = null;
+  if (bgTimer) { clearInterval(bgTimer); bgTimer = null; }
+  hide($("job-banner"));
+}
+function watchBgJob(id) {
+  clearBgWatch();
+  bgJobId = id;
+  const banner = $("job-banner");
+  const tick = async () => {
+    try {
+      const res = await fetch(`/api/jobs/${id}`);
+      if (!res.ok) { clearBgWatch(); return; }
+      const job = await res.json();
+      if (job.status === "running") {
+        banner.textContent = `⏳ 다른 작업 처리 중 · ${job.progress || 0}% — 보러 가기`;
+        show(banner);
+      } else {
+        banner.textContent = job.status === "done"
+          ? "✓ 다른 작업 완성 — 보러 가기"
+          : "⚠ 다른 작업 중단됨 — 확인하기";
+        show(banner);
+        if (bgTimer) { clearInterval(bgTimer); bgTimer = null; }
+        notifyDone(job.status === "done", "백그라운드 작업이 끝났습니다");
+      }
+    } catch { /* 다음 틱에 재시도 */ }
+  };
+  tick();
+  bgTimer = setInterval(tick, 3000);
+}
+$("job-banner").addEventListener("click", () => {
+  if (!bgJobId) return;
+  const id = bgJobId;
+  clearBgWatch();
+  openJob(id);
+});
+
 // ---------- 결과 ----------
 const fileUrl = (jobId, name) => `/api/jobs/${jobId}/file/${encodeURIComponent(name)}`;
+
+// 파일 공유 지원 여부 (iOS·Android — 사진첩 저장, SNS 앱으로 바로 전달)
+const CAN_SHARE_FILES = (() => {
+  try {
+    return !!navigator.canShare && navigator.canShare({ files: [new File([""], "t.mp4", { type: "video/mp4" })] });
+  } catch { return false; }
+})();
 
 function cut(jobId, name, label, fmt, { vertical = false, image = false } = {}) {
   const url = fileUrl(jobId, name);
   const media = image
     ? `<img src="${url}" alt="${label}">`
     : `<video src="${url}" controls preload="metadata"></video>`;
+  const share = CAN_SHARE_FILES
+    ? `<button type="button" class="share-btn" data-url="${url}" data-name="${escHtml(name)}">공유 ↗</button>`
+    : "";
   return `<div class="cut ${vertical ? "vertical" : ""}">
     <div class="cut-label"><span>${label}</span><span class="fmt">${fmt}</span></div>
     ${media}
-    <a class="dl" href="${url}" download>${name}</a>
+    <div class="cut-actions"><a class="dl" href="${url}" download>${name}</a>${share}</div>
   </div>`;
 }
+
+// 공유 버튼 — 파일을 받아 OS 공유 시트로 (SNS 업로드·사진첩 저장)
+$("results").addEventListener("click", async (e) => {
+  const btn = e.target.closest(".share-btn");
+  if (!btn) return;
+  const orig = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "준비 중…";
+  try {
+    const res = await fetch(btn.dataset.url);
+    const blob = await res.blob();
+    const file = new File([blob], btn.dataset.name, { type: blob.type || "video/mp4" });
+    await navigator.share({ files: [file] });
+  } catch (err) {
+    if (err.name !== "AbortError") {
+      btn.textContent = "공유 불가 — 다운로드를 이용해주세요";
+      setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 2500);
+      return;
+    }
+  }
+  btn.textContent = orig;
+  btn.disabled = false;
+});
 
 function renderResults(jobId, job) {
   updateStepper(100);
@@ -278,7 +413,7 @@ async function doRebuild() {
 $("rebuild-btn").addEventListener("click", doRebuild);
 
 function showError(msg) {
-  if (pollTimer) clearInterval(pollTimer);
+  stopPolling();
   [$("form-section"), $("progress-section"), $("result-section")].forEach(hide);
   show($("error-section"));
   $("error-text").textContent = msg;
@@ -359,7 +494,10 @@ function highlightActiveJob() {
 
 async function openJob(id, li) {
   if (li && li.classList.contains("expired")) return;
-  if (pollTimer) clearInterval(pollTimer);
+  // 진행 중인 잡을 두고 다른 잡으로 이동하면 배너로 계속 지켜본다
+  if (pollTimer && currentJobId && currentJobId !== id) watchBgJob(currentJobId);
+  if (bgJobId === id) clearBgWatch();
+  stopPolling();
   try {
     const res = await fetch(`/api/jobs/${id}`);
     if (res.status === 404) {
