@@ -677,7 +677,10 @@ const TC_TEMPLATE = `
         <button type="button" class="pos-off tc-off">글자 없음</button>
       </div>
     </div>
-    <div class="thumb-preview hidden tc-preview"><img class="tc-img" alt="썸네일 미리보기"></div>
+    <div class="thumb-preview hidden tc-preview">
+      <img class="tc-img" alt="썸네일 미리보기">
+      <p class="sd-note tc-note"></p>
+    </div>
   </div>`;
 
 function createThumbControls(rootId, getBase, getAutoText) {
@@ -689,9 +692,12 @@ function createThumbControls(rootId, getBase, getAutoText) {
   let lastUrl = null;
 
   async function renderPreview() {
-    const base = await getBase();
     const wrap = q(".tc-preview");
+    const note = q(".tc-note");
+    note.textContent = "미리보기 준비 중…";
+    const base = await getBase();
     if (!base) { wrap.classList.add("hidden"); return; }
+    wrap.classList.remove("hidden");
     const fd = new FormData();
     fd.append("text", state.pos === "off" ? "" : (state.text.trim() || (getAutoText ? getAutoText() : "")));
     fd.append("pos", state.pos === "off" ? "bottom-center" : state.pos);
@@ -700,16 +706,18 @@ function createThumbControls(rootId, getBase, getAutoText) {
     fd.append("weight", state.weight);
     fd.append("effect", state.effect);
     if (base.blob) fd.append("frame", base.blob, "frame.jpg");
-    else { fd.append("job_id", base.jobId); fd.append("t", base.t); }
+    else if (base.jobId) { fd.append("job_id", base.jobId); fd.append("t", base.t); }
     try {
       const res = await fetch("/api/thumb-preview", { method: "POST", body: fd });
-      if (!res.ok) throw new Error();
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const url = URL.createObjectURL(await res.blob());
       if (lastUrl) URL.revokeObjectURL(lastUrl);
       lastUrl = url;
       q(".tc-img").src = url;
-      wrap.classList.remove("hidden");
-    } catch { /* 미리보기 실패는 조용히 — 산출엔 영향 없음 */ }
+      note.textContent = base.note || "";
+    } catch (err) {
+      note.textContent = `미리보기 실패 (${err.message}) — 산출엔 영향 없음`;
+    }
   }
   function refresh(now = false) {
     clearTimeout(timer);
@@ -805,17 +813,20 @@ function captureFrameFromFile(file) {
     const v = document.createElement("video");
     v.muted = true;
     v.playsInline = true;
-    v.preload = "auto";
-    v.src = url;
+    v.autoplay = true;
     let settled = false;
+    let timer = null;
     const finish = (blob) => {
       if (settled) return;
       settled = true;
+      clearTimeout(timer);
+      v.pause();
+      v.removeAttribute("src");
       URL.revokeObjectURL(url);
       resolve(blob);
     };
-    v.onloadeddata = () => { v.currentTime = Math.min(1.0, (v.duration || 2) / 2); };
-    v.onseeked = () => {
+    const draw = () => {
+      if (settled || !v.videoWidth) return;
       try {
         const c = document.createElement("canvas");
         c.width = 540;
@@ -824,8 +835,20 @@ function captureFrameFromFile(file) {
         c.toBlob(finish, "image/jpeg", 0.85);
       } catch { finish(null); }
     };
+    // preload만으로는 프레임이 준비되지 않는다(특히 iOS) — 음소거 재생으로 킥,
+    // 첫 프레임 콜백(rVFC)에서 캡처. 미지원 브라우저는 재생 이벤트로 폴백.
+    if ("requestVideoFrameCallback" in v) {
+      v.requestVideoFrameCallback(() => draw());
+    } else {
+      v.addEventListener("playing", () => setTimeout(draw, 60), { once: true });
+      v.addEventListener("canplay", () => setTimeout(draw, 60), { once: true });
+    }
     v.onerror = () => finish(null);
-    setTimeout(() => finish(null), 8000);
+    timer = setTimeout(() => finish(null), 8000);
+    v.src = url;
+    v.load();
+    const p = v.play();
+    if (p) p.catch(() => { /* 자동재생 거부 — 타임아웃이 처리 */ });
   });
 }
 const formTC = createThumbControls("tc-form", async () => {
@@ -835,7 +858,10 @@ const formTC = createThumbControls("tc-form", async () => {
     formFrameBlob = await captureFrameFromFile(first);
     formFrameFile = first;
   }
-  return formFrameBlob ? { blob: formFrameBlob } : null;
+  // 프레임 캡처가 안 되는 브라우저·코덱이면 임시 배경으로라도 문구·효과를 보여준다
+  return formFrameBlob
+    ? { blob: formFrameBlob }
+    : { note: "영상 프레임을 읽지 못해 임시 배경입니다 — 산출물엔 실제 장면이 들어갑니다" };
 });
 
 // 편집기 인스턴스 — 잡의 첫 구간 프레임 위에 (자동 훅 문구 폴백)
