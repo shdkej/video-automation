@@ -370,33 +370,25 @@ function renderResults(jobId, job) {
     `<a class="dl" href="/api/jobs/${jobId}/archive">전부 받기 ↓zip</a>` +
     (o.srt ? `<a class="dl" href="${fileUrl(jobId, o.srt)}" download>자막 ↓srt</a>` : "");
   renderCompare(jobId, o);
-  resetEditPanel(jobId);
-
-  // 재생성 폼을 직전 옵션으로 초기화
-  $("rb_shorts").value = $("job-form").shorts_count.value;
-  $("rb_thumb").value = $("job-form").thumbnail_count.value;
-  $("rb_blur").checked = $("shorts_blur").checked;
-  $("rb_jumpcut").checked = $("shorts_jumpcut").checked;
-  $("rb_punchin").checked = $("shorts_punchin").checked;
-  $("rb_clean").checked = $("shorts_clean").checked;
-  $("rb_sub").value = $("sub_mode").value;
+  initEditor(jobId, job);
 }
 
-// 분석 재사용 재생성 — 산출 옵션만 바꿔 다시 (교정 저장 후에도 재사용)
+// 분석 재사용 재생성 — 편집기(전체 설정 바)의 값으로 다시 만들기
 async function doRebuild() {
   if (!currentJobId) return;
   const fd = new FormData();
-  fd.append("shorts_count", $("rb_shorts").value);
-  fd.append("thumbnail_count", $("rb_thumb").value);
-  fd.append("shorts_blur", $("rb_blur").checked);
-  fd.append("shorts_jumpcut", $("rb_jumpcut").checked);
-  fd.append("shorts_punchin", $("rb_punchin").checked);
-  fd.append("shorts_clean", $("rb_clean").checked);
+  fd.append("shorts_count", $("ed_shorts").value);
+  fd.append("thumbnail_count", $("ed_thumb").value);
+  fd.append("shorts_blur", $("ed_blur").checked);
+  fd.append("shorts_jumpcut", $("ed_jumpcut").checked);
+  fd.append("shorts_punchin", $("ed_punchin").checked);
+  fd.append("shorts_clean", $("ed_clean").checked);
   fd.append("shorts_focus", $("shorts_focus").value);
   fd.append("shorts_max_seconds", $("shorts_max").value);
   fd.append("shorts_ideal_seconds", $("shorts_ideal").value);
-  fd.append("bgm_volume", $("bgm_vol").value);
-  appendSubOpts(fd, $("rb_sub").value);
+  fd.append("bgm_volume", $("ed_bgmvol").value);
+  fd.append("bgm_choice", bgmChoice);
+  appendSubOpts(fd, styleChoice);
 
   hide($("result-section"));
   show($("progress-section"));
@@ -410,7 +402,6 @@ async function doRebuild() {
     showError(err.message);
   }
 }
-$("rebuild-btn").addEventListener("click", doRebuild);
 
 function showError(msg) {
   stopPolling();
@@ -527,9 +518,11 @@ async function openJob(id, li) {
   }
 }
 
-// 초기 렌더 + 새로고침 복귀 — 가장 최근 잡이 아직 돌고 있으면 자동으로 이어서 보여준다
+// 초기 렌더 + 새로고침 복귀 — ?job=<id> 딥링크 우선, 아니면 진행 중인 최근 잡 복귀
 renderJobPanel();
 (async () => {
+  const qJob = new URLSearchParams(location.search).get("job");
+  if (qJob) { openJob(qJob); return; }
   const last = recentJobs()[0];
   if (!last) return;
   try {
@@ -567,92 +560,288 @@ function renderCompare(jobId, o) {
   });
 }
 
-// ---------- 구간·자막 교정 패널 ----------
-let editData = null;      // GET /analysis 원본
-let editJobId = null;
-
-function resetEditPanel(jobId) {
-  editJobId = jobId;
-  editData = null;
-  $("edit-panel").open = false;
-  $("edit-body").innerHTML = `<p class="jp-empty">불러오는 중…</p>`;
-  $("edit-status").textContent = "";
-}
-
-$("edit-panel").addEventListener("toggle", () => {
-  if ($("edit-panel").open && !editData && editJobId) loadEditPanel(editJobId);
-});
+// ---------- 통합 편집기 — 전체 설정(스타일·효과·음악) + 타임라인(구간·글자·효과음) ----------
+let edData = null;     // GET /analysis 원본
+let edJobId = null;
+let edSegs = [];       // 편집 상태 [{use,start,end,caption,hook,sfx}]
+let edSel = -1;        // 선택된 구간 인덱스
+let musicLib = null;   // GET /api/music (1회 로드)
+let sfxLib = null;     // GET /api/sfx (없으면 [] — 효과음 트랙 숨김)
+let bgmChoice = "auto";
+let styleChoice = "fade";
 
 const secToMmss = (s) => {
   const m = Math.floor(s / 60);
   return `${m}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 };
 
-async function loadEditPanel(jobId) {
+// 공유 미리듣기 — 한 번에 하나만 재생
+const previewAudio = new Audio();
+let previewKey = null;
+function stopPreview() {
+  previewAudio.pause();
+  previewKey = null;
+  document.querySelectorAll(".play-btn.playing").forEach((b) => b.classList.remove("playing"));
+}
+function togglePreview(url, key, btn) {
+  if (previewKey === key) { stopPreview(); return; }
+  stopPreview();
+  previewAudio.src = url;
+  previewAudio.play().catch(() => {});
+  previewKey = key;
+  if (btn) btn.classList.add("playing");
+}
+previewAudio.addEventListener("ended", stopPreview);
+
+// ----- 자막 스타일 선택 + 데모 재생 -----
+const DEMO_STYLES = ["fade", "kinetic", "impact", "pil"];
+function syncStyleButtons() {
+  document.querySelectorAll("#style-picks button").forEach((b) =>
+    b.classList.toggle("selected", b.dataset.style === styleChoice));
+}
+$("style-picks").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-style]");
+  if (!btn) return;
+  styleChoice = btn.dataset.style;
+  syncStyleButtons();
+  const demo = $("style-demo");
+  if (DEMO_STYLES.includes(styleChoice)) {
+    demo.src = `/demos/${styleChoice}.mp4`;
+    demo.classList.remove("hidden");
+    demo.play().catch(() => {});
+  } else {
+    demo.pause();
+    demo.classList.add("hidden");
+  }
+});
+
+// ----- 편집기 초기화 (결과 렌더 시) -----
+async function initEditor(jobId, job) {
+  edJobId = jobId;
+  edData = null;
+  edSel = -1;
+  edSegs = [];
+  $("edit-status").textContent = "";
+  $("seg-detail").classList.add("hidden");
+  $("tl-tracks").innerHTML = `<p class="jp-empty">불러오는 중…</p>`;
+  const demo = $("style-demo");
+  demo.pause();
+  demo.classList.add("hidden");
+
+  // 직전 옵션을 편집기 기본값으로
+  $("ed_shorts").value = $("job-form").shorts_count.value;
+  $("ed_thumb").value = $("job-form").thumbnail_count.value;
+  $("ed_blur").checked = $("shorts_blur").checked;
+  $("ed_jumpcut").checked = $("shorts_jumpcut").checked;
+  $("ed_punchin").checked = $("shorts_punchin").checked;
+  $("ed_clean").checked = $("shorts_clean").checked;
+  $("ed_bgmvol").value = $("bgm_vol").value;
+  styleChoice = $("sub_mode").value;
+  syncStyleButtons();
+
   try {
-    const res = await fetch(`/api/jobs/${jobId}/analysis`);
-    if (!res.ok) throw new Error("분석 데이터가 없습니다 (정리됐을 수 있음)");
-    editData = await res.json();
+    const reqs = [fetch(`/api/jobs/${jobId}/analysis`)];
+    reqs.push(musicLib ? null : fetch("/api/music"));
+    reqs.push(sfxLib ? null : fetch("/api/sfx"));
+    const [aRes, mRes, sRes] = await Promise.all(reqs);
+    if (!aRes.ok) throw new Error("분석 데이터가 없습니다 (정리됐을 수 있음)");
+    edData = await aRes.json();
+    if (mRes) musicLib = mRes.ok ? await mRes.json() : { moods: {} };
+    if (sRes) sfxLib = sRes.ok ? (await sRes.json()).sfx || [] : [];
   } catch (err) {
-    $("edit-body").innerHTML = `<p class="jp-empty">${escHtml(err.message)}</p>`;
+    $("tl-tracks").innerHTML = `<p class="jp-empty">${escHtml(err.message)}</p>`;
     return;
   }
-  const segs = editData.segments || [];
-  const caps = editData.captions || [];
-  let html = `<div class="ed-grid-head"><span>사용</span><span>장면</span><span>시작~끝 (초)</span><span>자막 / 훅</span></div>`;
-  segs.forEach((s, i) => {
-    const mid = ((s.start + s.end) / 2).toFixed(1);
-    html += `<div class="ed-row" data-i="${i}">
-      <label class="ed-use"><input type="checkbox" checked></label>
-      <img src="/api/jobs/${jobId}/frame?t=${mid}" alt="장면 ${i + 1}" loading="lazy">
-      <span class="ed-time">
-        <input type="number" class="ed-start" value="${s.start}" step="0.1" min="0">
-        <input type="number" class="ed-end" value="${s.end}" step="0.1" min="0">
-      </span>
-      <span class="ed-texts">
-        <input type="text" class="ed-caption" value="${escHtml(caps[i] || "")}" placeholder="자막(장면 캡션)">
-        <input type="text" class="ed-hook" value="${escHtml(s.hook || "")}" placeholder="훅 배너 문구">
-      </span>
-    </div>`;
-  });
-  if (editData.transcript && editData.transcript.length) {
-    html += `<div class="ed-grid-head"><span colspan="4">발화 자막 교정 <small>Whisper 오인식 수정 — 고친 문장은 카라오케 대신 통자막으로</small></span></div>`;
-    editData.transcript.forEach((t) => {
-      html += `<div class="ed-trow" data-i="${t.i}">
-        <span class="ed-tt">${secToMmss(t.start)}</span>
-        <input type="text" class="ed-ttext" value="${escHtml(t.text)}">
-      </div>`;
-    });
-  }
-  $("edit-body").innerHTML = html;
+
+  edSegs = (edData.segments || []).map((s, i) => ({
+    use: true,
+    start: s.start,
+    end: s.end,
+    caption: (edData.captions || [])[i] || "",
+    hook: s.hook || "",
+    sfx: s.sfx || "",
+  }));
+  renderBgmList(job);
+  renderTimeline();
+  renderTranscriptEdit();
 }
 
-$("edit-save-btn").addEventListener("click", async () => {
-  if (!editData || !editJobId) return;
-  const rows = [...document.querySelectorAll("#edit-body .ed-row")];
+// ----- 음악(BGM) 리스트 -----
+function renderBgmList(job) {
+  bgmChoice = "auto";
+  const cur = job && job.bgm_track;
+  const row = (val, main, sub, url) => `
+    <div class="bgm-row ${val === bgmChoice ? "selected" : ""}" data-val="${escHtml(val)}">
+      <span class="bgm-name">${escHtml(main)}</span>
+      ${sub ? `<span class="bgm-sub">${escHtml(sub)}</span>` : ""}
+      ${url ? `<button type="button" class="play-btn" data-url="${url}">▶</button>` : ""}
+    </div>`;
+  let html = row("auto", "자동 선곡", "영상 무드 기반" + (cur ? ` · 현재 ${cur}` : ""), null);
+  html += row("off", "끄기", "BGM 없이", null);
+  const moods = (musicLib && musicLib.moods) || {};
+  for (const mood of Object.keys(moods)) {
+    for (const t of moods[mood]) {
+      const sub = [mood, t.bpm ? `${t.bpm}bpm` : "", t.name === cur ? "현재 적용" : ""]
+        .filter(Boolean).join(" · ");
+      html += row(
+        `${mood}/${t.name}`,
+        t.name.replace(/\.mp3$/i, "").replace(/_/g, " "),
+        sub,
+        `/api/music/${encodeURIComponent(mood)}/${encodeURIComponent(t.name)}`,
+      );
+    }
+  }
+  $("bgm-list").innerHTML = html;
+}
+$("bgm-list").addEventListener("click", (e) => {
+  const play = e.target.closest(".play-btn");
+  if (play) { togglePreview(play.dataset.url, play.dataset.url, play); return; }
+  const rowEl = e.target.closest(".bgm-row");
+  if (!rowEl) return;
+  bgmChoice = rowEl.dataset.val;
+  document.querySelectorAll(".bgm-row").forEach((r) => r.classList.toggle("selected", r === rowEl));
+});
+
+// ----- 타임라인 (영상·글자·효과음 트랙) -----
+const PX_PER_SEC = 16;
+function sfxLabel(name) {
+  const item = (sfxLib || []).find((x) => x.name === name);
+  return item ? item.label || item.name : name;
+}
+function renderTimeline() {
+  const showSfx = !!(sfxLib && sfxLib.length);
+  document.querySelector(".tl-head-sfx").style.display = showSfx ? "" : "none";
+  let vid = "", txt = "", sfx = "";
+  edSegs.forEach((s, i) => {
+    const w = Math.max(72, Math.round((Number(s.end) - Number(s.start)) * PX_PER_SEC));
+    const mid = ((Number(s.start) + Number(s.end)) / 2).toFixed(1);
+    const cls = `tl-cell${i === edSel ? " selected" : ""}${s.use ? "" : " excluded"}`;
+    vid += `<div class="${cls} tl-vcell" data-i="${i}" style="width:${w}px;background-image:url('/api/jobs/${edJobId}/frame?t=${mid}')"><span class="tl-dur">${(s.end - s.start).toFixed(1)}s</span></div>`;
+    txt += `<div class="${cls} tl-tcell" data-i="${i}" style="width:${w}px">${escHtml((s.caption || "").split("\n")[0] || "–")}</div>`;
+    if (showSfx) sfx += `<div class="${cls} tl-scell${s.sfx ? " has-sfx" : ""}" data-i="${i}" style="width:${w}px">${escHtml(s.sfx ? sfxLabel(s.sfx) : "＋")}</div>`;
+  });
+  $("tl-tracks").innerHTML =
+    `<div class="tl-row">${vid}</div><div class="tl-row">${txt}</div>` +
+    (showSfx ? `<div class="tl-row">${sfx}</div>` : "");
+}
+$("tl-tracks").addEventListener("click", (e) => {
+  const cell = e.target.closest(".tl-cell");
+  if (!cell) return;
+  edSel = Number(cell.dataset.i);
+  renderTimeline();
+  renderSegDetail();
+});
+
+// ----- 선택 구간 상세 (자막 오버레이 근사 미리보기 포함) -----
+function updateOverlay() {
+  const ov = $("sd-overlay");
+  const img = $("sd-frame");
+  if (!ov || !img || edSel < 0) return;
+  const text = styleChoice === "off" ? "" : (edSegs[edSel].caption || "").trim();
+  ov.textContent = text;
+  ov.style.display = text ? "" : "none";
+  const size = () => {
+    const h = img.clientHeight, w = img.clientWidth;
+    if (!h || !w) return;
+    const vertical = img.naturalHeight > img.naturalWidth;
+    // 렌더러 비율 근사 — 숏츠(세로): 56px/1080 폭·하단 30%, 롱폼(가로): 36px/1080 높이·하단 7.4%
+    ov.style.fontSize = (vertical ? w * 0.052 : h * 0.033) + "px";
+    ov.style.bottom = (vertical ? h * 0.30 : h * 0.074) + "px";
+  };
+  if (img.complete) size(); else img.onload = size;
+}
+
+function renderSegDetail() {
+  const box = $("seg-detail");
+  if (edSel < 0 || !edSegs[edSel]) { box.classList.add("hidden"); return; }
+  const s = edSegs[edSel];
+  const mid = ((Number(s.start) + Number(s.end)) / 2).toFixed(1);
+  const sfxOpts = (sfxLib || []).map((x) =>
+    `<option value="${escHtml(x.name)}"${s.sfx === x.name ? " selected" : ""}>${escHtml(x.label || x.name)}</option>`).join("");
+  box.innerHTML = `
+    <div class="sd-head">
+      <span>구간 ${edSel + 1} · ${secToMmss(s.start)}~${secToMmss(s.end)}</span>
+      <label class="toggle"><input type="checkbox" id="sd_use"${s.use ? " checked" : ""}><span class="tg-box"></span>사용</label>
+    </div>
+    <div class="sd-grid">
+      <div class="sd-preview">
+        <img src="/api/jobs/${edJobId}/frame?t=${mid}" alt="구간 ${edSel + 1}" id="sd-frame">
+        <div class="sub-overlay" id="sd-overlay"></div>
+      </div>
+      <div class="sd-fields">
+        <span class="sd-time">
+          <input type="number" id="sd_start" value="${s.start}" step="0.1" min="0"> ~
+          <input type="number" id="sd_end" value="${s.end}" step="0.1" min="0"> 초
+        </span>
+        <textarea id="sd_caption" rows="2" placeholder="자막 — 엔터로 줄을 나누면 그대로 반영">${escHtml(s.caption)}</textarea>
+        <input type="text" id="sd_hook" value="${escHtml(s.hook)}" placeholder="훅 배너 문구">
+        ${sfxLib && sfxLib.length ? `<label class="sd-sfx">효과음
+          <select id="sd_sfx"><option value="">없음</option>${sfxOpts}</select>
+          <button type="button" class="play-btn" id="sd_sfx_play">▶</button></label>` : ""}
+      </div>
+    </div>
+    <p class="sd-note">미리보기는 줄바꿈·크기 확인용 근사치 — 움직임은 위 스타일 데모 참고</p>`;
+  updateOverlay();
+
+  $("sd_use").onchange = () => { s.use = $("sd_use").checked; renderTimeline(); };
+  $("sd_start").oninput = () => { s.start = parseFloat($("sd_start").value) || 0; };
+  $("sd_end").oninput = () => { s.end = parseFloat($("sd_end").value) || 0; };
+  $("sd_caption").oninput = () => {
+    s.caption = $("sd_caption").value;
+    updateOverlay();
+    const cell = document.querySelector(`.tl-tcell[data-i="${edSel}"]`);
+    if (cell) cell.textContent = (s.caption || "").split("\n")[0] || "–";
+  };
+  $("sd_hook").oninput = () => { s.hook = $("sd_hook").value; };
+  const sfxSel = $("sd_sfx");
+  if (sfxSel) {
+    sfxSel.onchange = () => { s.sfx = sfxSel.value; renderTimeline(); };
+    $("sd_sfx_play").onclick = () => {
+      if (s.sfx) togglePreview(`/api/sfx/${encodeURIComponent(s.sfx)}`, `sfx:${s.sfx}`, $("sd_sfx_play"));
+    };
+  }
+  box.classList.remove("hidden");
+}
+
+// ----- 발화 자막 교정 (speech 모드) -----
+function renderTranscriptEdit() {
+  const box = $("transcript-edit");
+  if (!edData.transcript || !edData.transcript.length) { box.innerHTML = ""; return; }
+  let html = `<div class="ed-grid-head"><span>발화 자막 교정 <small>Whisper 오인식 수정 — 고친 문장은 카라오케 대신 통자막으로</small></span></div>`;
+  edData.transcript.forEach((t) => {
+    html += `<div class="ed-trow" data-i="${t.i}">
+      <span class="ed-tt">${secToMmss(t.start)}</span>
+      <input type="text" class="ed-ttext" value="${escHtml(t.text)}">
+    </div>`;
+  });
+  box.innerHTML = html;
+}
+
+// ----- 적용: 교정 저장 → 재생성 -----
+$("apply-btn").addEventListener("click", async () => {
+  if (!edData || !edJobId) return;
+  stopPreview();
   const segments = [];
   const captions = [];
-  for (const row of rows) {
-    if (!row.querySelector(".ed-use input").checked) continue;
-    const i = Number(row.dataset.i);
-    const start = parseFloat(row.querySelector(".ed-start").value);
-    const end = parseFloat(row.querySelector(".ed-end").value);
-    if (!(start < end)) { $("edit-status").textContent = `구간 ${i + 1}: 시작이 끝보다 앞서야 합니다`; return; }
-    const seg = { ...editData.segments[i], start, end };
-    const hook = row.querySelector(".ed-hook").value.trim();
-    if (hook) seg.hook = hook; else delete seg.hook;
+  for (let i = 0; i < edSegs.length; i++) {
+    const s = edSegs[i];
+    if (!s.use) continue;
+    if (!(s.start < s.end)) { $("edit-status").textContent = `구간 ${i + 1}: 시작이 끝보다 앞서야 합니다`; return; }
+    const seg = { ...edData.segments[i], start: s.start, end: s.end };
+    if (s.hook.trim()) seg.hook = s.hook.trim(); else delete seg.hook;
+    if (s.sfx) seg.sfx = s.sfx; else delete seg.sfx;
     segments.push(seg);
-    captions.push(row.querySelector(".ed-caption").value.trim());
+    captions.push(s.caption.trim());
   }
   if (!segments.length) { $("edit-status").textContent = "구간을 최소 1개는 남겨야 합니다"; return; }
 
-  const transcript = [...document.querySelectorAll("#edit-body .ed-trow")].map((r) => ({
+  const transcript = [...document.querySelectorAll("#transcript-edit .ed-trow")].map((r) => ({
     i: Number(r.dataset.i), text: r.querySelector(".ed-ttext").value,
   }));
 
   $("edit-status").textContent = "저장 중…";
   try {
-    const res = await fetch(`/api/jobs/${editJobId}/analysis`, {
+    const res = await fetch(`/api/jobs/${edJobId}/analysis`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ segments, captions, transcript }),
