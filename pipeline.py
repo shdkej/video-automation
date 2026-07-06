@@ -40,6 +40,8 @@ from auto_cut import (
     write_srt,
 )
 from effects import (
+    DEFAULT_THUMB_POS,
+    DEFAULT_THUMB_SCALE,
     apply_audio_fade_out,
     apply_fade,
     build_short_footage,
@@ -710,9 +712,9 @@ def build_thumbnail(args, segments: list, captions: list, outdir: Path) -> list:
     hook = "" if args.no_thumb_text else (
         getattr(args, "thumb_text", "").strip() or pick_thumbnail_hook(segments, captions)
     )
-    pos = getattr(args, "thumb_pos", "bottom-center")
+    pos = getattr(args, "thumb_pos", DEFAULT_THUMB_POS)
     font = getattr(args, "thumb_font", "pretendard")
-    scale = getattr(args, "thumb_scale", 1.0)
+    scale = getattr(args, "thumb_scale", DEFAULT_THUMB_SCALE)
     weight = getattr(args, "thumb_weight", "bold")
     effect = getattr(args, "thumb_effect", "none")
     paths = []

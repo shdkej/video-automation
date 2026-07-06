@@ -309,19 +309,23 @@ THUMB_WEIGHTS = {"normal": 16, "bold": 12, "heavy": 8}  # stroke = size // 값
 # 타이틀 배경 효과 — 텍스트 뒤에 그려지는 정적 장식
 THUMB_EFFECTS = ("none", "fireworks", "fire", "sparkle")
 
+# 썸네일 타이틀 기본값 — 프론트·API·파이프라인 단일 출처
+DEFAULT_THUMB_POS = "top-center"
+DEFAULT_THUMB_SCALE = 1.5
 
-def _draw_sparkle(d: "ImageDraw.ImageDraw", x: int, y: int, r: int, color: tuple) -> None:
-    """4갈래 반짝이 별 하나 — 세로/가로로 긴 마름모 두 개."""
-    slim = max(1, r // 4)
-    d.polygon([(x, y - r), (x + slim, y), (x, y + r), (x - slim, y)], fill=color)
-    d.polygon([(x - r, y), (x, y - slim), (x + r, y), (x, y + slim)], fill=color)
+
+def _star(d: "ImageDraw.ImageDraw", x: float, y: float, r: float, slim: float, color: tuple) -> None:
+    """4갈래 반짝이 별 — 팔이 가늘게 테이퍼되는 8점 폴리곤."""
+    w = max(1.0, r * slim)
+    d.polygon([(x, y - r), (x + w, y - w), (x + r, y), (x + w, y + w),
+               (x, y + r), (x - w, y + w), (x - r, y), (x - w, y - w)], fill=color)
 
 
 def draw_thumb_effect(img: Image.Image, effect: str, box: tuple, seed: int = 7) -> Image.Image:
     """타이틀 텍스트 블록(box=(x0,y0,x1,y1)) 뒤에 효과를 합성한 이미지를 반환.
 
-    정적 썸네일용 장식 — fireworks(폭죽 버스트), fire(불꽃 글로우+불티),
-    sparkle(반짝이 별). 시드 고정으로 재생성해도 같은 그림.
+    2배 슈퍼샘플로 그려 절반 축소(안티앨리어스) + 블러 글로우를 샤프 레이어 아래
+    깔아 발광감을 낸다. 시드 고정 — 재생성해도 같은 그림.
     """
     from PIL import ImageFilter
 
@@ -329,70 +333,109 @@ def draw_thumb_effect(img: Image.Image, effect: str, box: tuple, seed: int = 7) 
         return img
     rng = random.Random(seed)
     W, H = img.size
-    x0, y0, x1, y1 = box
-    cx, cy = (x0 + x1) // 2, (y0 + y1) // 2
+    S = 2  # 슈퍼샘플 배율
+    x0, y0, x1, y1 = (c * S for c in box)
+    cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
     bw, bh = x1 - x0, y1 - y0
-    layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    layer = Image.new("RGBA", (W * S, H * S), (0, 0, 0, 0))
     d = ImageDraw.Draw(layer)
 
     if effect == "fireworks":
-        # 블록 좌우 상단에 버스트 2~3개 — 방사선 + 끝점 불꽃, 은은한 글로우
-        palette = [(255, 209, 102), (255, 122, 24), (255, 94, 158), (108, 197, 255)]
-        centers = [
-            (x0 - bw // 6, y0 - bh // 2), (x1 + bw // 6, y0 - bh // 3),
-            (cx, y0 - bh),
+        # 샴페인 골드 버스트 — 혜성 꼬리(바깥으로 갈수록 잘고 옅어지는 점열) + 코어 글로우
+        palette = [(255, 219, 130), (255, 186, 96), (255, 244, 214)]
+        bursts = [
+            (x0 - bw * 0.10, y0 - bh * 1.1, bh * 2.2),
+            (x1 + bw * 0.10, y0 - bh * 0.7, bh * 1.7),
+            (cx + bw * 0.08, y0 - bh * 2.0, bh * 1.2),
         ]
-        for bx, by in centers:
+        for bx, by, radius in bursts:
+            # 텍스트가 상단이면 버스트가 화면 밖으로 나간다 — 캔버스 안으로 클램프
+            bx = min(max(bx, radius * 0.55), W * S - radius * 0.55)
+            by = min(max(by, radius * 0.55), H * S - radius * 0.55)
             color = rng.choice(palette)
-            radius = int(bh * rng.uniform(1.2, 1.8))
-            for _ in range(14):
-                ang = rng.uniform(0, 2 * math.pi)
-                r_out = radius * rng.uniform(0.75, 1.0)
-                ex = bx + int(r_out * math.cos(ang))
-                ey = by + int(r_out * math.sin(ang))
-                sx = bx + int(r_out * 0.35 * math.cos(ang))
-                sy = by + int(r_out * 0.35 * math.sin(ang))
-                d.line([(sx, sy), (ex, ey)], fill=color + (170,), width=max(2, bh // 26))
-                dot = max(2, bh // 18)
-                d.ellipse([ex - dot, ey - dot, ex + dot, ey + dot], fill=color + (230,))
-            core = max(3, bh // 12)
-            d.ellipse([bx - core, by - core, bx + core, by + core], fill=(255, 255, 255, 220))
-        layer = layer.filter(ImageFilter.GaussianBlur(1.2))
+            for i in range(rng.randint(17, 22)):
+                ang = i / 20 * 2 * math.pi + rng.uniform(-0.10, 0.10)
+                curl = rng.uniform(-0.12, 0.12)
+                reach = rng.uniform(0.7, 1.0)
+                steps = 9
+                for s_i in range(steps):
+                    f = 0.22 + 0.78 * s_i / (steps - 1)
+                    a = ang + curl * f
+                    px = bx + radius * reach * f * math.cos(a)
+                    py = by + radius * reach * f * math.sin(a)
+                    r = max(S, bh * 0.05 * (1.1 - f))
+                    alpha = int(240 * (1.08 - f))
+                    d.ellipse([px - r, py - r, px + r, py + r], fill=color + (alpha,))
+            core = bh * 0.10
+            d.ellipse([bx - core, by - core, bx + core, by + core], fill=(255, 252, 240, 250))
+        glow = layer.filter(ImageFilter.GaussianBlur(bh * 0.10))
+        layer = Image.alpha_composite(glow, layer)
 
     elif effect == "fire":
-        # 텍스트 블록 뒤 화염 글로우(빨강→주황→노랑 겹층) + 위로 흩어지는 불티
-        glow = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-        gd = ImageDraw.Draw(glow)
-        for grow, color, alpha in (
-            (1.0, (200, 40, 10), 150), (0.72, (255, 110, 20), 170), (0.46, (255, 200, 60), 190),
+        # 텍스트에 밀착한 화염 — 겹층 글로우(적→주황→노랑)는 블록 폭만큼,
+        # 불꽃 혀는 블록 위로 또렷하게(약한 블러) 솟는다
+        for grow, color, alpha, blur in (
+            (1.00, (190, 32, 8), 135, 0.20),
+            (0.72, (255, 105, 18), 155, 0.13),
+            (0.46, (255, 205, 70), 175, 0.09),
         ):
-            gx, gy = int(bw * 0.75 * grow), int(bh * 1.6 * grow)
-            gd.ellipse([cx - gx, cy - gy, cx + gx, cy + int(gy * 0.55)], fill=color + (alpha,))
-        glow = glow.filter(ImageFilter.GaussianBlur(max(6, bh // 5)))
-        layer = Image.alpha_composite(layer, glow)
+            g = Image.new("RGBA", (W * S, H * S), (0, 0, 0, 0))
+            gd = ImageDraw.Draw(g)
+            gx = (bw * 0.62 + bh * 0.4) * grow
+            up, down = bh * 1.0 * grow, bh * 0.55 * grow
+            gd.ellipse([cx - gx, cy - up, cx + gx, cy + down], fill=color + (alpha,))
+            # 불꽃 혀 — 블록 상단에서 위로 흔들리며 솟는 삼각 실루엣
+            for _ in range(6):
+                tx = cx + rng.uniform(-0.8, 0.8) * gx * 0.8
+                th = bh * grow * rng.uniform(0.7, 1.6)
+                tw = bh * 0.22 * grow * rng.uniform(0.7, 1.3)
+                base = cy - up * 0.45
+                gd.polygon([(tx - tw, base), (tx + tw, base),
+                            (tx + rng.uniform(-0.6, 0.6) * tw, base - th)],
+                           fill=color + (alpha,))
+            layer = Image.alpha_composite(layer, g.filter(ImageFilter.GaussianBlur(bh * blur)))
         d = ImageDraw.Draw(layer)
-        for _ in range(26):
-            ex = cx + int(rng.uniform(-0.75, 0.75) * bw)
-            ey = y0 - int(rng.uniform(0.1, 2.2) * bh)
-            r = max(1, int(bh * rng.uniform(0.02, 0.07)))
-            color = rng.choice([(255, 200, 60), (255, 140, 30), (255, 90, 20)])
-            d.ellipse([ex - r, ey - r, ex + r, ey + r], fill=color + (rng.randint(150, 230),))
+        for _ in range(22):  # 불티 — 위로 갈수록 잘아지는 점 + 짧은 궤적
+            ex = cx + rng.uniform(-0.7, 0.7) * bw
+            ey = y0 - rng.uniform(0.3, 2.4) * bh
+            r = max(S, bh * rng.uniform(0.015, 0.05) * (1.0 - (y0 - ey) / (2.6 * bh)))
+            color = rng.choice([(255, 210, 90), (255, 150, 40), (255, 100, 25)])
+            tail = r * rng.uniform(2.0, 4.0)
+            d.line([(ex, ey), (ex + rng.uniform(-r, r), ey + tail)],
+                   fill=color + (110,), width=max(1, int(r)))
+            d.ellipse([ex - r, ey - r, ex + r, ey + r], fill=color + (rng.randint(170, 235),))
+        glow = layer.filter(ImageFilter.GaussianBlur(bh * 0.05))
+        layer = Image.alpha_composite(glow, layer)
 
     elif effect == "sparkle":
-        # 블록 주변 반짝이 별 — 크기·톤 랜덤, 작은 점 보조
-        for _ in range(16):
-            ex = cx + int(rng.uniform(-0.85, 0.85) * (bw * 0.75))
-            ey = cy + int(rng.uniform(-2.2, 1.6) * bh)
-            r = max(3, int(bh * rng.uniform(0.10, 0.30)))
-            tone = rng.choice([(255, 255, 255), (255, 236, 150), (255, 214, 90)])
-            _draw_sparkle(d, ex, ey, r, tone + (rng.randint(180, 255),))
-        for _ in range(22):
-            ex = cx + int(rng.uniform(-1.0, 1.0) * (bw * 0.85))
-            ey = cy + int(rng.uniform(-2.5, 1.8) * bh)
-            r = max(1, bh // 30)
-            d.ellipse([ex - r, ey - r, ex + r, ey + r], fill=(255, 255, 255, rng.randint(120, 220)))
-        layer = layer.filter(ImageFilter.GaussianBlur(0.6))
+        # 샴페인 반짝이 — 큰 별엔 가로 플레어, 배경엔 보케 점광
+        tones = [(255, 255, 255), (255, 238, 170), (255, 216, 110)]
+        for _ in range(12):  # 보케 (뒤에 깔리는 흐릿한 점광)
+            ex = cx + rng.uniform(-1.05, 1.05) * bw * 0.85
+            ey = cy + rng.uniform(-2.6, 1.9) * bh
+            r = bh * rng.uniform(0.06, 0.16)
+            d.ellipse([ex - r, ey - r, ex + r, ey + r],
+                      fill=rng.choice(tones) + (rng.randint(50, 110),))
+        layer = layer.filter(ImageFilter.GaussianBlur(bh * 0.06))
+        d = ImageDraw.Draw(layer)
+        stars = []
+        for _ in range(13):
+            ex = cx + rng.uniform(-0.9, 0.9) * bw * 0.8
+            ey = cy + rng.uniform(-2.3, 1.7) * bh
+            r = bh * rng.uniform(0.12, 0.34)
+            stars.append((ex, ey, r, rng.choice(tones)))
+        sharp = Image.new("RGBA", (W * S, H * S), (0, 0, 0, 0))
+        sd = ImageDraw.Draw(sharp)
+        for ex, ey, r, tone in stars:
+            if r > bh * 0.26:  # 큰 별 — 가로 플레어
+                sd.ellipse([ex - r * 2.6, ey - r * 0.10, ex + r * 2.6, ey + r * 0.10],
+                           fill=tone + (120,))
+            _star(sd, ex, ey, r, 0.13, tone + (rng.randint(200, 255),))
+            _star(sd, ex, ey, r * 0.45, 0.22, (255, 255, 255, 255))
+        glow = sharp.filter(ImageFilter.GaussianBlur(bh * 0.07))
+        layer = Image.alpha_composite(layer, Image.alpha_composite(glow, sharp))
 
+    layer = layer.resize((W, H), Image.LANCZOS)
     return Image.alpha_composite(img.convert("RGBA"), layer)
 
 

@@ -651,8 +651,8 @@ const TC_TEMPLATE = `
         <button type="button" data-font="nanumpen" style="font-family:'NanumPenW'">나눔손글씨</button>
       </div>
       <div class="chip-line">크기
-        <input type="range" class="tc-scale" min="50" max="200" step="5" value="100">
-        <span class="scale-val tc-scale-val">100%</span>
+        <input type="range" class="tc-scale" min="50" max="200" step="5" value="150">
+        <span class="scale-val tc-scale-val">150%</span>
       </div>
       <div class="chip-line">굵기
         <div class="chips tc-weights">
@@ -672,7 +672,7 @@ const TC_TEMPLATE = `
       <div class="chip-line">위치
         <div class="pos-grid tc-pos">
           ${TC_POSITIONS.map((p) =>
-            `<button type="button" data-pos="${p}"${p === "bottom-center" ? ' class="selected"' : ""}></button>`).join("")}
+            `<button type="button" data-pos="${p}"${p === "top-center" ? ' class="selected"' : ""}></button>`).join("")}
         </div>
         <button type="button" class="pos-off tc-off">글자 없음</button>
       </div>
@@ -687,7 +687,8 @@ function createThumbControls(rootId, getBase, getAutoText) {
   const root = $(rootId);
   root.innerHTML = TC_TEMPLATE;
   const q = (sel) => root.querySelector(sel);
-  const state = { text: "", font: "pretendard", scale: 1, weight: "bold", effect: "none", pos: "bottom-center" };
+  // 기본값: 크기 150%·상단 중앙 (백엔드 DEFAULT_THUMB_*와 동일)
+  const state = { text: "", font: "pretendard", scale: 1.5, weight: "bold", effect: "none", pos: "top-center" };
   let timer = null;
   let lastUrl = null;
 
@@ -772,14 +773,14 @@ function createThumbControls(rootId, getBase, getAutoText) {
     state,
     refresh,
     reset() {
-      Object.assign(state, { text: "", font: "pretendard", scale: 1, weight: "bold", effect: "none", pos: "bottom-center" });
+      Object.assign(state, { text: "", font: "pretendard", scale: 1.5, weight: "bold", effect: "none", pos: "top-center" });
       q(".tc-text").value = "";
-      q(".tc-scale").value = 100;
-      q(".tc-scale-val").textContent = "100%";
+      q(".tc-scale").value = 150;
+      q(".tc-scale-val").textContent = "150%";
       syncSel(".tc-fonts", "font", "pretendard");
       syncSel(".tc-weights", "weight", "bold");
       syncSel(".tc-effects", "effect", "none");
-      syncSel(".tc-pos", "pos", "bottom-center");
+      syncSel(".tc-pos", "pos", "top-center");
       q(".tc-off").classList.remove("selected");
     },
     appendTo(fd) {
