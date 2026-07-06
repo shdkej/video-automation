@@ -13,6 +13,9 @@ __pycache__/
 *.m4a
 *.wav
 *.mp3
+# 동봉 자산은 예외 — 효과음 세트·자막 스타일 데모
+!web/sfx/*.mp3
+!web/static/demos/*.mp4
 
 # 파이프라인 부산물 (트랜스크립트/선정 결과 캐시)
 *.transcript.json

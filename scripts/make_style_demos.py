@@ -68,6 +68,8 @@ def main() -> None:
         )
     finally:
         base.unlink(missing_ok=True)
+        for srt in OUT_DIR.glob("*.srt"):  # 렌더러가 남긴 부산물 — 데모엔 불필요
+            srt.unlink()
     for p in sorted(OUT_DIR.glob("*.mp4")):
         print(f"  {p.name}: {p.stat().st_size / 1e3:.0f}KB")
 
