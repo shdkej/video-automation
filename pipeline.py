@@ -717,6 +717,7 @@ def build_thumbnail(args, segments: list, captions: list, outdir: Path) -> list:
     scale = getattr(args, "thumb_scale", DEFAULT_THUMB_SCALE)
     weight = getattr(args, "thumb_weight", "bold")
     effect = getattr(args, "thumb_effect", "none")
+    template = getattr(args, "thumb_template", "custom")
     paths = []
     for n, at in enumerate(times, 1):
         name = "thumbnail.jpg" if len(times) == 1 else f"thumbnail_{n:02d}.jpg"
@@ -724,7 +725,7 @@ def build_thumbnail(args, segments: list, captions: list, outdir: Path) -> list:
         extract_thumbnail(args.input, out, at, grade=not args.no_grade)
         if hook:
             overlay_hook_text(out, hook, pos=pos, font=font, scale=scale,
-                              weight=weight, effect=effect)
+                              weight=weight, effect=effect, template=template)
         paths.append(out)
     return paths
 

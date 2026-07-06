@@ -39,6 +39,7 @@ from effects import (  # noqa: E402
     HOOK_POSITIONS,
     THUMB_EFFECTS,
     THUMB_FONTS,
+    THUMB_TEMPLATES,
     THUMB_WEIGHTS,
     add_bgm,
     add_sfx,
@@ -136,6 +137,7 @@ def _args_from_opts(input_path: Path, outdir: Path, opts: dict) -> SimpleNamespa
         thumb_pos=opts.get("thumb_pos", DEFAULT_THUMB_POS),
         thumb_font=opts.get("thumb_font", "pretendard"),
         thumb_effect=opts.get("thumb_effect", "none"),
+        thumb_template=opts.get("thumb_template", "custom"),
         intro_seconds=4.0,
         no_subtitle=bool(opts.get("no_subtitle")), no_grade=False,
         sub_scale=float(opts.get("sub_scale", 1.0)),
@@ -375,7 +377,8 @@ def _mix_sfx_into(outdir: Path, name: str, events: list) -> None:
     mixed.replace(src)
 
 
-def _validate_thumb(pos: str, font: str, weight: str, effect: str, scale: float) -> float:
+def _validate_thumb(pos: str, font: str, weight: str, effect: str, scale: float,
+                    template: str = "custom") -> float:
     """썸네일 타이틀 파라미터 공통 검증 — 잘못된 값은 400, scale은 클램프해 반환."""
     if pos != "off" and pos not in HOOK_POSITIONS:
         raise HTTPException(400, "thumb_pos는 off 또는 top/middle/bottom-left/center/right")
@@ -385,6 +388,8 @@ def _validate_thumb(pos: str, font: str, weight: str, effect: str, scale: float)
         raise HTTPException(400, f"thumb_weight는 {'/'.join(THUMB_WEIGHTS)} 중 하나")
     if effect not in THUMB_EFFECTS:
         raise HTTPException(400, f"thumb_effect는 {'/'.join(THUMB_EFFECTS)} 중 하나")
+    if template != "custom" and template not in THUMB_TEMPLATES:
+        raise HTTPException(400, f"thumb_template은 custom 또는 {'/'.join(THUMB_TEMPLATES)} 중 하나")
     return min(2.0, max(0.5, scale))
 
 
@@ -472,8 +477,10 @@ async def create_job(
     thumb_scale: float = Form(DEFAULT_THUMB_SCALE),
     thumb_weight: str = Form("bold"),
     thumb_effect: str = Form("none"),
+    thumb_template: str = Form("custom"),
 ):
-    thumb_scale = _validate_thumb(thumb_pos, thumb_font, thumb_weight, thumb_effect, thumb_scale)
+    thumb_scale = _validate_thumb(thumb_pos, thumb_font, thumb_weight, thumb_effect,
+                                  thumb_scale, thumb_template)
     if mode not in ("auto", "speech", "scene", "vision"):
         raise HTTPException(400, "mode는 auto/speech/scene/vision 중 하나")
     if not outputs or set(outputs) - set(pl.WANTED):
@@ -531,7 +538,7 @@ async def create_job(
         "bgm_auto": bgm_auto,
         "thumb_text": thumb_text, "thumb_pos": thumb_pos, "thumb_font": thumb_font,
         "thumb_scale": thumb_scale, "thumb_weight": thumb_weight,
-        "thumb_effect": thumb_effect,
+        "thumb_effect": thumb_effect, "thumb_template": thumb_template,
     }
     threading.Thread(target=_run_job, args=(job_id, input_paths, opts), daemon=True).start()
     return {"job_id": job_id}
@@ -568,6 +575,7 @@ async def rebuild_job(
     thumb_scale: float = Form(DEFAULT_THUMB_SCALE),
     thumb_weight: str = Form("bold"),
     thumb_effect: str = Form("none"),
+    thumb_template: str = Form("custom"),
     sub_scale: float = Form(1.0),
 ):
     """기존 잡의 분석(selection.json)을 재사용해 산출 옵션만 바꿔 다시 생성.
@@ -577,7 +585,8 @@ async def rebuild_job(
     """
     if not outputs or set(outputs) - set(pl.WANTED):
         raise HTTPException(400, f"outputs는 {'/'.join(pl.WANTED)} 중에서 1개 이상")
-    thumb_scale = _validate_thumb(thumb_pos, thumb_font, thumb_weight, thumb_effect, thumb_scale)
+    thumb_scale = _validate_thumb(thumb_pos, thumb_font, thumb_weight, thumb_effect,
+                                  thumb_scale, thumb_template)
     sub_scale = min(1.6, max(0.6, sub_scale))
     job_dir = JOBS_DIR / job_id
     if not job_dir.is_dir():
@@ -622,7 +631,8 @@ async def rebuild_job(
         "bgm_auto": bgm_auto, "bgm_choice": bgm_choice,
         "thumb_text": thumb_text, "thumb_pos": thumb_pos, "thumb_font": thumb_font,
         "thumb_scale": thumb_scale, "thumb_weight": thumb_weight,
-        "thumb_effect": thumb_effect, "sub_scale": sub_scale,
+        "thumb_effect": thumb_effect, "thumb_template": thumb_template,
+        "sub_scale": sub_scale,
     }
     threading.Thread(target=_run_job, args=(job_id, input_paths, opts), daemon=True).start()
     return {"job_id": job_id}
@@ -828,6 +838,7 @@ async def thumb_preview(
     scale: float = Form(DEFAULT_THUMB_SCALE),
     weight: str = Form("bold"),
     effect: str = Form("none"),
+    template: str = Form("custom"),
     job_id: str = Form(""),
     t: float = Form(0.0),
     frame: UploadFile | None = File(None),
@@ -843,7 +854,7 @@ async def thumb_preview(
     from fastapi.responses import Response
     from PIL import Image as PILImage
 
-    scale = _validate_thumb(pos, font, weight, effect, scale)
+    scale = _validate_thumb(pos, font, weight, effect, scale, template)
     with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
         tmp = Path(f.name)
     try:
@@ -878,10 +889,24 @@ async def thumb_preview(
         img.save(tmp, quality=88)
         if pos != "off" and text.strip():
             overlay_hook_text(tmp, text, pos=pos, font=font, scale=scale,
-                              weight=weight, effect=effect)
+                              weight=weight, effect=effect, template=template)
         return Response(content=tmp.read_bytes(), media_type="image/jpeg")
     finally:
         tmp.unlink(missing_ok=True)
+
+
+@app.get("/api/thumb-templates")
+async def thumb_templates():
+    """썸네일 타이틀 템플릿 목록 — 키·라벨·칩 힌트(폰트·대표색). 정의는 effects.py 단일 출처."""
+    def chip_colors(t: dict) -> dict:
+        fill = t["fill"]
+        color = fill["gradient"][0] if isinstance(fill, dict) else fill
+        bg = t.get("bg", {}).get("color") if t.get("bg") else None
+        return {"color": "#%02x%02x%02x" % tuple(color[:3]),
+                "bg": "#%02x%02x%02x" % tuple(bg[:3]) if bg else None}
+
+    return [{"key": k, "label": t["label"], "font": t["font"], **chip_colors(t)}
+            for k, t in THUMB_TEMPLATES.items()]
 
 
 @app.get("/api/jobs/{job_id}/frame")

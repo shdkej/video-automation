@@ -644,35 +644,57 @@ const TC_POSITIONS = [
   "bottom-left", "bottom-center", "bottom-right",
 ];
 const DEFAULT_TC_TEXT = "오늘의 하이라이트\n지금 공개합니다";
+// 폰트 키 → 프리뷰 칩용 CSS 패밀리 (동봉 @font-face와 동일 파일)
+const TC_FONT_CSS = {
+  pretendard: "'Pretendard'", blackhan: "'BlackHanSansW'", dohyeon: "'DoHyeonW'",
+  jua: "'JuaW'", nanumpen: "'NanumPenW'",
+};
+// 템플릿 목록 — 1회 로드해 폼·편집기 공용
+let tplListPromise = null;
+function loadThumbTemplates() {
+  if (!tplListPromise) {
+    tplListPromise = fetch("/api/thumb-templates")
+      .then((r) => (r.ok ? r.json() : []))
+      .catch(() => []);
+  }
+  return tplListPromise;
+}
 const TC_TEMPLATE = `
   <div class="ed-row-flex">
     <div class="ed-col">
+      <div class="chip-line tc-tpl-line">템플릿
+        <div class="chips tc-templates">
+          <button type="button" data-tpl="custom" class="selected">직접 조합</button>
+        </div>
+      </div>
       <textarea class="tc-text thumb-input" rows="2" placeholder="비우면 자동 (훅 문구) — 엔터로 줄바꿈">${DEFAULT_TC_TEXT}</textarea>
-      <div class="font-picks tc-fonts">
-        <button type="button" data-font="pretendard" class="selected" style="font-family:'Pretendard';font-weight:800">프리텐다드</button>
-        <button type="button" data-font="blackhan" style="font-family:'BlackHanSansW'">블랙한산스</button>
-        <button type="button" data-font="dohyeon" style="font-family:'DoHyeonW'">도현</button>
-        <button type="button" data-font="jua" style="font-family:'JuaW'">주아</button>
-        <button type="button" data-font="nanumpen" style="font-family:'NanumPenW'">나눔손글씨</button>
+      <div class="tc-manual">
+        <div class="font-picks tc-fonts">
+          <button type="button" data-font="pretendard" class="selected" style="font-family:'Pretendard';font-weight:800">프리텐다드</button>
+          <button type="button" data-font="blackhan" style="font-family:'BlackHanSansW'">블랙한산스</button>
+          <button type="button" data-font="dohyeon" style="font-family:'DoHyeonW'">도현</button>
+          <button type="button" data-font="jua" style="font-family:'JuaW'">주아</button>
+          <button type="button" data-font="nanumpen" style="font-family:'NanumPenW'">나눔손글씨</button>
+        </div>
+        <div class="chip-line">굵기
+          <div class="chips tc-weights">
+            <button type="button" data-weight="normal">보통</button>
+            <button type="button" data-weight="bold" class="selected">굵게</button>
+            <button type="button" data-weight="heavy">아주 굵게</button>
+          </div>
+        </div>
+        <div class="chip-line">효과
+          <div class="chips tc-effects">
+            <button type="button" data-effect="none" class="selected">없음</button>
+            <button type="button" data-effect="fireworks">폭죽</button>
+            <button type="button" data-effect="fire">불꽃</button>
+            <button type="button" data-effect="sparkle">반짝이</button>
+          </div>
+        </div>
       </div>
       <div class="chip-line">크기
         <input type="range" class="tc-scale" min="50" max="200" step="5" value="150">
         <span class="scale-val tc-scale-val">150%</span>
-      </div>
-      <div class="chip-line">굵기
-        <div class="chips tc-weights">
-          <button type="button" data-weight="normal">보통</button>
-          <button type="button" data-weight="bold" class="selected">굵게</button>
-          <button type="button" data-weight="heavy">아주 굵게</button>
-        </div>
-      </div>
-      <div class="chip-line">효과
-        <div class="chips tc-effects">
-          <button type="button" data-effect="none" class="selected">없음</button>
-          <button type="button" data-effect="fireworks">폭죽</button>
-          <button type="button" data-effect="fire">불꽃</button>
-          <button type="button" data-effect="sparkle">반짝이</button>
-        </div>
       </div>
       <div class="chip-line">위치
         <div class="pos-grid tc-pos">
@@ -693,9 +715,24 @@ function createThumbControls(rootId, getBase, getAutoText) {
   root.innerHTML = TC_TEMPLATE;
   const q = (sel) => root.querySelector(sel);
   // 기본값: 2줄 문구·크기 150%·상단 중앙 (지우면 자동 훅 문구)
-  const state = { text: DEFAULT_TC_TEXT, font: "pretendard", scale: 1.5, weight: "bold", effect: "none", pos: "top-center" };
+  const state = { text: DEFAULT_TC_TEXT, font: "pretendard", scale: 1.5, weight: "bold", effect: "none", pos: "top-center", template: "custom" };
   let timer = null;
   let lastUrl = null;
+
+  // 템플릿 칩 — 서버 목록(폰트·대표색 힌트)으로 렌더
+  loadThumbTemplates().then((tpls) => {
+    const wrap = q(".tc-templates");
+    tpls.forEach((t) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.dataset.tpl = t.key;
+      b.textContent = t.label;
+      b.style.fontFamily = TC_FONT_CSS[t.font] || TC_FONT_CSS.pretendard;
+      if (t.bg) { b.style.background = t.bg; b.style.color = t.color; }
+      else b.style.color = t.color;
+      wrap.appendChild(b);
+    });
+  });
 
   async function renderPreview() {
     const wrap = q(".tc-preview");
@@ -711,6 +748,7 @@ function createThumbControls(rootId, getBase, getAutoText) {
     fd.append("scale", state.scale);
     fd.append("weight", state.weight);
     fd.append("effect", state.effect);
+    fd.append("template", state.template);
     if (base.blob) fd.append("frame", base.blob, "frame.jpg");
     else if (base.jobId) { fd.append("job_id", base.jobId); fd.append("t", base.t); }
     try {
@@ -732,10 +770,29 @@ function createThumbControls(rootId, getBase, getAutoText) {
   const syncSel = (sel, attr, val) =>
     root.querySelectorAll(`${sel} button`).forEach((b) => b.classList.toggle("selected", b.dataset[attr] === val));
 
+  // 템플릿 ↔ 직접 조합 — 템플릿 중엔 폰트·굵기·효과가 번들에 덮이므로 흐리게
+  const syncTemplate = () => {
+    syncSel(".tc-templates", "tpl", state.template);
+    q(".tc-manual").classList.toggle("dimmed", state.template !== "custom");
+  };
+  const toCustom = () => {
+    if (state.template === "custom") return;
+    state.template = "custom";
+    syncTemplate();
+  };
+  q(".tc-templates").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-tpl]");
+    if (!b) return;
+    state.template = b.dataset.tpl;
+    syncTemplate();
+    refresh(true);
+  });
+
   q(".tc-text").addEventListener("input", () => { state.text = q(".tc-text").value; refresh(); });
   q(".tc-fonts").addEventListener("click", (e) => {
     const b = e.target.closest("button[data-font]");
     if (!b) return;
+    toCustom();
     state.font = b.dataset.font;
     syncSel(".tc-fonts", "font", state.font);
     refresh(true);
@@ -748,6 +805,7 @@ function createThumbControls(rootId, getBase, getAutoText) {
   q(".tc-weights").addEventListener("click", (e) => {
     const b = e.target.closest("button[data-weight]");
     if (!b) return;
+    toCustom();
     state.weight = b.dataset.weight;
     syncSel(".tc-weights", "weight", state.weight);
     refresh(true);
@@ -755,6 +813,7 @@ function createThumbControls(rootId, getBase, getAutoText) {
   q(".tc-effects").addEventListener("click", (e) => {
     const b = e.target.closest("button[data-effect]");
     if (!b) return;
+    toCustom();
     state.effect = b.dataset.effect;
     syncSel(".tc-effects", "effect", state.effect);
     refresh(true);
@@ -778,10 +837,11 @@ function createThumbControls(rootId, getBase, getAutoText) {
     state,
     refresh,
     reset() {
-      Object.assign(state, { text: DEFAULT_TC_TEXT, font: "pretendard", scale: 1.5, weight: "bold", effect: "none", pos: "top-center" });
+      Object.assign(state, { text: DEFAULT_TC_TEXT, font: "pretendard", scale: 1.5, weight: "bold", effect: "none", pos: "top-center", template: "custom" });
       q(".tc-text").value = DEFAULT_TC_TEXT;
       q(".tc-scale").value = 150;
       q(".tc-scale-val").textContent = "150%";
+      syncTemplate();
       syncSel(".tc-fonts", "font", "pretendard");
       syncSel(".tc-weights", "weight", "bold");
       syncSel(".tc-effects", "effect", "none");
@@ -795,6 +855,7 @@ function createThumbControls(rootId, getBase, getAutoText) {
       fd.append("thumb_scale", state.scale);
       fd.append("thumb_weight", state.weight);
       fd.append("thumb_effect", state.effect);
+      fd.append("thumb_template", state.template);
     },
   };
 }

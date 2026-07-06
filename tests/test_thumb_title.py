@@ -8,12 +8,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from PIL import Image  # noqa: E402
 
 from effects import (  # noqa: E402
+    DEFAULT_THUMB_STYLE,
     HOOK_POSITIONS,
     THUMB_EFFECTS,
     THUMB_FONTS,
+    THUMB_TEMPLATES,
     draw_thumb_effect,
     hook_anchor_x,
     hook_anchor_y,
+    overlay_hook_text,
+    resolve_thumb_style,
     thumb_font_path,
     wrap_hook_lines,
 )
@@ -80,3 +84,54 @@ def test_wrap_width_and_line_cap():
     lines = wrap_hook_lines("가나다 라마바 사아자 차카타 파하", measure, max_w=70, max_lines=3)
     assert len(lines) == 3  # 상한에서 잘림
     assert all(measure(ln) <= 70 for ln in lines)
+
+
+# ---------- 템플릿 ----------
+
+def test_templates_registry():
+    # 10종 고정 — 키·라벨·폰트가 전부 유효해야 프론트 칩과 파이프라인이 안전
+    assert len(THUMB_TEMPLATES) == 10
+    for key, t in THUMB_TEMPLATES.items():
+        assert t["label"], key
+        assert t["font"] in THUMB_FONTS, key
+        assert t.get("effect", "none") in THUMB_EFFECTS, key
+
+
+def test_resolve_custom_uses_individual_values():
+    s = resolve_thumb_style("custom", font="jua", weight="heavy", effect="fire")
+    assert (s["font"], s["weight"], s["effect"]) == ("jua", "heavy", "fire")
+    assert s["fill"] == DEFAULT_THUMB_STYLE["fill"]  # 현행 기본 룩 유지
+
+
+def test_resolve_template_overrides_individual_values():
+    s = resolve_thumb_style("impact", font="nanumpen", weight="normal", effect="fire")
+    assert s["font"] == "blackhan"      # 번들 값이 개별 값을 대체
+    assert s["fill"] == (230, 28, 28)
+
+
+def test_resolve_unknown_falls_back_to_custom():
+    s = resolve_thumb_style("no-such-template", font="dohyeon")
+    assert s["font"] == "dohyeon"
+
+
+def test_overlay_renders_every_template(tmp_path):
+    # PRD 최소 성공 케이스 — 10종 전부 에러 없이 그려지고 픽셀이 실제로 바뀐다
+    base = Image.new("RGB", (540, 304), (24, 21, 19))
+    for key in ["custom", *THUMB_TEMPLATES]:
+        p = tmp_path / f"{key}.jpg"
+        base.save(p, quality=92)
+        overlay_hook_text(p, "오늘의 하이라이트\n지금 공개합니다", pos="top-center",
+                          scale=1.5, template=key)
+        out = Image.open(p).convert("RGB")
+        assert list(out.getdata()) != list(base.getdata()), key
+
+
+def test_overlay_template_is_deterministic(tmp_path):
+    base = Image.new("RGB", (540, 304), (24, 21, 19))
+    imgs = []
+    for n in ("a", "b"):
+        p = tmp_path / f"{n}.jpg"
+        base.save(p, quality=92)
+        overlay_hook_text(p, "재현성", pos="middle-center", template="sticker")
+        imgs.append(list(Image.open(p).convert("RGB").getdata()))
+    assert imgs[0] == imgs[1]

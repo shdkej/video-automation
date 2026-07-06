@@ -715,6 +715,12 @@ details.settings[open] > summary { border-bottom: 1px solid var(--line); }
   color: var(--paper-dim); font-size: 12px; padding: 7px 12px; cursor: pointer;
 }
 .pos-off.selected { border-color: var(--amber); color: var(--amber); }
+/* 썸네일 템플릿 칩 — 폰트·대표색 힌트로 렌더, 선택 중엔 수동 조합이 번들에 덮임 */
+.tc-templates { flex-wrap: wrap; }
+.tc-templates button { font-size: 14px; }
+.tc-manual { display: flex; flex-direction: column; gap: 12px; transition: opacity .2s; }
+.tc-manual.dimmed { opacity: 0.38; }
+
 .thumb-preview { position: relative; max-width: 260px; }
 .thumb-preview img { width: 100%; border-radius: 8px; border: 1px solid var(--line); display: block; }
 .thumb-ctl { margin-top: 12px; }

@@ -313,6 +313,93 @@ THUMB_EFFECTS = ("none", "fireworks", "fire", "sparkle")
 DEFAULT_THUMB_POS = "top-center"
 DEFAULT_THUMB_SCALE = 1.5
 
+# 커스텀(수동 조합)의 바탕 스타일 — 흰 글씨 + 검정 외곽선(현행 기본 룩).
+# 좌표·두께류 값은 전부 폰트 크기(size) 비례의 em 단위.
+DEFAULT_THUMB_STYLE = {
+    "font": "pretendard",
+    "weight": "bold",
+    "fill": (255, 255, 255),              # 단색 RGB 또는 {"gradient": (상단색, 하단색)}
+    "stroke": {"color": (0, 0, 0)},       # None이면 외곽선 없음, "k"로 두께(size//k) 지정
+    "shadow": None,                       # {"dx","dy","blur"(em), "color","alpha"} — dx=dy=0이면 글로우
+    "bg": None,                           # 줄 단위 배경 바 {"color"(RGBA), "pad_x","pad_y","radius"(em)}
+    "tilt": 0,                            # 텍스트 블록 회전(도, 반시계 +)
+    "effect": "none",                     # THUMB_EFFECTS — 텍스트 뒤 장식
+    "scale_mul": 1.0,                     # 템플릿 고유 크기 보정 (사용자 scale에 곱)
+}
+
+# 썸네일 타이틀 템플릿 — 릴스·숏츠 트렌드의 스타일 번들 (폰트·색·외곽선·그림자·배경·틸트).
+# 키는 API·프론트와 공유. 템플릿 선택 시 font/weight/effect 개별 값은 무시된다.
+THUMB_TEMPLATES = {
+    "highlight": {   # 형광펜 — 검정 글씨 + 옐로 하이라이트 바 (예능·정보 공용 국룰)
+        "label": "형광펜", "font": "pretendard", "weight": "heavy",
+        "fill": (20, 18, 14), "stroke": None,
+        "bg": {"color": (255, 226, 0, 240), "pad_x": 0.24, "pad_y": 0.10, "radius": 0.08},
+    },
+    "variety": {     # 예능 정석 — 흰 글씨 + 두꺼운 검정 외곽선 + 낙하 그림자 (토크 예능 기본형)
+        "label": "예능", "font": "jua", "weight": "heavy",
+        "fill": (255, 255, 255), "stroke": {"color": (18, 14, 10), "k": 8},
+        "shadow": {"dx": 0.05, "dy": 0.07, "blur": 0.02, "color": (0, 0, 0), "alpha": 230},
+    },
+    "yellow": {      # 옐로 후킹 — 형광 옐로 + 검정, 살짝 기울임 (유튜브 최고 대비 조합)
+        "label": "옐로 후킹", "font": "blackhan", "weight": "heavy",
+        "fill": (255, 225, 0), "stroke": {"color": (16, 14, 8)},
+        "shadow": {"dx": 0.04, "dy": 0.06, "blur": 0.04, "color": (0, 0, 0), "alpha": 220},
+        "tilt": -4, "scale_mul": 1.05,
+    },
+    "impact": {      # 임팩트 레드 — 초대형 레드 + 흰 외곽선 (충격·후킹형)
+        "label": "임팩트 레드", "font": "blackhan", "weight": "heavy",
+        "fill": (230, 28, 28), "stroke": {"color": (255, 255, 255)},
+        "shadow": {"dx": 0.045, "dy": 0.06, "blur": 0.05, "color": (0, 0, 0), "alpha": 210},
+        "scale_mul": 1.12,
+    },
+    "neon": {        # 네온 글로우 — 흰 코어 + 시안 발광 (게임·테크·나이트)
+        "label": "네온", "font": "pretendard", "weight": "bold",
+        "fill": (238, 255, 255), "stroke": {"color": (0, 190, 255), "k": 24},
+        "shadow": {"dx": 0, "dy": 0, "blur": 0.16, "color": (0, 205, 255), "alpha": 255},
+    },
+    "sunset": {      # 선셋 그라디언트 — 오렌지→핑크 세로 그라디언트
+        "label": "선셋", "font": "pretendard", "weight": "heavy",
+        "fill": {"gradient": ((255, 158, 46), (255, 60, 120))}, "stroke": None,
+        "shadow": {"dx": 0.03, "dy": 0.05, "blur": 0.07, "color": (30, 8, 20), "alpha": 200},
+    },
+    "vlog": {        # 감성 손글씨 — 외곽선 없이 여린 그림자 (브이로그·일상)
+        "label": "감성 손글씨", "font": "nanumpen", "weight": "normal",
+        "fill": (255, 252, 244), "stroke": None,
+        "shadow": {"dx": 0.02, "dy": 0.03, "blur": 0.10, "color": (20, 16, 12), "alpha": 180},
+        "tilt": -2, "scale_mul": 1.15,   # 손글씨는 같은 px에서 작아 보인다
+    },
+    "banner": {      # 자막바 — 반투명 검정 바 + 흰 글씨 (뉴스·정보형)
+        "label": "자막바", "font": "dohyeon", "weight": "bold",
+        "fill": (255, 255, 255), "stroke": None,
+        "bg": {"color": (10, 9, 8, 205), "pad_x": 0.30, "pad_y": 0.14, "radius": 0.06},
+    },
+    "sticker": {     # Y2K 스티커 — 핑크 + 두꺼운 흰 다이컷 테두리 + 틸트 (밈·팬 콘텐츠)
+        "label": "스티커", "font": "jua", "weight": "heavy",
+        "fill": (255, 82, 148), "stroke": {"color": (255, 255, 255), "k": 7},
+        "shadow": {"dx": 0.04, "dy": 0.06, "blur": 0.03, "color": (40, 8, 24), "alpha": 190},
+        "tilt": -3,
+    },
+    "minimal": {     # 미니멀 — 가는 흰 글씨 + 부드러운 그림자 (감성·시네마틱)
+        "label": "미니멀", "font": "pretendard", "weight": "normal",
+        "fill": (255, 255, 255), "stroke": None,
+        "shadow": {"dx": 0, "dy": 0.02, "blur": 0.09, "color": (0, 0, 0), "alpha": 160},
+        "scale_mul": 0.85,
+    },
+}
+
+
+def resolve_thumb_style(template: str, font: str = "pretendard",
+                        weight: str = "bold", effect: str = "none") -> dict:
+    """템플릿 키 → 렌더 스타일. custom(빈 값 포함)은 개별 font/weight/effect를 쓰고,
+    템플릿은 번들 값이 개별 값을 대체한다. 미지 키는 custom으로 폴백."""
+    style = dict(DEFAULT_THUMB_STYLE)
+    tpl = THUMB_TEMPLATES.get(template) if template else None
+    if tpl is None:
+        style.update({"font": font, "weight": weight, "effect": effect})
+    else:
+        style.update(tpl)
+    return style
+
 
 def _star(d: "ImageDraw.ImageDraw", x: float, y: float, r: float, slim: float, color: tuple) -> None:
     """4갈래 반짝이 별 — 팔이 가늘게 테이퍼되는 8점 폴리곤."""
@@ -490,53 +577,122 @@ def wrap_hook_lines(text: str, measure, max_w: int, max_lines: int = 3) -> list[
     return lines
 
 
+def _vertical_gradient(size: tuple, y0: int, y1: int, top: tuple, bottom: tuple) -> Image.Image:
+    """블록 y0~y1 구간에서 top→bottom으로 보간되는 세로 그라디언트 캔버스."""
+    W, H = size
+    strip = Image.new("RGB", (1, H))
+    span = max(1, y1 - y0)
+    for yy in range(H):
+        f = min(1.0, max(0.0, (yy - y0) / span))
+        strip.putpixel((0, yy), tuple(int(a + (b - a) * f) for a, b in zip(top, bottom)))
+    return strip.resize((W, H))
+
+
 def overlay_hook_text(
     image_path: Path, text: str, pos: str = "bottom-center", font: str = "pretendard",
     scale: float = 1.0, weight: str = "bold", effect: str = "none",
+    template: str = "custom",
 ) -> None:
-    """썸네일에 타이틀 문구를 burn-in — 흰 글씨 + 검정 외곽선 (+선택 배경 효과).
+    """썸네일에 타이틀 문구를 burn-in — 템플릿(스타일 번들) 또는 커스텀 조합.
 
-    pos는 "top|middle|bottom-left|center|right", font는 THUMB_FONTS 키,
-    scale은 기본 크기(폭/14) 배율, weight는 THUMB_WEIGHTS 키(외곽선 두께),
-    effect는 THUMB_EFFECTS 키(텍스트 뒤 장식).
+    pos는 "top|middle|bottom-left|center|right", scale은 기본 크기(폭/14) 배율.
+    template이 THUMB_TEMPLATES 키면 폰트·색·외곽선·그림자·배경·틸트를 번들로 쓰고
+    font/weight/effect 개별 값은 무시한다. custom이면 현행 흰 글씨+검정 외곽선.
     폭 88%를 넘으면 단어 단위 줄바꿈(최대 3줄), 수동 \\n도 존중한다.
     """
     if not text.strip():
         return
+    from PIL import ImageFilter
+
     v, _, h = pos.partition("-")
     if pos not in HOOK_POSITIONS:
         v, h = "bottom", "center"
+    style = resolve_thumb_style(template, font, weight, effect)
     img = Image.open(image_path).convert("RGB")
     W, H = img.size
-    picked = thumb_font_path(font, weight)
+    picked = thumb_font_path(style["font"], style["weight"])
     if picked is not None:
         font_path, font_index = str(picked), 0
     else:
         font_path, font_index = find_korean_font()
-    size = max(24, int(W / 14 * scale))
+    size = max(24, int(W / 14 * scale * style.get("scale_mul", 1.0)))
     try:
-        font = ImageFont.truetype(font_path, size, index=font_index)
+        fnt = ImageFont.truetype(font_path, size, index=font_index)
     except (OSError, IndexError):
-        font = ImageFont.truetype(font_path, size)
-    draw = ImageDraw.Draw(img)
+        fnt = ImageFont.truetype(font_path, size)
+    measure = ImageDraw.Draw(img)
 
-    lines = wrap_hook_lines(text, lambda s: draw.textlength(s, font=font), int(W * 0.88))
-    stroke = max(2, size // THUMB_WEIGHTS.get(weight, 12))
+    lines = wrap_hook_lines(text, lambda s: measure.textlength(s, font=fnt), int(W * 0.88))
+    st = style.get("stroke")
+    stroke = max(2, size // st.get("k", THUMB_WEIGHTS.get(style["weight"], 12))) if st else 0
     line_h = int(size * 1.25)
     block_h = line_h * len(lines)
-    y = hook_anchor_y(v, H, block_h)
+    y0 = hook_anchor_y(v, H, block_h)
 
-    # 텍스트 블록 bbox — 배경 효과의 기준 좌표
-    widths = [draw.textlength(ln, font=font) for ln in lines]
+    # 텍스트 블록 bbox — 배경 효과·회전 중심의 기준 좌표
+    widths = [measure.textlength(ln, font=fnt) for ln in lines]
     xs = [hook_anchor_x(h, W, tw) for tw in widths]
-    box = (min(xs), y, max(x + int(tw) for x, tw in zip(xs, widths)), y + block_h)
-    img = draw_thumb_effect(img, effect, box).convert("RGB")
-    draw = ImageDraw.Draw(img)
+    box = (min(xs), y0, max(x + int(tw) for x, tw in zip(xs, widths)), y0 + block_h)
+    img = draw_thumb_effect(img, style["effect"], box).convert("RGB")
 
-    for line, tw, x in zip(lines, widths, xs):
-        draw.text((x, y), line, font=font, fill=(255, 255, 255),
-                  stroke_width=stroke, stroke_fill=(0, 0, 0))
-        y += line_h
+    # 배경 바·그림자·텍스트는 투명 레이어에 그려 회전까지 마친 뒤 합성
+    em = lambda k: int(size * k)  # noqa: E731
+    layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    ld = ImageDraw.Draw(layer)
+
+    bg = style.get("bg")
+    if bg:
+        for x, tw, ly in zip(xs, widths, range(y0, y0 + block_h, line_h)):
+            ld.rounded_rectangle(
+                [x - em(bg["pad_x"]), ly + em(0.02) - em(bg["pad_y"]),
+                 x + tw + em(bg["pad_x"]), ly + em(1.08) + em(bg["pad_y"])],
+                radius=em(bg["radius"]), fill=tuple(bg["color"]))
+
+    sh = style.get("shadow")
+    if sh:
+        shadow = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+        sd = ImageDraw.Draw(shadow)
+        color = tuple(sh["color"]) + (sh["alpha"],)
+        yy = y0
+        for line, x in zip(lines, xs):
+            sd.text((x + em(sh["dx"]), yy + em(sh["dy"])), line, font=fnt,
+                    fill=color, stroke_width=stroke, stroke_fill=color)
+            yy += line_h
+        if sh["blur"]:
+            shadow = shadow.filter(ImageFilter.GaussianBlur(em(sh["blur"])))
+        layer = Image.alpha_composite(layer, shadow)
+        ld = ImageDraw.Draw(layer)
+
+    fill = style["fill"]
+    if isinstance(fill, dict):  # 세로 그라디언트 — 실루엣(외곽선 포함) 위에 마스크로 채움
+        yy = y0
+        for line, x in zip(lines, xs):
+            if stroke:
+                ld.text((x, yy), line, font=fnt, fill=tuple(st["color"]),
+                        stroke_width=stroke, stroke_fill=tuple(st["color"]))
+            yy += line_h
+        mask = Image.new("L", (W, H), 0)
+        md = ImageDraw.Draw(mask)
+        yy = y0
+        for line, x in zip(lines, xs):
+            md.text((x, yy), line, font=fnt, fill=255)
+            yy += line_h
+        top, bottom = fill["gradient"]
+        grad = _vertical_gradient((W, H), y0, y0 + block_h, top, bottom)
+        layer.paste(grad, (0, 0), mask)
+    else:
+        yy = y0
+        for line, x in zip(lines, xs):
+            ld.text((x, yy), line, font=fnt, fill=tuple(fill), stroke_width=stroke,
+                    stroke_fill=tuple(st["color"]) if st else None)
+            yy += line_h
+
+    tilt = style.get("tilt", 0)
+    if tilt:
+        cx, cy = (box[0] + box[2]) / 2, (box[1] + box[3]) / 2
+        layer = layer.rotate(tilt, resample=Image.BICUBIC, center=(cx, cy))
+
+    img = Image.alpha_composite(img.convert("RGBA"), layer).convert("RGB")
     img.save(image_path, quality=92)
 
 
