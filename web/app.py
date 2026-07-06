@@ -33,7 +33,7 @@ import pipeline as pl  # noqa: E402
 from auto_cut import BGM_MOODS, get_llm_usage, reset_llm_usage  # noqa: E402
 from beats import detect_beats  # noqa: E402
 from probe import probe_resolution  # noqa: E402
-from effects import HOOK_POSITIONS, THUMB_FONTS, add_bgm, add_sfx  # noqa: E402
+from effects import HOOK_POSITIONS, THUMB_FONTS, THUMB_WEIGHTS, add_bgm, add_sfx  # noqa: E402
 from web.media_library import resolve_library_file  # noqa: E402
 
 BASE = Path(__file__).resolve().parent
@@ -127,10 +127,13 @@ def _args_from_opts(input_path: Path, outdir: Path, opts: dict) -> SimpleNamespa
         thumb_font=opts.get("thumb_font", "pretendard"),
         intro_seconds=4.0,
         no_subtitle=bool(opts.get("no_subtitle")), no_grade=False,
+        sub_scale=float(opts.get("sub_scale", 1.0)),
+        thumb_scale=float(opts.get("thumb_scale", 1.0)),
+        thumb_weight=opts.get("thumb_weight", "bold"),
         no_scene_captions=not opts.get("scene_captions", True),
         subtitle_only=bool(opts.get("subtitle_only")),
         no_beat_sync=not opts.get("beat_sync", True),
-        sub_font_size=36, sub_margin_v=80, only=None,
+        sub_font_size=int(36 * float(opts.get("sub_scale", 1.0))), sub_margin_v=80, only=None,
         sub_engine=opts.get("sub_engine", "remotion"),
         sub_style=opts.get("sub_style", "fade"),
     )
@@ -528,6 +531,9 @@ async def rebuild_job(
     thumb_text: str = Form(""),
     thumb_pos: str = Form("bottom-center"),
     thumb_font: str = Form("pretendard"),
+    thumb_scale: float = Form(1.0),
+    thumb_weight: str = Form("bold"),
+    sub_scale: float = Form(1.0),
 ):
     """기존 잡의 분석(selection.json)을 재사용해 산출 옵션만 바꿔 다시 생성.
 
@@ -540,6 +546,10 @@ async def rebuild_job(
         raise HTTPException(400, "thumb_pos는 off 또는 top/middle/bottom-left/center/right")
     if thumb_font not in THUMB_FONTS:
         raise HTTPException(400, f"thumb_font는 {'/'.join(THUMB_FONTS)} 중 하나")
+    if thumb_weight not in THUMB_WEIGHTS:
+        raise HTTPException(400, f"thumb_weight는 {'/'.join(THUMB_WEIGHTS)} 중 하나")
+    thumb_scale = min(2.0, max(0.5, thumb_scale))
+    sub_scale = min(1.6, max(0.6, sub_scale))
     job_dir = JOBS_DIR / job_id
     if not job_dir.is_dir():
         raise HTTPException(404, "잡 없음")
@@ -582,6 +592,7 @@ async def rebuild_job(
         "subtitle_only": subtitle_only, "beat_sync": beat_sync,
         "bgm_auto": bgm_auto, "bgm_choice": bgm_choice,
         "thumb_text": thumb_text, "thumb_pos": thumb_pos, "thumb_font": thumb_font,
+        "thumb_scale": thumb_scale, "thumb_weight": thumb_weight, "sub_scale": sub_scale,
     }
     threading.Thread(target=_run_job, args=(job_id, input_paths, opts), daemon=True).start()
     return {"job_id": job_id}

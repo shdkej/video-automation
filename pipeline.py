@@ -676,7 +676,8 @@ def build_one_short(
             render_subtitled_remotion(
                 cut_path=vert, output=subbed, captions=[], segments=[],
                 events=events, hook=hook, mode="shorts", style=args.sub_style,
-                font_size=_SHORTS_FONT_SIZE, margin_bottom=_SHORTS_MARGIN_BOTTOM,
+                font_size=int(_SHORTS_FONT_SIZE * getattr(args, "sub_scale", 1.0)),
+                margin_bottom=_SHORTS_MARGIN_BOTTOM,
             )
             src = subbed
         else:
@@ -711,13 +712,15 @@ def build_thumbnail(args, segments: list, captions: list, outdir: Path) -> list:
     )
     pos = getattr(args, "thumb_pos", "bottom-center")
     font = getattr(args, "thumb_font", "pretendard")
+    scale = getattr(args, "thumb_scale", 1.0)
+    weight = getattr(args, "thumb_weight", "bold")
     paths = []
     for n, at in enumerate(times, 1):
         name = "thumbnail.jpg" if len(times) == 1 else f"thumbnail_{n:02d}.jpg"
         out = outdir / name
         extract_thumbnail(args.input, out, at, grade=not args.no_grade)
         if hook:
-            overlay_hook_text(out, hook, pos=pos, font=font)
+            overlay_hook_text(out, hook, pos=pos, font=font, scale=scale, weight=weight)
         paths.append(out)
     return paths
 
@@ -767,7 +770,7 @@ def build_subtitle_only(args, segments: list, captions: list, outdir: Path, tran
     # 상단 고정 배너 + 하단 카라오케를 가로/세로 공통으로 — 자막만 모드의 기본 룩.
     # 크기는 세로 해상도 비례(세로 숏츠 기준 56/1920, 가로는 시야가 넓어 살짝 크게).
     hook = pick_thumbnail_hook(segments, captions) or None
-    font = max(28, round(h * (0.029 if vertical else 0.05)))
+    font = max(28, round(h * (0.029 if vertical else 0.05) * getattr(args, "sub_scale", 1.0)))
     margin = round(h * (0.30 if vertical else 0.12))
     final = outdir / "subtitled.mp4"
     if args.sub_engine == "remotion":

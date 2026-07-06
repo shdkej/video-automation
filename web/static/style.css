@@ -606,14 +606,31 @@ details.adv .options { margin-top: 12px; }
 
 .editor[open] > summary { border-bottom: 1px solid var(--line); margin-bottom: 14px; }
 
-.ed-settings { display: flex; flex-wrap: wrap; gap: 22px; padding-bottom: 16px; }
-.eds-group { display: flex; flex-direction: column; gap: 10px; min-width: 220px; flex: 1; }
-.eds-label {
-  font-family: var(--film); font-size: 11px; letter-spacing: 0.12em;
-  text-transform: uppercase; color: var(--muted);
-}
+/* 편집기 섹션 — step-num(01·02…) 헤더로 자막/효과/음악/썸네일/타임라인 구획 */
+.ed-sec { padding-bottom: 20px; }
+.ed-sec .step-num { margin-top: 6px; word-break: keep-all; }
+.ed-sec .step-num small { color: var(--muted); text-transform: none; letter-spacing: 0.02em; }
+.ed-row-flex { display: flex; flex-wrap: wrap; gap: 18px; align-items: flex-start; }
+.ed-col { display: flex; flex-direction: column; gap: 12px; flex: 1; min-width: 240px; }
 .eds-toggles { margin-top: 0; gap: 12px; }
-.eds-nums { display: flex; flex-wrap: wrap; gap: 14px; }
+.eds-nums { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 14px; }
+
+/* 칩 줄 (크기·굵기·위치 라벨 + 컨트롤) */
+.chip-line {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  font-family: var(--film); font-size: 12px; color: var(--paper-dim);
+}
+.chips { display: flex; gap: 8px; }
+.chips button {
+  background: var(--surface-2); border: 1px solid var(--line); color: var(--paper-dim);
+  border-radius: 8px; padding: 7px 13px; font-family: var(--body); font-size: 13px;
+  cursor: pointer; transition: all .15s;
+}
+.chips button.selected {
+  border-color: var(--amber); color: var(--amber); background: rgba(255,122,24,0.08);
+}
+.chip-line input[type="range"] { flex: 1; max-width: 220px; accent-color: var(--amber); }
+.scale-val { font-family: var(--film); font-size: 12px; color: var(--amber-soft); min-width: 42px; }
 
 /* 자막 스타일 선택 + 데모 */
 .style-picks { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -668,6 +685,7 @@ details.adv .options { margin-top: 12px; }
 .thumb-input {
   background: var(--black); border: 1px solid var(--line); border-radius: 8px;
   color: var(--paper); padding: 9px 11px; font-family: var(--body); font-size: 14px;
+  width: 100%; resize: vertical;
 }
 .thumb-input:focus { outline: none; border-color: var(--amber); }
 .pos-wrap { display: flex; align-items: center; gap: 12px; }
@@ -787,5 +805,6 @@ details.adv .options { margin-top: 12px; }
   /* 구간 상세 — 미리보기 위·입력 아래 스택 */
   .sd-grid { grid-template-columns: 1fr; }
   .sd-preview { max-width: 260px; margin: 0 auto; }
-  .eds-group { min-width: 100%; }
+  .ed-col { min-width: 100%; }
+  .thumb-preview { margin: 0 auto; }
 }

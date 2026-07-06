@@ -301,12 +301,19 @@ THUMB_FONTS = {
 }
 
 
-def thumb_font_path(key: str) -> Path | None:
+# 타이틀 굵기 — 외곽선 두께로 표현(단일 웨이트 폰트 공통), Pretendard는 파일도 교체
+THUMB_WEIGHTS = {"normal": 16, "bold": 12, "heavy": 8}  # stroke = size // 값
+
+
+def thumb_font_path(key: str, weight: str = "bold") -> Path | None:
     """폰트 키 → 동봉 파일 경로. 미지원 키·파일 없음은 None (호출부가 기본 폰트로)."""
     entry = THUMB_FONTS.get(key)
     if entry is None:
         return None
-    p = _FONT_DIR / entry[0]
+    fname = entry[0]
+    if key == "pretendard" and weight == "normal":
+        fname = "Pretendard-Bold.otf"  # 보통 굵기는 ExtraBold 대신 Bold
+    p = _FONT_DIR / fname
     return p if p.is_file() else None
 
 
@@ -351,10 +358,12 @@ def wrap_hook_lines(text: str, measure, max_w: int, max_lines: int = 3) -> list[
 
 def overlay_hook_text(
     image_path: Path, text: str, pos: str = "bottom-center", font: str = "pretendard",
+    scale: float = 1.0, weight: str = "bold",
 ) -> None:
     """썸네일에 타이틀 문구를 burn-in — 흰 글씨 + 검정 외곽선.
 
-    pos는 "top|middle|bottom-left|center|right", font는 THUMB_FONTS 키.
+    pos는 "top|middle|bottom-left|center|right", font는 THUMB_FONTS 키,
+    scale은 기본 크기(폭/14) 배율, weight는 THUMB_WEIGHTS 키(외곽선 두께).
     폭 88%를 넘으면 단어 단위 줄바꿈(최대 3줄), 수동 \\n도 존중한다.
     """
     if not text.strip():
@@ -364,12 +373,12 @@ def overlay_hook_text(
         v, h = "bottom", "center"
     img = Image.open(image_path).convert("RGB")
     W, H = img.size
-    picked = thumb_font_path(font)
+    picked = thumb_font_path(font, weight)
     if picked is not None:
         font_path, font_index = str(picked), 0
     else:
         font_path, font_index = find_korean_font()
-    size = max(28, W // 14)
+    size = max(24, int(W / 14 * scale))
     try:
         font = ImageFont.truetype(font_path, size, index=font_index)
     except (OSError, IndexError):
@@ -377,7 +386,7 @@ def overlay_hook_text(
     draw = ImageDraw.Draw(img)
 
     lines = wrap_hook_lines(text, lambda s: draw.textlength(s, font=font), int(W * 0.88))
-    stroke = max(2, size // 12)
+    stroke = max(2, size // THUMB_WEIGHTS.get(weight, 12))
     line_h = int(size * 1.25)
     y = hook_anchor_y(v, H, line_h * len(lines))
     for line in lines:

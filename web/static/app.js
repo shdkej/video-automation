@@ -391,6 +391,9 @@ async function doRebuild() {
   fd.append("thumb_text", $("ed_thumb_text").value.trim());
   fd.append("thumb_pos", thumbPos);
   fd.append("thumb_font", thumbFont);
+  fd.append("thumb_scale", thumbScale / 100);
+  fd.append("thumb_weight", thumbWeight);
+  fd.append("sub_scale", subScale);
   appendSubOpts(fd, styleChoice);
 
   hide($("result-section"));
@@ -618,6 +621,19 @@ $("style-picks").addEventListener("click", (e) => {
   }
 });
 
+// 영상 자막 크기 (작게/보통/크게)
+let subScale = 1;
+function syncSubScaleButtons() {
+  document.querySelectorAll("#sub-scale-picks button").forEach((b) =>
+    b.classList.toggle("selected", Number(b.dataset.scale) === subScale));
+}
+$("sub-scale-picks").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-scale]");
+  if (!btn) return;
+  subScale = Number(btn.dataset.scale);
+  syncSubScaleButtons();
+});
+
 // ----- 썸네일 타이틀 — 문구·폰트·위치 선택 + 라이브 미리보기 -----
 let thumbPos = "bottom-center";
 let thumbFont = "pretendard";
@@ -637,6 +653,27 @@ $("font-picks").addEventListener("click", (e) => {
   if (!btn) return;
   thumbFont = btn.dataset.font;
   syncFontButtons();
+  updateThumbOverlay();
+});
+
+// 썸네일 타이틀 크기(%)·굵기
+let thumbScale = 100;
+let thumbWeight = "bold";
+const WEIGHT_STROKE = { normal: "0.035em", bold: "0.06em", heavy: "0.1em" };
+$("ed_thumb_scale").addEventListener("input", () => {
+  thumbScale = Number($("ed_thumb_scale").value);
+  $("thumb-scale-val").textContent = thumbScale + "%";
+  updateThumbOverlay();
+});
+function syncWeightButtons() {
+  document.querySelectorAll("#weight-picks button").forEach((b) =>
+    b.classList.toggle("selected", b.dataset.weight === thumbWeight));
+}
+$("weight-picks").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-weight]");
+  if (!btn) return;
+  thumbWeight = btn.dataset.weight;
+  syncWeightButtons();
   updateThumbOverlay();
 });
 
@@ -661,12 +698,15 @@ function updateThumbOverlay() {
   if (!text) return;
   const [v, h] = thumbPos.split("-");
   ov.style.fontFamily = FONT_FAMILY[thumbFont] || FONT_FAMILY.pretendard;
-  ov.style.fontWeight = thumbFont === "pretendard" ? "800" : "400";
+  ov.style.fontWeight = thumbFont === "pretendard" ? (thumbWeight === "normal" ? "700" : "800") : "400";
+  ov.style.webkitTextStroke = WEIGHT_STROKE[thumbWeight] + " #000";
   ov.style.textAlign = h === "left" ? "left" : h === "right" ? "right" : "center";
   ov.style.top = v === "top" ? "8%" : v === "middle" ? "50%" : "auto";
   ov.style.bottom = v === "bottom" ? "12%" : "auto";
   ov.style.transform = v === "middle" ? "translateY(-50%)" : "none";
-  const size = () => { if (img.clientWidth) ov.style.fontSize = img.clientWidth / 14 + "px"; };
+  const size = () => {
+    if (img.clientWidth) ov.style.fontSize = (img.clientWidth / 14) * (thumbScale / 100) + "px";
+  };
   if (img.complete) size(); else img.onload = size;
 }
 
@@ -743,9 +783,16 @@ async function initEditor(jobId, job) {
   // (생성된 썸네일엔 이전 타이틀이 이미 burn-in돼 있어 겹쳐 보인다)
   thumbPos = "bottom-center";
   thumbFont = "pretendard";
+  thumbScale = 100;
+  thumbWeight = "bold";
+  subScale = 1;
   $("ed_thumb_text").value = "";
+  $("ed_thumb_scale").value = 100;
+  $("thumb-scale-val").textContent = "100%";
   syncPosButtons();
   syncFontButtons();
+  syncWeightButtons();
+  syncSubScaleButtons();
   const tp = $("thumb-preview");
   if (edSegs.length) {
     const mid = ((Number(edSegs[0].start) + Number(edSegs[0].end)) / 2).toFixed(1);

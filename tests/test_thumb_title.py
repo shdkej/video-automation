@@ -25,6 +25,13 @@ def test_thumb_font_unknown_key():
     assert thumb_font_path("comic-sans") is None
 
 
+def test_pretendard_weight_swaps_file():
+    assert thumb_font_path("pretendard", "normal").name == "Pretendard-Bold.otf"
+    assert thumb_font_path("pretendard", "bold").name == "Pretendard-ExtraBold.otf"
+    # 단일 웨이트 폰트는 굵기와 무관하게 같은 파일
+    assert thumb_font_path("jua", "normal") == thumb_font_path("jua", "heavy")
+
+
 def test_positions_set():
     assert "bottom-center" in HOOK_POSITIONS and "top-left" in HOOK_POSITIONS
     assert len(HOOK_POSITIONS) == 9
