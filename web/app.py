@@ -33,7 +33,7 @@ import pipeline as pl  # noqa: E402
 from auto_cut import BGM_MOODS, get_llm_usage, reset_llm_usage  # noqa: E402
 from beats import detect_beats  # noqa: E402
 from probe import probe_resolution  # noqa: E402
-from effects import add_bgm, add_sfx  # noqa: E402
+from effects import HOOK_POSITIONS, add_bgm, add_sfx  # noqa: E402
 from web.media_library import resolve_library_file  # noqa: E402
 
 BASE = Path(__file__).resolve().parent
@@ -120,7 +120,10 @@ def _args_from_opts(input_path: Path, outdir: Path, opts: dict) -> SimpleNamespa
         shorts_silence_min=0.45,
         no_shorts_jumpcut=not opts.get("shorts_jumpcut", True),
         no_shorts_punchin=not opts.get("shorts_punchin", True),
-        thumbnail_count=int(opts["thumbnail_count"]), no_thumb_text=False,
+        thumbnail_count=int(opts["thumbnail_count"]),
+        no_thumb_text=opts.get("thumb_pos", "bottom-center") == "off",
+        thumb_text=str(opts.get("thumb_text", "")),
+        thumb_pos=opts.get("thumb_pos", "bottom-center"),
         intro_seconds=4.0,
         no_subtitle=bool(opts.get("no_subtitle")), no_grade=False,
         no_scene_captions=not opts.get("scene_captions", True),
@@ -509,6 +512,8 @@ async def rebuild_job(
     beat_sync: bool = Form(True),
     bgm_auto: bool = Form(True),
     bgm_choice: str = Form("auto"),
+    thumb_text: str = Form(""),
+    thumb_pos: str = Form("bottom-center"),
 ):
     """기존 잡의 분석(selection.json)을 재사용해 산출 옵션만 바꿔 다시 생성.
 
@@ -517,6 +522,8 @@ async def rebuild_job(
     """
     if not outputs or set(outputs) - set(pl.WANTED):
         raise HTTPException(400, f"outputs는 {'/'.join(pl.WANTED)} 중에서 1개 이상")
+    if thumb_pos != "off" and thumb_pos not in HOOK_POSITIONS:
+        raise HTTPException(400, "thumb_pos는 off 또는 top/middle/bottom-left/center/right")
     job_dir = JOBS_DIR / job_id
     if not job_dir.is_dir():
         raise HTTPException(404, "잡 없음")
@@ -558,6 +565,7 @@ async def rebuild_job(
         "shorts_focus": shorts_focus, "bgm_volume": bgm_volume,
         "subtitle_only": subtitle_only, "beat_sync": beat_sync,
         "bgm_auto": bgm_auto, "bgm_choice": bgm_choice,
+        "thumb_text": thumb_text, "thumb_pos": thumb_pos,
     }
     threading.Thread(target=_run_job, args=(job_id, input_paths, opts), daemon=True).start()
     return {"job_id": job_id}

@@ -286,13 +286,61 @@ def extract_thumbnail(
     subprocess.run(cmd, check=True)
 
 
-def overlay_hook_text(image_path: Path, text: str) -> None:
-    """썸네일에 hook 문구를 burn-in — 숏츠 자막과 같은 룩(ExtraBold+검정 외곽선).
+HOOK_POSITIONS = frozenset(
+    f"{v}-{h}" for v in ("top", "middle", "bottom") for h in ("left", "center", "right")
+)
 
-    하단 12% 여백 위에 중앙 정렬, 폭 88%를 넘으면 단어 단위 줄바꿈(최대 2줄).
+
+def hook_anchor_y(v: str, height: int, block_h: int) -> int:
+    """타이틀 블록의 y 시작 — top 8% / middle 중앙 / bottom 하단 12% 여백."""
+    if v == "top":
+        return int(height * 0.08)
+    if v == "middle":
+        return int((height - block_h) / 2)
+    return height - int(height * 0.12) - block_h
+
+
+def hook_anchor_x(h: str, width: int, line_w: float) -> int:
+    """각 줄의 x 시작 — left/right는 6% 여백, center는 중앙."""
+    if h == "left":
+        return int(width * 0.06)
+    if h == "right":
+        return int(width - width * 0.06 - line_w)
+    return int((width - line_w) / 2)
+
+
+def wrap_hook_lines(text: str, measure, max_w: int, max_lines: int = 3) -> list[str]:
+    """수동 줄바꿈(\\n) 우선, 각 줄 안에서 measure(px) 기준 단어 단위 줄바꿈."""
+    lines: list[str] = []
+    for part in text.split("\n"):
+        cur = ""
+        for word in part.split():
+            trial = f"{cur} {word}".strip()
+            if measure(trial) <= max_w or not cur:
+                cur = trial
+            else:
+                lines.append(cur)
+                cur = word
+            if len(lines) == max_lines:
+                return lines
+        if cur:
+            lines.append(cur)
+        if len(lines) == max_lines:
+            break
+    return lines
+
+
+def overlay_hook_text(image_path: Path, text: str, pos: str = "bottom-center") -> None:
+    """썸네일에 타이틀 문구를 burn-in — 숏츠 자막과 같은 룩(ExtraBold+검정 외곽선).
+
+    pos는 "top|middle|bottom-left|center|right". 폭 88%를 넘으면 단어 단위
+    줄바꿈(최대 3줄), 수동 \\n도 존중한다.
     """
     if not text.strip():
         return
+    v, _, h = pos.partition("-")
+    if pos not in HOOK_POSITIONS:
+        v, h = "bottom", "center"
     img = Image.open(image_path).convert("RGB")
     W, H = img.size
     font_path, font_index = find_korean_font()
@@ -303,26 +351,13 @@ def overlay_hook_text(image_path: Path, text: str) -> None:
         font = ImageFont.truetype(font_path, size)
     draw = ImageDraw.Draw(img)
 
-    max_w = int(W * 0.88)
-    lines, cur = [], ""
-    for word in text.split():
-        trial = f"{cur} {word}".strip()
-        if draw.textlength(trial, font=font) <= max_w or not cur:
-            cur = trial
-        else:
-            lines.append(cur)
-            cur = word
-        if len(lines) == 2:
-            break
-    if cur and len(lines) < 2:
-        lines.append(cur)
-
+    lines = wrap_hook_lines(text, lambda s: draw.textlength(s, font=font), int(W * 0.88))
     stroke = max(2, size // 12)
     line_h = int(size * 1.25)
-    y = H - int(H * 0.12) - line_h * len(lines)
+    y = hook_anchor_y(v, H, line_h * len(lines))
     for line in lines:
         tw = draw.textlength(line, font=font)
-        draw.text(((W - tw) / 2, y), line, font=font, fill=(255, 255, 255),
+        draw.text((hook_anchor_x(h, W, tw), y), line, font=font, fill=(255, 255, 255),
                   stroke_width=stroke, stroke_fill=(0, 0, 0))
         y += line_h
     img.save(image_path, quality=92)

@@ -214,6 +214,28 @@
             <span class="eds-label">음악</span>
             <div id="bgm-list" class="bgm-list"><p class="jp-empty">불러오는 중…</p></div>
           </div>
+          <div class="eds-group" id="thumb-group">
+            <span class="eds-label">썸네일 타이틀</span>
+            <input type="text" id="ed_thumb_text" class="thumb-input" placeholder="비우면 자동 (훅 문구)">
+            <div class="pos-wrap">
+              <div class="pos-grid" id="pos-grid">
+                <button type="button" data-pos="top-left"></button>
+                <button type="button" data-pos="top-center"></button>
+                <button type="button" data-pos="top-right"></button>
+                <button type="button" data-pos="middle-left"></button>
+                <button type="button" data-pos="middle-center"></button>
+                <button type="button" data-pos="middle-right"></button>
+                <button type="button" data-pos="bottom-left"></button>
+                <button type="button" data-pos="bottom-center" class="selected"></button>
+                <button type="button" data-pos="bottom-right"></button>
+              </div>
+              <button type="button" id="pos-off" class="pos-off">글자 없음</button>
+            </div>
+            <div class="thumb-preview hidden" id="thumb-preview">
+              <img id="tp-img" alt="썸네일 미리보기">
+              <div class="hook-overlay" id="tp-overlay"></div>
+            </div>
+          </div>
         </div>
 
         <!-- 타임라인 -->

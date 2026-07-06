@@ -388,6 +388,8 @@ async function doRebuild() {
   fd.append("shorts_ideal_seconds", $("shorts_ideal").value);
   fd.append("bgm_volume", $("ed_bgmvol").value);
   fd.append("bgm_choice", bgmChoice);
+  fd.append("thumb_text", $("ed_thumb_text").value.trim());
+  fd.append("thumb_pos", thumbPos);
   appendSubOpts(fd, styleChoice);
 
   hide($("result-section"));
@@ -615,6 +617,56 @@ $("style-picks").addEventListener("click", (e) => {
   }
 });
 
+// ----- 썸네일 타이틀 — 문구·위치 선택 + 라이브 미리보기 -----
+let thumbPos = "bottom-center";
+
+function autoHookText() {
+  // 백엔드 pick_thumbnail_hook 근사 — 최고점 hook > 첫 hook > 첫 캡션
+  const segs = (edData && edData.segments) || [];
+  const scored = segs.filter((s) => s.score != null && s.hook);
+  if (scored.length) return scored.reduce((a, b) => (Number(a.score) >= Number(b.score) ? a : b)).hook;
+  const hooked = segs.find((s) => s.hook);
+  if (hooked) return hooked.hook;
+  const cap = ((edData && edData.captions) || []).find((c) => c && c.trim());
+  return (cap || "").trim();
+}
+
+function updateThumbOverlay() {
+  const ov = $("tp-overlay");
+  const img = $("tp-img");
+  if (!ov || !img) return;
+  const text = thumbPos === "off" ? "" : ($("ed_thumb_text").value.trim() || autoHookText());
+  ov.textContent = text;
+  ov.style.display = text ? "" : "none";
+  if (!text) return;
+  const [v, h] = thumbPos.split("-");
+  ov.style.textAlign = h === "left" ? "left" : h === "right" ? "right" : "center";
+  ov.style.top = v === "top" ? "8%" : v === "middle" ? "50%" : "auto";
+  ov.style.bottom = v === "bottom" ? "12%" : "auto";
+  ov.style.transform = v === "middle" ? "translateY(-50%)" : "none";
+  const size = () => { if (img.clientWidth) ov.style.fontSize = img.clientWidth / 14 + "px"; };
+  if (img.complete) size(); else img.onload = size;
+}
+
+function syncPosButtons() {
+  document.querySelectorAll("#pos-grid button").forEach((b) =>
+    b.classList.toggle("selected", b.dataset.pos === thumbPos));
+  $("pos-off").classList.toggle("selected", thumbPos === "off");
+}
+$("pos-grid").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-pos]");
+  if (!btn) return;
+  thumbPos = btn.dataset.pos;
+  syncPosButtons();
+  updateThumbOverlay();
+});
+$("pos-off").addEventListener("click", () => {
+  thumbPos = thumbPos === "off" ? "bottom-center" : "off";
+  syncPosButtons();
+  updateThumbOverlay();
+});
+$("ed_thumb_text").addEventListener("input", updateThumbOverlay);
+
 // ----- 편집기 초기화 (결과 렌더 시) -----
 async function initEditor(jobId, job) {
   edJobId = jobId;
@@ -664,6 +716,21 @@ async function initEditor(jobId, job) {
   renderBgmList(job);
   renderTimeline();
   renderTranscriptEdit();
+
+  // 썸네일 타이틀 — 깨끗한 원본 프레임 위에 라이브 미리보기
+  // (생성된 썸네일엔 이전 타이틀이 이미 burn-in돼 있어 겹쳐 보인다)
+  thumbPos = "bottom-center";
+  $("ed_thumb_text").value = "";
+  syncPosButtons();
+  const tp = $("thumb-preview");
+  if (edSegs.length) {
+    const mid = ((Number(edSegs[0].start) + Number(edSegs[0].end)) / 2).toFixed(1);
+    $("tp-img").src = `/api/jobs/${jobId}/frame?t=${mid}`;
+    tp.classList.remove("hidden");
+    updateThumbOverlay();
+  } else {
+    tp.classList.add("hidden");
+  }
 }
 
 // ----- 음악(BGM) 리스트 -----

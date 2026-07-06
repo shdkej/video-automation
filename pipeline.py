@@ -706,14 +706,17 @@ def build_one_short(
 def build_thumbnail(args, segments: list, captions: list, outdir: Path) -> list:
     """대표 구간들에서 후보 N장 추출 + hook 문구 burn-in(--no-thumb-text로 끔)."""
     times = pick_thumbnail_times(segments, args.thumbnail_count)
-    hook = "" if args.no_thumb_text else pick_thumbnail_hook(segments, captions)
+    hook = "" if args.no_thumb_text else (
+        getattr(args, "thumb_text", "").strip() or pick_thumbnail_hook(segments, captions)
+    )
+    pos = getattr(args, "thumb_pos", "bottom-center")
     paths = []
     for n, at in enumerate(times, 1):
         name = "thumbnail.jpg" if len(times) == 1 else f"thumbnail_{n:02d}.jpg"
         out = outdir / name
         extract_thumbnail(args.input, out, at, grade=not args.no_grade)
         if hook:
-            overlay_hook_text(out, hook)
+            overlay_hook_text(out, hook, pos=pos)
         paths.append(out)
     return paths
 
