@@ -33,7 +33,15 @@ import pipeline as pl  # noqa: E402
 from auto_cut import BGM_MOODS, get_llm_usage, reset_llm_usage  # noqa: E402
 from beats import detect_beats  # noqa: E402
 from probe import probe_resolution  # noqa: E402
-from effects import HOOK_POSITIONS, THUMB_FONTS, THUMB_WEIGHTS, add_bgm, add_sfx  # noqa: E402
+from effects import (  # noqa: E402
+    HOOK_POSITIONS,
+    THUMB_EFFECTS,
+    THUMB_FONTS,
+    THUMB_WEIGHTS,
+    add_bgm,
+    add_sfx,
+    overlay_hook_text,
+)
 from web.media_library import resolve_library_file  # noqa: E402
 
 BASE = Path(__file__).resolve().parent
@@ -125,6 +133,7 @@ def _args_from_opts(input_path: Path, outdir: Path, opts: dict) -> SimpleNamespa
         thumb_text=str(opts.get("thumb_text", "")),
         thumb_pos=opts.get("thumb_pos", "bottom-center"),
         thumb_font=opts.get("thumb_font", "pretendard"),
+        thumb_effect=opts.get("thumb_effect", "none"),
         intro_seconds=4.0,
         no_subtitle=bool(opts.get("no_subtitle")), no_grade=False,
         sub_scale=float(opts.get("sub_scale", 1.0)),
@@ -364,6 +373,19 @@ def _mix_sfx_into(outdir: Path, name: str, events: list) -> None:
     mixed.replace(src)
 
 
+def _validate_thumb(pos: str, font: str, weight: str, effect: str, scale: float) -> float:
+    """썸네일 타이틀 파라미터 공통 검증 — 잘못된 값은 400, scale은 클램프해 반환."""
+    if pos != "off" and pos not in HOOK_POSITIONS:
+        raise HTTPException(400, "thumb_pos는 off 또는 top/middle/bottom-left/center/right")
+    if font not in THUMB_FONTS:
+        raise HTTPException(400, f"thumb_font는 {'/'.join(THUMB_FONTS)} 중 하나")
+    if weight not in THUMB_WEIGHTS:
+        raise HTTPException(400, f"thumb_weight는 {'/'.join(THUMB_WEIGHTS)} 중 하나")
+    if effect not in THUMB_EFFECTS:
+        raise HTTPException(400, f"thumb_effect는 {'/'.join(THUMB_EFFECTS)} 중 하나")
+    return min(2.0, max(0.5, scale))
+
+
 def _pick_bgm(job_id: str, outdir: Path, opts: dict, job: dict) -> Path | None:
     """BGM 결정 — 명시 선택(bgm_choice) > 업로드 곡 > 무드 자동 선곡 > 없음.
 
@@ -442,7 +464,14 @@ async def create_job(
     subtitle_only: bool = Form(False),
     beat_sync: bool = Form(True),
     bgm_auto: bool = Form(True),
+    thumb_text: str = Form(""),
+    thumb_pos: str = Form("bottom-center"),
+    thumb_font: str = Form("pretendard"),
+    thumb_scale: float = Form(1.0),
+    thumb_weight: str = Form("bold"),
+    thumb_effect: str = Form("none"),
 ):
+    thumb_scale = _validate_thumb(thumb_pos, thumb_font, thumb_weight, thumb_effect, thumb_scale)
     if mode not in ("auto", "speech", "scene", "vision"):
         raise HTTPException(400, "mode는 auto/speech/scene/vision 중 하나")
     if not outputs or set(outputs) - set(pl.WANTED):
@@ -498,6 +527,9 @@ async def create_job(
         "shorts_focus": shorts_focus, "bgm_volume": bgm_volume,
         "subtitle_only": subtitle_only, "beat_sync": beat_sync,
         "bgm_auto": bgm_auto,
+        "thumb_text": thumb_text, "thumb_pos": thumb_pos, "thumb_font": thumb_font,
+        "thumb_scale": thumb_scale, "thumb_weight": thumb_weight,
+        "thumb_effect": thumb_effect,
     }
     threading.Thread(target=_run_job, args=(job_id, input_paths, opts), daemon=True).start()
     return {"job_id": job_id}
@@ -533,6 +565,7 @@ async def rebuild_job(
     thumb_font: str = Form("pretendard"),
     thumb_scale: float = Form(1.0),
     thumb_weight: str = Form("bold"),
+    thumb_effect: str = Form("none"),
     sub_scale: float = Form(1.0),
 ):
     """기존 잡의 분석(selection.json)을 재사용해 산출 옵션만 바꿔 다시 생성.
@@ -542,13 +575,7 @@ async def rebuild_job(
     """
     if not outputs or set(outputs) - set(pl.WANTED):
         raise HTTPException(400, f"outputs는 {'/'.join(pl.WANTED)} 중에서 1개 이상")
-    if thumb_pos != "off" and thumb_pos not in HOOK_POSITIONS:
-        raise HTTPException(400, "thumb_pos는 off 또는 top/middle/bottom-left/center/right")
-    if thumb_font not in THUMB_FONTS:
-        raise HTTPException(400, f"thumb_font는 {'/'.join(THUMB_FONTS)} 중 하나")
-    if thumb_weight not in THUMB_WEIGHTS:
-        raise HTTPException(400, f"thumb_weight는 {'/'.join(THUMB_WEIGHTS)} 중 하나")
-    thumb_scale = min(2.0, max(0.5, thumb_scale))
+    thumb_scale = _validate_thumb(thumb_pos, thumb_font, thumb_weight, thumb_effect, thumb_scale)
     sub_scale = min(1.6, max(0.6, sub_scale))
     job_dir = JOBS_DIR / job_id
     if not job_dir.is_dir():
@@ -592,7 +619,8 @@ async def rebuild_job(
         "subtitle_only": subtitle_only, "beat_sync": beat_sync,
         "bgm_auto": bgm_auto, "bgm_choice": bgm_choice,
         "thumb_text": thumb_text, "thumb_pos": thumb_pos, "thumb_font": thumb_font,
-        "thumb_scale": thumb_scale, "thumb_weight": thumb_weight, "sub_scale": sub_scale,
+        "thumb_scale": thumb_scale, "thumb_weight": thumb_weight,
+        "thumb_effect": thumb_effect, "sub_scale": sub_scale,
     }
     threading.Thread(target=_run_job, args=(job_id, input_paths, opts), daemon=True).start()
     return {"job_id": job_id}
@@ -788,6 +816,70 @@ async def update_analysis(job_id: str, payload: dict = Body(...)):
                     tsegs[i].pop("words", None)  # 교정된 발화는 단어 타이밍 무효 — 카라오케는 균일 폴백
             tpath.write_text(json.dumps(data, ensure_ascii=False))
     return {"ok": True}
+
+
+@app.post("/api/thumb-preview")
+async def thumb_preview(
+    text: str = Form(""),
+    pos: str = Form("bottom-center"),
+    font: str = Form("pretendard"),
+    scale: float = Form(1.0),
+    weight: str = Form("bold"),
+    effect: str = Form("none"),
+    job_id: str = Form(""),
+    t: float = Form(0.0),
+    frame: UploadFile | None = File(None),
+):
+    """썸네일 타이틀 미리보기 — 실제 렌더러(overlay_hook_text)로 그대로 그려서 반환.
+
+    바탕은 ①업로드 frame(영상 만들기 전, 브라우저가 뽑은 프레임) ②job_id+t(결과
+    화면) ③그라디언트 플레이스홀더 순. CSS 근사가 아니라 산출물과 동일 픽셀.
+    """
+    import io
+    import tempfile
+
+    from fastapi.responses import Response
+    from PIL import Image as PILImage
+
+    scale = _validate_thumb(pos, font, weight, effect, scale)
+    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
+        tmp = Path(f.name)
+    try:
+        if frame and frame.filename:
+            img = PILImage.open(io.BytesIO(await frame.read())).convert("RGB")
+        elif job_id:
+            jdir = JOBS_DIR / job_id
+            merged = jdir / "outputs" / "_merged_source.mp4"
+            src = merged if merged.is_file() else next(
+                (p for p in sorted(jdir.glob("input_*"))
+                 if p.is_file() and not p.name.endswith(".transcript.json")), None)
+            if not src:
+                raise HTTPException(404, "원본 없음")
+            # 컨트롤을 만질 때마다 호출되므로 프레임은 캐시 — ffmpeg 추출은 1회
+            fdir = jdir / ".frames"
+            fdir.mkdir(exist_ok=True)
+            cached = fdir / f"p_{max(0.0, t):.1f}.jpg".replace(".", "_", 1)
+            if not cached.is_file():
+                r = subprocess.run(
+                    ["ffmpeg", "-y", "-loglevel", "error", "-ss", f"{max(0.0, t):.2f}",
+                     "-i", str(src), "-frames:v", "1", "-vf", "scale=540:-2", "-q:v", "4",
+                     str(cached)],
+                    capture_output=True,
+                )
+                if r.returncode != 0 or not cached.is_file():
+                    raise HTTPException(404, "프레임 추출 실패")
+            img = PILImage.open(cached).convert("RGB")
+        else:
+            img = PILImage.new("RGB", (540, 304), (24, 21, 19))
+        if img.width > 540:  # 미리보기는 실크기 불필요 — 렌더 속도 우선
+            img = img.resize((540, int(img.height * 540 / img.width)))
+        img.save(tmp, quality=88)
+        if pos != "off" and text.strip():
+            overlay_hook_text(tmp, text, pos=pos, font=font, scale=scale,
+                              weight=weight, effect=effect)
+        return Response(content=tmp.read_bytes(), media_type="image/jpeg")
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 @app.get("/api/jobs/{job_id}/frame")

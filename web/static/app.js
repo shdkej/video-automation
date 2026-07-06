@@ -123,6 +123,7 @@ function renderFileList() {
     li.append(idx, name, size, btns);
     ul.append(li);
   });
+  formTC.refresh(); // 첫 영상이 바뀌면 썸네일 타이틀 미리보기 바탕도 갱신
 }
 
 // ---------- 제출 ----------
@@ -168,6 +169,7 @@ $("job-form").addEventListener("submit", async (e) => {
   fd.append("subtitle_only", $("subtitle_only").checked);
   fd.append("beat_sync", $("beat_sync").checked);
   fd.append("bgm_auto", $("bgm_auto").checked);
+  formTC.appendTo(fd);
   appendSubOpts(fd, $("sub_mode").value);
   if (!$("subtitle_only").checked) {
     const picked = pickedOutputs();
@@ -388,11 +390,7 @@ async function doRebuild() {
   fd.append("shorts_ideal_seconds", $("shorts_ideal").value);
   fd.append("bgm_volume", $("ed_bgmvol").value);
   fd.append("bgm_choice", bgmChoice);
-  fd.append("thumb_text", $("ed_thumb_text").value.trim());
-  fd.append("thumb_pos", thumbPos);
-  fd.append("thumb_font", thumbFont);
-  fd.append("thumb_scale", thumbScale / 100);
-  fd.append("thumb_weight", thumbWeight);
+  editorTC.appendTo(fd);
   fd.append("sub_scale", subScale);
   appendSubOpts(fd, styleChoice);
 
@@ -634,48 +632,158 @@ $("sub-scale-picks").addEventListener("click", (e) => {
   syncSubScaleButtons();
 });
 
-// ----- 썸네일 타이틀 — 문구·폰트·위치 선택 + 라이브 미리보기 -----
-let thumbPos = "bottom-center";
-let thumbFont = "pretendard";
-const FONT_FAMILY = {
-  pretendard: "'Pretendard', sans-serif",
-  blackhan: "'BlackHanSansW', sans-serif",
-  dohyeon: "'DoHyeonW', sans-serif",
-  jua: "'JuaW', sans-serif",
-  nanumpen: "'NanumPenW', sans-serif",
-};
-function syncFontButtons() {
-  document.querySelectorAll("#font-picks button").forEach((b) =>
-    b.classList.toggle("selected", b.dataset.font === thumbFont));
-}
-$("font-picks").addEventListener("click", (e) => {
-  const btn = e.target.closest("button[data-font]");
-  if (!btn) return;
-  thumbFont = btn.dataset.font;
-  syncFontButtons();
-  updateThumbOverlay();
-});
+// ----- 썸네일 타이틀 컨트롤 — 업로드 폼·편집기 공용 -----
+// 미리보기는 CSS 근사가 아니라 서버 렌더(overlay_hook_text) — 산출물과 동일 픽셀
+const TC_POSITIONS = [
+  "top-left", "top-center", "top-right",
+  "middle-left", "middle-center", "middle-right",
+  "bottom-left", "bottom-center", "bottom-right",
+];
+const TC_TEMPLATE = `
+  <div class="ed-row-flex">
+    <div class="ed-col">
+      <textarea class="tc-text thumb-input" rows="2" placeholder="비우면 자동 (훅 문구) — 엔터로 줄바꿈"></textarea>
+      <div class="font-picks tc-fonts">
+        <button type="button" data-font="pretendard" class="selected" style="font-family:'Pretendard';font-weight:800">프리텐다드</button>
+        <button type="button" data-font="blackhan" style="font-family:'BlackHanSansW'">블랙한산스</button>
+        <button type="button" data-font="dohyeon" style="font-family:'DoHyeonW'">도현</button>
+        <button type="button" data-font="jua" style="font-family:'JuaW'">주아</button>
+        <button type="button" data-font="nanumpen" style="font-family:'NanumPenW'">나눔손글씨</button>
+      </div>
+      <div class="chip-line">크기
+        <input type="range" class="tc-scale" min="50" max="200" step="5" value="100">
+        <span class="scale-val tc-scale-val">100%</span>
+      </div>
+      <div class="chip-line">굵기
+        <div class="chips tc-weights">
+          <button type="button" data-weight="normal">보통</button>
+          <button type="button" data-weight="bold" class="selected">굵게</button>
+          <button type="button" data-weight="heavy">아주 굵게</button>
+        </div>
+      </div>
+      <div class="chip-line">효과
+        <div class="chips tc-effects">
+          <button type="button" data-effect="none" class="selected">없음</button>
+          <button type="button" data-effect="fireworks">폭죽</button>
+          <button type="button" data-effect="fire">불꽃</button>
+          <button type="button" data-effect="sparkle">반짝이</button>
+        </div>
+      </div>
+      <div class="chip-line">위치
+        <div class="pos-grid tc-pos">
+          ${TC_POSITIONS.map((p) =>
+            `<button type="button" data-pos="${p}"${p === "bottom-center" ? ' class="selected"' : ""}></button>`).join("")}
+        </div>
+        <button type="button" class="pos-off tc-off">글자 없음</button>
+      </div>
+    </div>
+    <div class="thumb-preview hidden tc-preview"><img class="tc-img" alt="썸네일 미리보기"></div>
+  </div>`;
 
-// 썸네일 타이틀 크기(%)·굵기
-let thumbScale = 100;
-let thumbWeight = "bold";
-const WEIGHT_STROKE = { normal: "0.035em", bold: "0.06em", heavy: "0.1em" };
-$("ed_thumb_scale").addEventListener("input", () => {
-  thumbScale = Number($("ed_thumb_scale").value);
-  $("thumb-scale-val").textContent = thumbScale + "%";
-  updateThumbOverlay();
-});
-function syncWeightButtons() {
-  document.querySelectorAll("#weight-picks button").forEach((b) =>
-    b.classList.toggle("selected", b.dataset.weight === thumbWeight));
+function createThumbControls(rootId, getBase, getAutoText) {
+  const root = $(rootId);
+  root.innerHTML = TC_TEMPLATE;
+  const q = (sel) => root.querySelector(sel);
+  const state = { text: "", font: "pretendard", scale: 1, weight: "bold", effect: "none", pos: "bottom-center" };
+  let timer = null;
+  let lastUrl = null;
+
+  async function renderPreview() {
+    const base = await getBase();
+    const wrap = q(".tc-preview");
+    if (!base) { wrap.classList.add("hidden"); return; }
+    const fd = new FormData();
+    fd.append("text", state.pos === "off" ? "" : (state.text.trim() || (getAutoText ? getAutoText() : "")));
+    fd.append("pos", state.pos === "off" ? "bottom-center" : state.pos);
+    fd.append("font", state.font);
+    fd.append("scale", state.scale);
+    fd.append("weight", state.weight);
+    fd.append("effect", state.effect);
+    if (base.blob) fd.append("frame", base.blob, "frame.jpg");
+    else { fd.append("job_id", base.jobId); fd.append("t", base.t); }
+    try {
+      const res = await fetch("/api/thumb-preview", { method: "POST", body: fd });
+      if (!res.ok) throw new Error();
+      const url = URL.createObjectURL(await res.blob());
+      if (lastUrl) URL.revokeObjectURL(lastUrl);
+      lastUrl = url;
+      q(".tc-img").src = url;
+      wrap.classList.remove("hidden");
+    } catch { /* 미리보기 실패는 조용히 — 산출엔 영향 없음 */ }
+  }
+  function refresh(now = false) {
+    clearTimeout(timer);
+    timer = setTimeout(renderPreview, now ? 0 : 400);
+  }
+  const syncSel = (sel, attr, val) =>
+    root.querySelectorAll(`${sel} button`).forEach((b) => b.classList.toggle("selected", b.dataset[attr] === val));
+
+  q(".tc-text").addEventListener("input", () => { state.text = q(".tc-text").value; refresh(); });
+  q(".tc-fonts").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-font]");
+    if (!b) return;
+    state.font = b.dataset.font;
+    syncSel(".tc-fonts", "font", state.font);
+    refresh(true);
+  });
+  q(".tc-scale").addEventListener("input", () => {
+    state.scale = Number(q(".tc-scale").value) / 100;
+    q(".tc-scale-val").textContent = q(".tc-scale").value + "%";
+    refresh();
+  });
+  q(".tc-weights").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-weight]");
+    if (!b) return;
+    state.weight = b.dataset.weight;
+    syncSel(".tc-weights", "weight", state.weight);
+    refresh(true);
+  });
+  q(".tc-effects").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-effect]");
+    if (!b) return;
+    state.effect = b.dataset.effect;
+    syncSel(".tc-effects", "effect", state.effect);
+    refresh(true);
+  });
+  q(".tc-pos").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-pos]");
+    if (!b) return;
+    state.pos = b.dataset.pos;
+    syncSel(".tc-pos", "pos", state.pos);
+    q(".tc-off").classList.remove("selected");
+    refresh(true);
+  });
+  q(".tc-off").addEventListener("click", () => {
+    state.pos = state.pos === "off" ? "bottom-center" : "off";
+    syncSel(".tc-pos", "pos", state.pos);
+    q(".tc-off").classList.toggle("selected", state.pos === "off");
+    refresh(true);
+  });
+
+  return {
+    state,
+    refresh,
+    reset() {
+      Object.assign(state, { text: "", font: "pretendard", scale: 1, weight: "bold", effect: "none", pos: "bottom-center" });
+      q(".tc-text").value = "";
+      q(".tc-scale").value = 100;
+      q(".tc-scale-val").textContent = "100%";
+      syncSel(".tc-fonts", "font", "pretendard");
+      syncSel(".tc-weights", "weight", "bold");
+      syncSel(".tc-effects", "effect", "none");
+      syncSel(".tc-pos", "pos", "bottom-center");
+      q(".tc-off").classList.remove("selected");
+    },
+    appendTo(fd) {
+      fd.append("thumb_text", state.text.trim());
+      fd.append("thumb_pos", state.pos);
+      fd.append("thumb_font", state.font);
+      fd.append("thumb_scale", state.scale);
+      fd.append("thumb_weight", state.weight);
+      fd.append("thumb_effect", state.effect);
+    },
+  };
 }
-$("weight-picks").addEventListener("click", (e) => {
-  const btn = e.target.closest("button[data-weight]");
-  if (!btn) return;
-  thumbWeight = btn.dataset.weight;
-  syncWeightButtons();
-  updateThumbOverlay();
-});
 
 function autoHookText() {
   // 백엔드 pick_thumbnail_hook 근사 — 최고점 hook > 첫 hook > 첫 캡션
@@ -688,46 +796,54 @@ function autoHookText() {
   return (cap || "").trim();
 }
 
-function updateThumbOverlay() {
-  const ov = $("tp-overlay");
-  const img = $("tp-img");
-  if (!ov || !img) return;
-  const text = thumbPos === "off" ? "" : ($("ed_thumb_text").value.trim() || autoHookText());
-  ov.textContent = text;
-  ov.style.display = text ? "" : "none";
-  if (!text) return;
-  const [v, h] = thumbPos.split("-");
-  ov.style.fontFamily = FONT_FAMILY[thumbFont] || FONT_FAMILY.pretendard;
-  ov.style.fontWeight = thumbFont === "pretendard" ? (thumbWeight === "normal" ? "700" : "800") : "400";
-  ov.style.webkitTextStroke = WEIGHT_STROKE[thumbWeight] + " #000";
-  ov.style.textAlign = h === "left" ? "left" : h === "right" ? "right" : "center";
-  ov.style.top = v === "top" ? "8%" : v === "middle" ? "50%" : "auto";
-  ov.style.bottom = v === "bottom" ? "12%" : "auto";
-  ov.style.transform = v === "middle" ? "translateY(-50%)" : "none";
-  const size = () => {
-    if (img.clientWidth) ov.style.fontSize = (img.clientWidth / 14) * (thumbScale / 100) + "px";
-  };
-  if (img.complete) size(); else img.onload = size;
+// 업로드 폼 인스턴스 — 선택한 첫 영상의 프레임을 브라우저에서 뽑아 바탕으로 (영상 만들기 전 미리보기)
+let formFrameBlob = null;
+let formFrameFile = null;
+function captureFrameFromFile(file) {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const v = document.createElement("video");
+    v.muted = true;
+    v.playsInline = true;
+    v.preload = "auto";
+    v.src = url;
+    let settled = false;
+    const finish = (blob) => {
+      if (settled) return;
+      settled = true;
+      URL.revokeObjectURL(url);
+      resolve(blob);
+    };
+    v.onloadeddata = () => { v.currentTime = Math.min(1.0, (v.duration || 2) / 2); };
+    v.onseeked = () => {
+      try {
+        const c = document.createElement("canvas");
+        c.width = 540;
+        c.height = Math.max(2, Math.round(v.videoHeight * 540 / v.videoWidth));
+        c.getContext("2d").drawImage(v, 0, 0, c.width, c.height);
+        c.toBlob(finish, "image/jpeg", 0.85);
+      } catch { finish(null); }
+    };
+    v.onerror = () => finish(null);
+    setTimeout(() => finish(null), 8000);
+  });
 }
+const formTC = createThumbControls("tc-form", async () => {
+  const first = pickedFiles.find((f) => !AUDIO_RE.test(f.name) && !f.type.startsWith("audio/"));
+  if (!first) return null;
+  if (formFrameFile !== first) {
+    formFrameBlob = await captureFrameFromFile(first);
+    formFrameFile = first;
+  }
+  return formFrameBlob ? { blob: formFrameBlob } : null;
+});
 
-function syncPosButtons() {
-  document.querySelectorAll("#pos-grid button").forEach((b) =>
-    b.classList.toggle("selected", b.dataset.pos === thumbPos));
-  $("pos-off").classList.toggle("selected", thumbPos === "off");
-}
-$("pos-grid").addEventListener("click", (e) => {
-  const btn = e.target.closest("button[data-pos]");
-  if (!btn) return;
-  thumbPos = btn.dataset.pos;
-  syncPosButtons();
-  updateThumbOverlay();
-});
-$("pos-off").addEventListener("click", () => {
-  thumbPos = thumbPos === "off" ? "bottom-center" : "off";
-  syncPosButtons();
-  updateThumbOverlay();
-});
-$("ed_thumb_text").addEventListener("input", updateThumbOverlay);
+// 편집기 인스턴스 — 잡의 첫 구간 프레임 위에 (자동 훅 문구 폴백)
+const editorTC = createThumbControls("tc-editor", async () => {
+  if (!edJobId || !edSegs.length) return null;
+  const mid = ((Number(edSegs[0].start) + Number(edSegs[0].end)) / 2).toFixed(1);
+  return { jobId: edJobId, t: mid };
+}, autoHookText);
 
 // ----- 편집기 초기화 (결과 렌더 시) -----
 async function initEditor(jobId, job) {
@@ -779,29 +895,11 @@ async function initEditor(jobId, job) {
   renderTimeline();
   renderTranscriptEdit();
 
-  // 썸네일 타이틀 — 깨끗한 원본 프레임 위에 라이브 미리보기
-  // (생성된 썸네일엔 이전 타이틀이 이미 burn-in돼 있어 겹쳐 보인다)
-  thumbPos = "bottom-center";
-  thumbFont = "pretendard";
-  thumbScale = 100;
-  thumbWeight = "bold";
+  // 썸네일 타이틀 — 원본 프레임 위 서버 렌더 미리보기 (편집기 인스턴스)
   subScale = 1;
-  $("ed_thumb_text").value = "";
-  $("ed_thumb_scale").value = 100;
-  $("thumb-scale-val").textContent = "100%";
-  syncPosButtons();
-  syncFontButtons();
-  syncWeightButtons();
   syncSubScaleButtons();
-  const tp = $("thumb-preview");
-  if (edSegs.length) {
-    const mid = ((Number(edSegs[0].start) + Number(edSegs[0].end)) / 2).toFixed(1);
-    $("tp-img").src = `/api/jobs/${jobId}/frame?t=${mid}`;
-    tp.classList.remove("hidden");
-    updateThumbOverlay();
-  } else {
-    tp.classList.add("hidden");
-  }
+  editorTC.reset();
+  editorTC.refresh(true);
 }
 
 // ----- 음악(BGM) 리스트 -----

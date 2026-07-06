@@ -5,14 +5,35 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from PIL import Image  # noqa: E402
+
 from effects import (  # noqa: E402
     HOOK_POSITIONS,
+    THUMB_EFFECTS,
     THUMB_FONTS,
+    draw_thumb_effect,
     hook_anchor_x,
     hook_anchor_y,
     thumb_font_path,
     wrap_hook_lines,
 )
+
+
+def test_effects_registry():
+    assert THUMB_EFFECTS == ("none", "fireworks", "fire", "sparkle")
+
+
+def test_draw_effect_none_is_identity():
+    img = Image.new("RGB", (200, 100), (10, 10, 10))
+    assert draw_thumb_effect(img, "none", (50, 40, 150, 60)) is img
+
+
+def test_draw_effect_changes_pixels_and_is_deterministic():
+    base = Image.new("RGB", (200, 100), (10, 10, 10))
+    a = draw_thumb_effect(base.copy(), "sparkle", (50, 40, 150, 60)).convert("RGB")
+    b = draw_thumb_effect(base.copy(), "sparkle", (50, 40, 150, 60)).convert("RGB")
+    assert list(a.getdata()) != list(base.getdata())  # 뭔가 그려짐
+    assert list(a.getdata()) == list(b.getdata())      # 시드 고정 — 재현 가능
 
 
 def test_thumb_fonts_all_bundled():

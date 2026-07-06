@@ -7,6 +7,8 @@ ffmpeg 자체 필터만 사용 (libass/libfreetype 불필요).
 from __future__ import annotations
 
 import json
+import math
+import random
 import shutil
 import subprocess
 from pathlib import Path
@@ -304,6 +306,95 @@ THUMB_FONTS = {
 # 타이틀 굵기 — 외곽선 두께로 표현(단일 웨이트 폰트 공통), Pretendard는 파일도 교체
 THUMB_WEIGHTS = {"normal": 16, "bold": 12, "heavy": 8}  # stroke = size // 값
 
+# 타이틀 배경 효과 — 텍스트 뒤에 그려지는 정적 장식
+THUMB_EFFECTS = ("none", "fireworks", "fire", "sparkle")
+
+
+def _draw_sparkle(d: "ImageDraw.ImageDraw", x: int, y: int, r: int, color: tuple) -> None:
+    """4갈래 반짝이 별 하나 — 세로/가로로 긴 마름모 두 개."""
+    slim = max(1, r // 4)
+    d.polygon([(x, y - r), (x + slim, y), (x, y + r), (x - slim, y)], fill=color)
+    d.polygon([(x - r, y), (x, y - slim), (x + r, y), (x, y + slim)], fill=color)
+
+
+def draw_thumb_effect(img: Image.Image, effect: str, box: tuple, seed: int = 7) -> Image.Image:
+    """타이틀 텍스트 블록(box=(x0,y0,x1,y1)) 뒤에 효과를 합성한 이미지를 반환.
+
+    정적 썸네일용 장식 — fireworks(폭죽 버스트), fire(불꽃 글로우+불티),
+    sparkle(반짝이 별). 시드 고정으로 재생성해도 같은 그림.
+    """
+    from PIL import ImageFilter
+
+    if effect not in THUMB_EFFECTS or effect == "none":
+        return img
+    rng = random.Random(seed)
+    W, H = img.size
+    x0, y0, x1, y1 = box
+    cx, cy = (x0 + x1) // 2, (y0 + y1) // 2
+    bw, bh = x1 - x0, y1 - y0
+    layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    d = ImageDraw.Draw(layer)
+
+    if effect == "fireworks":
+        # 블록 좌우 상단에 버스트 2~3개 — 방사선 + 끝점 불꽃, 은은한 글로우
+        palette = [(255, 209, 102), (255, 122, 24), (255, 94, 158), (108, 197, 255)]
+        centers = [
+            (x0 - bw // 6, y0 - bh // 2), (x1 + bw // 6, y0 - bh // 3),
+            (cx, y0 - bh),
+        ]
+        for bx, by in centers:
+            color = rng.choice(palette)
+            radius = int(bh * rng.uniform(1.2, 1.8))
+            for _ in range(14):
+                ang = rng.uniform(0, 2 * math.pi)
+                r_out = radius * rng.uniform(0.75, 1.0)
+                ex = bx + int(r_out * math.cos(ang))
+                ey = by + int(r_out * math.sin(ang))
+                sx = bx + int(r_out * 0.35 * math.cos(ang))
+                sy = by + int(r_out * 0.35 * math.sin(ang))
+                d.line([(sx, sy), (ex, ey)], fill=color + (170,), width=max(2, bh // 26))
+                dot = max(2, bh // 18)
+                d.ellipse([ex - dot, ey - dot, ex + dot, ey + dot], fill=color + (230,))
+            core = max(3, bh // 12)
+            d.ellipse([bx - core, by - core, bx + core, by + core], fill=(255, 255, 255, 220))
+        layer = layer.filter(ImageFilter.GaussianBlur(1.2))
+
+    elif effect == "fire":
+        # 텍스트 블록 뒤 화염 글로우(빨강→주황→노랑 겹층) + 위로 흩어지는 불티
+        glow = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+        gd = ImageDraw.Draw(glow)
+        for grow, color, alpha in (
+            (1.0, (200, 40, 10), 150), (0.72, (255, 110, 20), 170), (0.46, (255, 200, 60), 190),
+        ):
+            gx, gy = int(bw * 0.75 * grow), int(bh * 1.6 * grow)
+            gd.ellipse([cx - gx, cy - gy, cx + gx, cy + int(gy * 0.55)], fill=color + (alpha,))
+        glow = glow.filter(ImageFilter.GaussianBlur(max(6, bh // 5)))
+        layer = Image.alpha_composite(layer, glow)
+        d = ImageDraw.Draw(layer)
+        for _ in range(26):
+            ex = cx + int(rng.uniform(-0.75, 0.75) * bw)
+            ey = y0 - int(rng.uniform(0.1, 2.2) * bh)
+            r = max(1, int(bh * rng.uniform(0.02, 0.07)))
+            color = rng.choice([(255, 200, 60), (255, 140, 30), (255, 90, 20)])
+            d.ellipse([ex - r, ey - r, ex + r, ey + r], fill=color + (rng.randint(150, 230),))
+
+    elif effect == "sparkle":
+        # 블록 주변 반짝이 별 — 크기·톤 랜덤, 작은 점 보조
+        for _ in range(16):
+            ex = cx + int(rng.uniform(-0.85, 0.85) * (bw * 0.75))
+            ey = cy + int(rng.uniform(-2.2, 1.6) * bh)
+            r = max(3, int(bh * rng.uniform(0.10, 0.30)))
+            tone = rng.choice([(255, 255, 255), (255, 236, 150), (255, 214, 90)])
+            _draw_sparkle(d, ex, ey, r, tone + (rng.randint(180, 255),))
+        for _ in range(22):
+            ex = cx + int(rng.uniform(-1.0, 1.0) * (bw * 0.85))
+            ey = cy + int(rng.uniform(-2.5, 1.8) * bh)
+            r = max(1, bh // 30)
+            d.ellipse([ex - r, ey - r, ex + r, ey + r], fill=(255, 255, 255, rng.randint(120, 220)))
+        layer = layer.filter(ImageFilter.GaussianBlur(0.6))
+
+    return Image.alpha_composite(img.convert("RGBA"), layer)
+
 
 def thumb_font_path(key: str, weight: str = "bold") -> Path | None:
     """폰트 키 → 동봉 파일 경로. 미지원 키·파일 없음은 None (호출부가 기본 폰트로)."""
@@ -358,12 +449,13 @@ def wrap_hook_lines(text: str, measure, max_w: int, max_lines: int = 3) -> list[
 
 def overlay_hook_text(
     image_path: Path, text: str, pos: str = "bottom-center", font: str = "pretendard",
-    scale: float = 1.0, weight: str = "bold",
+    scale: float = 1.0, weight: str = "bold", effect: str = "none",
 ) -> None:
-    """썸네일에 타이틀 문구를 burn-in — 흰 글씨 + 검정 외곽선.
+    """썸네일에 타이틀 문구를 burn-in — 흰 글씨 + 검정 외곽선 (+선택 배경 효과).
 
     pos는 "top|middle|bottom-left|center|right", font는 THUMB_FONTS 키,
-    scale은 기본 크기(폭/14) 배율, weight는 THUMB_WEIGHTS 키(외곽선 두께).
+    scale은 기본 크기(폭/14) 배율, weight는 THUMB_WEIGHTS 키(외곽선 두께),
+    effect는 THUMB_EFFECTS 키(텍스트 뒤 장식).
     폭 88%를 넘으면 단어 단위 줄바꿈(최대 3줄), 수동 \\n도 존중한다.
     """
     if not text.strip():
@@ -388,10 +480,18 @@ def overlay_hook_text(
     lines = wrap_hook_lines(text, lambda s: draw.textlength(s, font=font), int(W * 0.88))
     stroke = max(2, size // THUMB_WEIGHTS.get(weight, 12))
     line_h = int(size * 1.25)
-    y = hook_anchor_y(v, H, line_h * len(lines))
-    for line in lines:
-        tw = draw.textlength(line, font=font)
-        draw.text((hook_anchor_x(h, W, tw), y), line, font=font, fill=(255, 255, 255),
+    block_h = line_h * len(lines)
+    y = hook_anchor_y(v, H, block_h)
+
+    # 텍스트 블록 bbox — 배경 효과의 기준 좌표
+    widths = [draw.textlength(ln, font=font) for ln in lines]
+    xs = [hook_anchor_x(h, W, tw) for tw in widths]
+    box = (min(xs), y, max(x + int(tw) for x, tw in zip(xs, widths)), y + block_h)
+    img = draw_thumb_effect(img, effect, box).convert("RGB")
+    draw = ImageDraw.Draw(img)
+
+    for line, tw, x in zip(lines, widths, xs):
+        draw.text((x, y), line, font=font, fill=(255, 255, 255),
                   stroke_width=stroke, stroke_fill=(0, 0, 0))
         y += line_h
     img.save(image_path, quality=92)
