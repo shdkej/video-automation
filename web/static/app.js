@@ -123,6 +123,9 @@ function renderFileList() {
     li.append(idx, name, size, btns);
     ul.append(li);
   });
+  // 영상이 있어야 썸네일 미리보기 섹션이 나타난다 — 없으면 통째로 숨김
+  const hasVideo = pickedFiles.some((f) => !AUDIO_RE.test(f.name) && !f.type.startsWith("audio/"));
+  $("thumb-form-sec").classList.toggle("hidden", !hasVideo);
   formTC.refresh(); // 첫 영상이 바뀌면 썸네일 타이틀 미리보기 바탕도 갱신
 }
 
@@ -545,7 +548,7 @@ function renderCompare(jobId, o) {
   const clean = o.shorts_clean || [];
   const n = Math.min(full.length, clean.length);
   if (!n) return;
-  let html = `<div class="cmp-head">효과 비교 <small>왼쪽 풀 효과 · 오른쪽 클린</small></div>`;
+  let html = `<details class="adv cmp-adv"><summary>효과 비교 <small>왼쪽 풀 효과 · 오른쪽 클린 — 동시 재생</small></summary>`;
   for (let i = 0; i < n; i++) {
     html += `<div class="cmp-row" data-i="${i}">
       <button type="button" class="cta-sm cmp-play" data-i="${i}">숏츠 ${i + 1} 동시 재생 ▶</button>
@@ -555,6 +558,7 @@ function renderCompare(jobId, o) {
       </div>
     </div>`;
   }
+  html += `</details>`;
   el.innerHTML = html;
   el.querySelectorAll(".cmp-play").forEach((btn) => {
     btn.addEventListener("click", () => {

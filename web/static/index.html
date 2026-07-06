@@ -40,78 +40,82 @@
         </div>
         <ul id="file-list" class="file-list"></ul>
 
-        <!-- 모드 -->
-        <div class="step-num" data-n="02">분석 방식</div>
-        <div class="mode-cards" id="mode-cards">
-          <button type="button" class="mode-card selected" data-mode="auto">
-            <div class="mc-head"><span class="mc-name">auto</span><span class="badge free">추천</span></div>
-            <p class="mc-desc">영상을 보고 알아서 판별 — 발화가 있으면 speech, 컷이 있으면 scene, 아니면 vision.</p>
-          </button>
-          <button type="button" class="mode-card" data-mode="scene">
-            <div class="mc-head"><span class="mc-name">scene</span><span class="badge free">무료</span></div>
-            <p class="mc-desc">컷이 또렷한 편집 영상. ffmpeg 씬 감지, API 키 불필요. AI 장면 자막은 키 있을 때만 생성.</p>
-          </button>
-          <button type="button" class="mode-card" data-mode="speech">
-            <div class="mc-head"><span class="mc-name">speech</span><span class="badge key">자막</span></div>
-            <p class="mc-desc">음성 위주. Whisper+LLM이 핵심 구간 선정·한국어 자막. API 키 필요.</p>
-          </button>
-          <button type="button" class="mode-card" data-mode="vision">
-            <div class="mc-head"><span class="mc-name">vision</span><span class="badge key">비전</span></div>
-            <p class="mc-desc">정적·무음 영상. 모자이크를 비전 LLM이 분석. API 키 필요.</p>
-          </button>
-          <input type="hidden" name="mode" id="mode" value="auto">
-        </div>
-
-        <!-- 옵션 -->
-        <div class="step-num" data-n="03">산출 옵션</div>
-        <div class="options">
-          <label class="opt">
-            <span class="opt-label">롱폼 목표<em>분</em></span>
-            <input type="number" name="target_minutes" value="3" min="0.1" step="0.1">
-          </label>
-          <label class="opt">
-            <span class="opt-label">숏츠<em>개</em></span>
-            <input type="number" name="shorts_count" value="2" min="0" max="10">
-          </label>
-          <label class="opt">
-            <span class="opt-label">썸네일<em>장</em></span>
-            <input type="number" name="thumbnail_count" value="3" min="1" max="10">
-          </label>
-          <label class="opt">
-            <span class="opt-label">자막</span>
-            <select id="sub_mode">
-              <option value="fade" selected>애니메이션·페이드 (기본)</option>
-              <option value="kinetic">애니메이션·키네틱</option>
-              <option value="impact">임팩트 (원워드 슬램·스파크)</option>
-              <option value="pil">정적 (PIL)</option>
-              <option value="off">끄기</option>
-            </select>
-          </label>
-        </div>
-        <div class="toggles">
-          <label class="toggle"><input type="checkbox" class="out-pick" id="out_longform" value="longform" checked><span class="tg-box"></span>롱폼</label>
-          <label class="toggle"><input type="checkbox" class="out-pick" id="out_shorts" value="shorts" checked><span class="tg-box"></span>숏츠</label>
-          <label class="toggle"><input type="checkbox" class="out-pick" id="out_thumbnail" value="thumbnail" checked><span class="tg-box"></span>썸네일</label>
-          <label class="toggle"><input type="checkbox" class="out-pick" id="out_intro" value="intro" checked><span class="tg-box"></span>인트로</label>
-          <label class="toggle sub-only"><input type="checkbox" id="subtitle_only"><span class="tg-box"></span>자막만 (컷 편집 없이 원본 그대로 — 완성된 숏츠용)</label>
-        </div>
-        <div class="toggles">
-          <label class="toggle"><input type="checkbox" id="shorts_blur"><span class="tg-box"></span>숏츠 흐린 배경(좌우 안 잘림)</label>
-          <label class="toggle"><input type="checkbox" id="shorts_jumpcut" checked><span class="tg-box"></span>점프컷(무음 제거)</label>
-          <label class="toggle"><input type="checkbox" id="shorts_punchin" checked><span class="tg-box"></span>펀치인(줌 강조)</label>
-          <label class="toggle"><input type="checkbox" id="shorts_clean" checked><span class="tg-box"></span>클린 버전 함께(자막 없는 동일 컷)</label>
-          <label class="toggle"><input type="checkbox" id="scene_captions" checked><span class="tg-box"></span>AI 장면 자막(무발화 영상, scene·vision)</label>
-          <label class="toggle"><input type="checkbox" id="beat_sync" checked><span class="tg-box"></span>비트 싱크(음악 리듬에 컷·줌 전환)</label>
-          <label class="toggle"><input type="checkbox" id="bgm_auto" checked><span class="tg-box"></span>자동 BGM(라이브러리에서 무드 선곡)</label>
-        </div>
-
-        <details class="adv">
-          <summary>썸네일 타이틀 <small>문구 · 폰트 · 효과 — 영상을 올리면 미리보기</small></summary>
+        <!-- 썸네일 타이틀 — 영상을 올리면 자동으로 나타남 -->
+        <div id="thumb-form-sec" class="hidden">
+          <div class="step-num" data-n="02">썸네일 미리보기 <small>문구·폰트·효과 — 기본값 그대로도 충분</small></div>
           <div class="thumb-ctl" id="tc-form"></div>
-        </details>
+        </div>
 
-        <details class="adv">
-          <summary>고급 옵션 <small>크롭 초점 · 숏츠 길이 · 씬 감도 · BGM</small></summary>
+        <details class="adv settings">
+          <summary>세부 설정 <small>분석 방식 · 산출물 · 효과 · 고급 — 평소엔 기본값으로 충분</small></summary>
+
+          <div class="step-num">분석 방식</div>
+          <div class="mode-cards" id="mode-cards">
+            <button type="button" class="mode-card selected" data-mode="auto">
+              <div class="mc-head"><span class="mc-name">auto</span><span class="badge free">추천</span></div>
+              <p class="mc-desc">영상을 보고 알아서 판별 — 발화가 있으면 speech, 컷이 있으면 scene, 아니면 vision.</p>
+            </button>
+            <button type="button" class="mode-card" data-mode="scene">
+              <div class="mc-head"><span class="mc-name">scene</span><span class="badge free">무료</span></div>
+              <p class="mc-desc">컷이 또렷한 편집 영상. ffmpeg 씬 감지, API 키 불필요. AI 장면 자막은 키 있을 때만 생성.</p>
+            </button>
+            <button type="button" class="mode-card" data-mode="speech">
+              <div class="mc-head"><span class="mc-name">speech</span><span class="badge key">자막</span></div>
+              <p class="mc-desc">음성 위주. Whisper+LLM이 핵심 구간 선정·한국어 자막. API 키 필요.</p>
+            </button>
+            <button type="button" class="mode-card" data-mode="vision">
+              <div class="mc-head"><span class="mc-name">vision</span><span class="badge key">비전</span></div>
+              <p class="mc-desc">정적·무음 영상. 모자이크를 비전 LLM이 분석. API 키 필요.</p>
+            </button>
+            <input type="hidden" name="mode" id="mode" value="auto">
+          </div>
+          <p class="mode-note" id="mode-note"></p>
+
+          <div class="step-num">산출물</div>
+          <div class="options">
+            <label class="opt">
+              <span class="opt-label">롱폼 목표<em>분</em></span>
+              <input type="number" name="target_minutes" value="3" min="0.1" step="0.1">
+            </label>
+            <label class="opt">
+              <span class="opt-label">숏츠<em>개</em></span>
+              <input type="number" name="shorts_count" value="2" min="0" max="10">
+            </label>
+            <label class="opt">
+              <span class="opt-label">썸네일<em>장</em></span>
+              <input type="number" name="thumbnail_count" value="3" min="1" max="10">
+            </label>
+            <label class="opt">
+              <span class="opt-label">자막</span>
+              <select id="sub_mode">
+                <option value="fade" selected>애니메이션·페이드 (기본)</option>
+                <option value="kinetic">애니메이션·키네틱</option>
+                <option value="impact">임팩트 (원워드 슬램·스파크)</option>
+                <option value="pil">정적 (PIL)</option>
+                <option value="off">끄기</option>
+              </select>
+            </label>
+          </div>
+          <div class="toggles">
+            <label class="toggle"><input type="checkbox" class="out-pick" id="out_longform" value="longform" checked><span class="tg-box"></span>롱폼</label>
+            <label class="toggle"><input type="checkbox" class="out-pick" id="out_shorts" value="shorts" checked><span class="tg-box"></span>숏츠</label>
+            <label class="toggle"><input type="checkbox" class="out-pick" id="out_thumbnail" value="thumbnail" checked><span class="tg-box"></span>썸네일</label>
+            <label class="toggle"><input type="checkbox" class="out-pick" id="out_intro" value="intro" checked><span class="tg-box"></span>인트로</label>
+            <label class="toggle sub-only"><input type="checkbox" id="subtitle_only"><span class="tg-box"></span>자막만 (컷 편집 없이 원본 그대로 — 완성된 숏츠용)</label>
+          </div>
+
+          <div class="step-num">효과</div>
+          <div class="toggles">
+            <label class="toggle"><input type="checkbox" id="shorts_blur"><span class="tg-box"></span>숏츠 흐린 배경(좌우 안 잘림)</label>
+            <label class="toggle"><input type="checkbox" id="shorts_jumpcut" checked><span class="tg-box"></span>점프컷(무음 제거)</label>
+            <label class="toggle"><input type="checkbox" id="shorts_punchin" checked><span class="tg-box"></span>펀치인(줌 강조)</label>
+            <label class="toggle"><input type="checkbox" id="shorts_clean" checked><span class="tg-box"></span>클린 버전 함께(자막 없는 동일 컷)</label>
+            <label class="toggle"><input type="checkbox" id="scene_captions" checked><span class="tg-box"></span>AI 장면 자막(무발화 영상, scene·vision)</label>
+            <label class="toggle"><input type="checkbox" id="beat_sync" checked><span class="tg-box"></span>비트 싱크(음악 리듬에 컷·줌 전환)</label>
+            <label class="toggle"><input type="checkbox" id="bgm_auto" checked><span class="tg-box"></span>자동 BGM(라이브러리에서 무드 선곡)</label>
+          </div>
+
+          <div class="step-num">고급 <small>크롭 초점 · 숏츠 길이 · 씬 감도 · BGM</small></div>
           <div class="options">
             <label class="opt">
               <span class="opt-label">세로 크롭 초점</span>
@@ -150,7 +154,6 @@
           </div>
         </details>
 
-        <p class="mode-note" id="mode-note"></p>
         <button type="submit" id="submit-btn" class="cta">
           <span id="cta-label">네 가지 만들기</span>
           <span class="cta-arrow">→</span>
@@ -186,11 +189,11 @@
       <div id="compare"></div>
 
       <details id="editor" class="rebuild editor" open>
-        <summary>편집 <small>자막 스타일 · 효과 · 음악 · 구간 · 글자 — 바꾸고 "다시 만들기"</small></summary>
+        <summary>편집 <small>자막 · 음악 · 썸네일 타이틀 — 바꾸고 "적용해서 다시 만들기"</small></summary>
 
         <!-- ① 영상 자막 — 화면에 새겨지는 말자막 -->
         <div class="ed-sec">
-          <div class="step-num" data-n="01">영상 자막 <small>스타일·크기 — 문구는 아래 타임라인에서 구간별로</small></div>
+          <div class="step-num" data-n="01">영상 자막 <small>스타일·크기 — 문구는 고급 편집의 타임라인에서 구간별로</small></div>
           <div class="ed-row-flex">
             <div class="ed-col">
               <div class="style-picks" id="style-picks">
@@ -212,46 +215,49 @@
           </div>
         </div>
 
-        <!-- ② 효과·산출 -->
+        <!-- ② 음악 -->
         <div class="ed-sec">
-          <div class="step-num" data-n="02">효과 · 산출</div>
-          <div class="toggles eds-toggles">
-            <label class="toggle"><input type="checkbox" id="ed_jumpcut" checked><span class="tg-box"></span>점프컷</label>
-            <label class="toggle"><input type="checkbox" id="ed_punchin" checked><span class="tg-box"></span>펀치인</label>
-            <label class="toggle"><input type="checkbox" id="ed_blur"><span class="tg-box"></span>흐린 배경</label>
-            <label class="toggle"><input type="checkbox" id="ed_clean" checked><span class="tg-box"></span>클린 버전 함께</label>
-          </div>
-          <div class="eds-nums">
-            <label class="rb-num">숏츠<input type="number" id="ed_shorts" min="0" max="10" value="2"></label>
-            <label class="rb-num">썸네일<input type="number" id="ed_thumb" min="1" max="10" value="3"></label>
-            <label class="rb-num">BGM 볼륨<input type="number" id="ed_bgmvol" min="0.05" max="1" step="0.05" value="0.3"></label>
-          </div>
-        </div>
-
-        <!-- ③ 음악 -->
-        <div class="ed-sec">
-          <div class="step-num" data-n="03">음악</div>
+          <div class="step-num" data-n="02">음악</div>
           <div id="bgm-list" class="bgm-list"><p class="jp-empty">불러오는 중…</p></div>
         </div>
 
-        <!-- ④ 썸네일 타이틀 — 썸네일 이미지에만 (컨트롤은 JS 공용 템플릿) -->
+        <!-- ③ 썸네일 타이틀 — 썸네일 이미지에만 (컨트롤은 JS 공용 템플릿) -->
         <div class="ed-sec" id="thumb-group">
-          <div class="step-num" data-n="04">썸네일 타이틀 <small>썸네일 이미지에만 — 영상 자막과 별개</small></div>
+          <div class="step-num" data-n="03">썸네일 타이틀 <small>썸네일 이미지에만 — 영상 자막과 별개</small></div>
           <div class="thumb-ctl" id="tc-editor"></div>
         </div>
 
-        <!-- ⑤ 타임라인 — 구간별 편집 -->
-        <div class="ed-sec">
-          <div class="step-num" data-n="05">타임라인 <small>구간 탭 → 구간 자막·효과음·시간 편집</small></div>
-          <div class="tl-scroll" id="tl-scroll">
-            <div class="tl-head"><span>영상</span><span>글자</span><span class="tl-head-sfx">효과음</span></div>
-            <div class="tl-tracks" id="tl-tracks"></div>
-          </div>
-          <div id="seg-detail" class="seg-detail hidden"></div>
-        </div>
+        <!-- 고급 편집 — 효과·산출 개수·타임라인·발화 자막 교정 -->
+        <details class="adv ed-adv">
+          <summary>고급 편집 <small>효과 · 산출 개수 · 타임라인(구간·효과음) · 발화 자막 교정</small></summary>
 
-        <!-- ⑥ 발화 자막 교정 (speech) -->
-        <div id="transcript-edit"></div>
+          <div class="ed-sec">
+            <div class="step-num">효과 · 산출</div>
+            <div class="toggles eds-toggles">
+              <label class="toggle"><input type="checkbox" id="ed_jumpcut" checked><span class="tg-box"></span>점프컷</label>
+              <label class="toggle"><input type="checkbox" id="ed_punchin" checked><span class="tg-box"></span>펀치인</label>
+              <label class="toggle"><input type="checkbox" id="ed_blur"><span class="tg-box"></span>흐린 배경</label>
+              <label class="toggle"><input type="checkbox" id="ed_clean" checked><span class="tg-box"></span>클린 버전 함께</label>
+            </div>
+            <div class="eds-nums">
+              <label class="rb-num">숏츠<input type="number" id="ed_shorts" min="0" max="10" value="2"></label>
+              <label class="rb-num">썸네일<input type="number" id="ed_thumb" min="1" max="10" value="3"></label>
+              <label class="rb-num">BGM 볼륨<input type="number" id="ed_bgmvol" min="0.05" max="1" step="0.05" value="0.3"></label>
+            </div>
+          </div>
+
+          <div class="ed-sec">
+            <div class="step-num">타임라인 <small>구간 탭 → 구간 자막·효과음·시간 편집</small></div>
+            <div class="tl-scroll" id="tl-scroll">
+              <div class="tl-head"><span>영상</span><span>글자</span><span class="tl-head-sfx">효과음</span></div>
+              <div class="tl-tracks" id="tl-tracks"></div>
+            </div>
+            <div id="seg-detail" class="seg-detail hidden"></div>
+          </div>
+
+          <!-- 발화 자막 교정 (speech) -->
+          <div id="transcript-edit"></div>
+        </details>
 
         <div class="rebuild-opts">
           <button type="button" id="apply-btn" class="cta-sm">적용해서 다시 만들기 →</button>

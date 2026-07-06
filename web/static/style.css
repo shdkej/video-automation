@@ -511,21 +511,34 @@ details.adv > summary {
   cursor: pointer;
   letter-spacing: 0.06em;
 }
+details.adv > summary:hover { color: var(--paper); }
 details.adv > summary small { color: var(--muted); margin-left: 6px; }
 details.adv .options { margin-top: 12px; }
 .bgm-opt input[type="file"] { font-size: 12px; color: var(--paper-dim); }
 
+/* 접힌 그룹 안의 무번호 헤더 — data-n 없으면 번호 자리 제거 */
+.step-num:not([data-n])::before { content: none; }
+
+/* 업로드 폼 세부 설정 — 평소엔 한 줄, 열면 박스 */
+details.settings {
+  margin-top: 24px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 4px 18px;
+}
+details.settings > summary { padding: 12px 0; }
+details.settings[open] { padding-bottom: 24px; }
+details.settings[open] > summary { border-bottom: 1px solid var(--line); }
+
+/* 편집기 고급 편집 — 실사용 3종(자막·음악·썸네일) 아래 구분선으로 분리 */
+.ed-adv { margin: 4px 0 18px; border-top: 1px dashed var(--line); padding-top: 16px; }
+.ed-adv[open] > summary { margin-bottom: 10px; }
+
 .dl-extra { display: inline-flex; gap: 10px; margin-left: auto; }
 .dl-extra .dl { font-family: var(--film); font-size: 12px; }
 
-.cmp-head {
-  font-family: var(--film);
-  font-size: 12px;
-  letter-spacing: 0.1em;
-  color: var(--paper-dim);
-  margin: 26px 0 10px;
-}
-.cmp-head small { color: var(--muted); margin-left: 6px; }
+.cmp-adv .cmp-row:first-of-type { margin-top: 12px; }
 .cmp-row { margin-bottom: 18px; }
 .cmp-videos { display: flex; gap: 10px; margin-top: 8px; }
 .cmp-videos video {
