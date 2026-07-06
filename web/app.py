@@ -33,7 +33,7 @@ import pipeline as pl  # noqa: E402
 from auto_cut import BGM_MOODS, get_llm_usage, reset_llm_usage  # noqa: E402
 from beats import detect_beats  # noqa: E402
 from probe import probe_resolution  # noqa: E402
-from effects import HOOK_POSITIONS, add_bgm, add_sfx  # noqa: E402
+from effects import HOOK_POSITIONS, THUMB_FONTS, add_bgm, add_sfx  # noqa: E402
 from web.media_library import resolve_library_file  # noqa: E402
 
 BASE = Path(__file__).resolve().parent
@@ -124,6 +124,7 @@ def _args_from_opts(input_path: Path, outdir: Path, opts: dict) -> SimpleNamespa
         no_thumb_text=opts.get("thumb_pos", "bottom-center") == "off",
         thumb_text=str(opts.get("thumb_text", "")),
         thumb_pos=opts.get("thumb_pos", "bottom-center"),
+        thumb_font=opts.get("thumb_font", "pretendard"),
         intro_seconds=4.0,
         no_subtitle=bool(opts.get("no_subtitle")), no_grade=False,
         no_scene_captions=not opts.get("scene_captions", True),
@@ -307,15 +308,27 @@ def _track_meta(p: Path) -> dict:
 def _auto_pick_bgm(outdir: Path) -> Path | None:
     """LLM이 고른 무드(mood.json) + 라이브러리에서 자동 선곡.
 
+    speech 모드는 무드 LLM 콜이 없어 mood.json이 없다 — 그 경우 영상 템포로
+    upbeat/calm을 추정해 폴백한다(명시 선택은 편집기 bgm_choice로 가능).
     영상 자체 템포(beats.json)가 있으면 BPM이 가장 가까운 곡, 없으면 첫 곡.
     """
+    mood = None
     mpath = outdir / "mood.json"
-    if not mpath.is_file():
-        return None
-    try:
-        mood = json.loads(mpath.read_text()).get("mood")
-    except (json.JSONDecodeError, OSError):
-        return None
+    if mpath.is_file():
+        try:
+            mood = json.loads(mpath.read_text()).get("mood")
+        except (json.JSONDecodeError, OSError):
+            return None
+    if not mood:
+        mood = "calm"  # 템포도 모르면 무난한 기본값
+        bjson = outdir / "beats.json"
+        if bjson.is_file():
+            try:
+                vb = json.loads(bjson.read_text())
+                if len(vb) > 1 and 60.0 / (vb[1] - vb[0]) >= 100:
+                    mood = "upbeat"
+            except (json.JSONDecodeError, OSError):
+                pass
     d = MUSIC_DIR / str(mood)
     tracks = sorted(d.glob("*.mp3")) if d.is_dir() else []
     if not tracks:
@@ -514,6 +527,7 @@ async def rebuild_job(
     bgm_choice: str = Form("auto"),
     thumb_text: str = Form(""),
     thumb_pos: str = Form("bottom-center"),
+    thumb_font: str = Form("pretendard"),
 ):
     """기존 잡의 분석(selection.json)을 재사용해 산출 옵션만 바꿔 다시 생성.
 
@@ -524,6 +538,8 @@ async def rebuild_job(
         raise HTTPException(400, f"outputs는 {'/'.join(pl.WANTED)} 중에서 1개 이상")
     if thumb_pos != "off" and thumb_pos not in HOOK_POSITIONS:
         raise HTTPException(400, "thumb_pos는 off 또는 top/middle/bottom-left/center/right")
+    if thumb_font not in THUMB_FONTS:
+        raise HTTPException(400, f"thumb_font는 {'/'.join(THUMB_FONTS)} 중 하나")
     job_dir = JOBS_DIR / job_id
     if not job_dir.is_dir():
         raise HTTPException(404, "잡 없음")
@@ -565,7 +581,7 @@ async def rebuild_job(
         "shorts_focus": shorts_focus, "bgm_volume": bgm_volume,
         "subtitle_only": subtitle_only, "beat_sync": beat_sync,
         "bgm_auto": bgm_auto, "bgm_choice": bgm_choice,
-        "thumb_text": thumb_text, "thumb_pos": thumb_pos,
+        "thumb_text": thumb_text, "thumb_pos": thumb_pos, "thumb_font": thumb_font,
     }
     threading.Thread(target=_run_job, args=(job_id, input_paths, opts), daemon=True).start()
     return {"job_id": job_id}
@@ -820,6 +836,9 @@ async def get_file(job_id: str, name: str):
         media_type="video/mp4" if name.endswith(".mp4") else None,
     )
 
+
+# 동봉 폰트 — 편집기의 썸네일 타이틀 폰트 미리보기용 (@font-face)
+app.mount("/fonts", StaticFiles(directory=str(ROOT / "assets" / "fonts")), name="fonts")
 
 # 정적 파일 (index.html, app.js, style.css) — 마지막에 마운트(루트 "/")
 app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")

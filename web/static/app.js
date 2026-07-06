@@ -390,6 +390,7 @@ async function doRebuild() {
   fd.append("bgm_choice", bgmChoice);
   fd.append("thumb_text", $("ed_thumb_text").value.trim());
   fd.append("thumb_pos", thumbPos);
+  fd.append("thumb_font", thumbFont);
   appendSubOpts(fd, styleChoice);
 
   hide($("result-section"));
@@ -617,8 +618,27 @@ $("style-picks").addEventListener("click", (e) => {
   }
 });
 
-// ----- 썸네일 타이틀 — 문구·위치 선택 + 라이브 미리보기 -----
+// ----- 썸네일 타이틀 — 문구·폰트·위치 선택 + 라이브 미리보기 -----
 let thumbPos = "bottom-center";
+let thumbFont = "pretendard";
+const FONT_FAMILY = {
+  pretendard: "'Pretendard', sans-serif",
+  blackhan: "'BlackHanSansW', sans-serif",
+  dohyeon: "'DoHyeonW', sans-serif",
+  jua: "'JuaW', sans-serif",
+  nanumpen: "'NanumPenW', sans-serif",
+};
+function syncFontButtons() {
+  document.querySelectorAll("#font-picks button").forEach((b) =>
+    b.classList.toggle("selected", b.dataset.font === thumbFont));
+}
+$("font-picks").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-font]");
+  if (!btn) return;
+  thumbFont = btn.dataset.font;
+  syncFontButtons();
+  updateThumbOverlay();
+});
 
 function autoHookText() {
   // 백엔드 pick_thumbnail_hook 근사 — 최고점 hook > 첫 hook > 첫 캡션
@@ -640,6 +660,8 @@ function updateThumbOverlay() {
   ov.style.display = text ? "" : "none";
   if (!text) return;
   const [v, h] = thumbPos.split("-");
+  ov.style.fontFamily = FONT_FAMILY[thumbFont] || FONT_FAMILY.pretendard;
+  ov.style.fontWeight = thumbFont === "pretendard" ? "800" : "400";
   ov.style.textAlign = h === "left" ? "left" : h === "right" ? "right" : "center";
   ov.style.top = v === "top" ? "8%" : v === "middle" ? "50%" : "auto";
   ov.style.bottom = v === "bottom" ? "12%" : "auto";
@@ -720,8 +742,10 @@ async function initEditor(jobId, job) {
   // 썸네일 타이틀 — 깨끗한 원본 프레임 위에 라이브 미리보기
   // (생성된 썸네일엔 이전 타이틀이 이미 burn-in돼 있어 겹쳐 보인다)
   thumbPos = "bottom-center";
+  thumbFont = "pretendard";
   $("ed_thumb_text").value = "";
   syncPosButtons();
+  syncFontButtons();
   const tp = $("thumb-preview");
   if (edSegs.length) {
     const mid = ((Number(edSegs[0].start) + Number(edSegs[0].end)) / 2).toFixed(1);

@@ -649,6 +649,21 @@ details.adv .options { margin-top: 12px; }
 .play-btn:hover, .play-btn.playing { border-color: var(--amber); color: var(--amber); }
 .play-btn.playing { background: rgba(255,122,24,0.12); }
 
+/* 썸네일 타이틀 폰트 — 동봉 OFL 폰트 (백엔드 burn-in과 동일 파일) */
+@font-face { font-family: 'BlackHanSansW'; src: url('/fonts/BlackHanSans-Regular.ttf'); font-display: swap; }
+@font-face { font-family: 'DoHyeonW'; src: url('/fonts/DoHyeon-Regular.ttf'); font-display: swap; }
+@font-face { font-family: 'JuaW'; src: url('/fonts/Jua-Regular.ttf'); font-display: swap; }
+@font-face { font-family: 'NanumPenW'; src: url('/fonts/NanumPenScript-Regular.ttf'); font-display: swap; }
+
+.font-picks { display: flex; flex-wrap: wrap; gap: 8px; }
+.font-picks button {
+  background: var(--surface-2); border: 1px solid var(--line); color: var(--paper);
+  border-radius: 8px; padding: 7px 13px; font-size: 15px; cursor: pointer; transition: all .15s;
+}
+.font-picks button.selected {
+  border-color: var(--amber); color: var(--amber); background: rgba(255,122,24,0.08);
+}
+
 /* 썸네일 타이틀 — 위치 그리드 + 라이브 미리보기 */
 .thumb-input {
   background: var(--black); border: 1px solid var(--line); border-radius: 8px;

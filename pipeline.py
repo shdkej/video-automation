@@ -710,13 +710,14 @@ def build_thumbnail(args, segments: list, captions: list, outdir: Path) -> list:
         getattr(args, "thumb_text", "").strip() or pick_thumbnail_hook(segments, captions)
     )
     pos = getattr(args, "thumb_pos", "bottom-center")
+    font = getattr(args, "thumb_font", "pretendard")
     paths = []
     for n, at in enumerate(times, 1):
         name = "thumbnail.jpg" if len(times) == 1 else f"thumbnail_{n:02d}.jpg"
         out = outdir / name
         extract_thumbnail(args.input, out, at, grade=not args.no_grade)
         if hook:
-            overlay_hook_text(out, hook, pos=pos)
+            overlay_hook_text(out, hook, pos=pos, font=font)
         paths.append(out)
     return paths
 

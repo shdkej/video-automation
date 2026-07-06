@@ -290,6 +290,25 @@ HOOK_POSITIONS = frozenset(
     f"{v}-{h}" for v in ("top", "middle", "bottom") for h in ("left", "center", "right")
 )
 
+# 썸네일 타이틀 폰트 — 전부 동봉(OFL/SIL), 키는 API·프론트와 공유
+_FONT_DIR = Path(__file__).resolve().parent / "assets" / "fonts"
+THUMB_FONTS = {
+    "pretendard": ("Pretendard-ExtraBold.otf", "프리텐다드"),
+    "blackhan": ("BlackHanSans-Regular.ttf", "블랙한산스"),
+    "dohyeon": ("DoHyeon-Regular.ttf", "도현"),
+    "jua": ("Jua-Regular.ttf", "주아"),
+    "nanumpen": ("NanumPenScript-Regular.ttf", "나눔손글씨"),
+}
+
+
+def thumb_font_path(key: str) -> Path | None:
+    """폰트 키 → 동봉 파일 경로. 미지원 키·파일 없음은 None (호출부가 기본 폰트로)."""
+    entry = THUMB_FONTS.get(key)
+    if entry is None:
+        return None
+    p = _FONT_DIR / entry[0]
+    return p if p.is_file() else None
+
 
 def hook_anchor_y(v: str, height: int, block_h: int) -> int:
     """타이틀 블록의 y 시작 — top 8% / middle 중앙 / bottom 하단 12% 여백."""
@@ -330,11 +349,13 @@ def wrap_hook_lines(text: str, measure, max_w: int, max_lines: int = 3) -> list[
     return lines
 
 
-def overlay_hook_text(image_path: Path, text: str, pos: str = "bottom-center") -> None:
-    """썸네일에 타이틀 문구를 burn-in — 숏츠 자막과 같은 룩(ExtraBold+검정 외곽선).
+def overlay_hook_text(
+    image_path: Path, text: str, pos: str = "bottom-center", font: str = "pretendard",
+) -> None:
+    """썸네일에 타이틀 문구를 burn-in — 흰 글씨 + 검정 외곽선.
 
-    pos는 "top|middle|bottom-left|center|right". 폭 88%를 넘으면 단어 단위
-    줄바꿈(최대 3줄), 수동 \\n도 존중한다.
+    pos는 "top|middle|bottom-left|center|right", font는 THUMB_FONTS 키.
+    폭 88%를 넘으면 단어 단위 줄바꿈(최대 3줄), 수동 \\n도 존중한다.
     """
     if not text.strip():
         return
@@ -343,7 +364,11 @@ def overlay_hook_text(image_path: Path, text: str, pos: str = "bottom-center") -
         v, h = "bottom", "center"
     img = Image.open(image_path).convert("RGB")
     W, H = img.size
-    font_path, font_index = find_korean_font()
+    picked = thumb_font_path(font)
+    if picked is not None:
+        font_path, font_index = str(picked), 0
+    else:
+        font_path, font_index = find_korean_font()
     size = max(28, W // 14)
     try:
         font = ImageFont.truetype(font_path, size, index=font_index)
@@ -623,11 +648,12 @@ def add_bgm(
     bgm_fade_start = max(0.0, vdur - fade_out)
 
     if has_audio_stream(input_path):
+        # normalize=0 — 기본 정규화는 BGM·원본을 절반으로 깎아 설정 볼륨이 무의미해진다
         filter_complex = (
             f"[1:a]volume={bgm_volume},"
             f"afade=out:st={bgm_fade_start:.3f}:d={fade_out},"
             f"atrim=duration={vdur:.3f}[bgm];"
-            f"[0:a][bgm]amix=inputs=2:duration=first:dropout_transition=0[aout]"
+            f"[0:a][bgm]amix=inputs=2:duration=first:normalize=0:dropout_transition=0[aout]"
         )
     else:
         filter_complex = (

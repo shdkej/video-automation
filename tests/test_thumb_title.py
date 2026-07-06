@@ -7,10 +7,22 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from effects import (  # noqa: E402
     HOOK_POSITIONS,
+    THUMB_FONTS,
     hook_anchor_x,
     hook_anchor_y,
+    thumb_font_path,
     wrap_hook_lines,
 )
+
+
+def test_thumb_fonts_all_bundled():
+    # 레지스트리의 모든 폰트 파일이 실제로 동봉돼 있어야 한다
+    for key in THUMB_FONTS:
+        assert thumb_font_path(key) is not None, key
+
+
+def test_thumb_font_unknown_key():
+    assert thumb_font_path("comic-sans") is None
 
 
 def test_positions_set():
