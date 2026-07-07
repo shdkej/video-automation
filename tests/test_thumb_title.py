@@ -89,8 +89,8 @@ def test_wrap_width_and_line_cap():
 # ---------- 템플릿 ----------
 
 def test_templates_registry():
-    # 10종 고정 — 키·라벨·폰트가 전부 유효해야 프론트 칩과 파이프라인이 안전
-    assert len(THUMB_TEMPLATES) == 10
+    # 20종 고정 — 키·라벨·폰트가 전부 유효해야 프론트 칩과 파이프라인이 안전
+    assert len(THUMB_TEMPLATES) == 20
     for key, t in THUMB_TEMPLATES.items():
         assert t["label"], key
         assert t["font"] in THUMB_FONTS, key

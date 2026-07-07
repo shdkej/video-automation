@@ -721,7 +721,8 @@ details.settings[open] > summary { border-bottom: 1px solid var(--line); }
 .tc-manual { display: flex; flex-direction: column; gap: 12px; transition: opacity .2s; }
 .tc-manual.dimmed { opacity: 0.38; }
 
-.thumb-preview { position: relative; max-width: 260px; }
+/* 미리보기 — 템플릿·옵션을 고르는 동안 스크롤을 따라와 항상 보인다 */
+.thumb-preview { position: sticky; top: 14px; align-self: flex-start; max-width: 260px; }
 .thumb-preview img { width: 100%; border-radius: 8px; border: 1px solid var(--line); display: block; }
 .thumb-ctl { margin-top: 12px; }
 
@@ -818,5 +819,14 @@ details.settings[open] > summary { border-bottom: 1px solid var(--line); }
   .sd-grid { grid-template-columns: 1fr; }
   .sd-preview { max-width: 260px; margin: 0 auto; }
   .ed-col { min-width: 100%; }
-  .thumb-preview { margin: 0 auto; }
+
+  /* 좁은 화면 — 미리보기를 컨트롤 위로 올려 상단 고정, 칩을 눌러도 바로 보인다 */
+  .thumb-preview {
+    order: -1;
+    margin: 0 auto;
+    max-width: 220px;
+    top: 8px;
+    z-index: 30;
+    box-shadow: 0 8px 26px -6px rgba(0, 0, 0, 0.75);
+  }
 }

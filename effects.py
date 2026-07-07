@@ -385,6 +385,65 @@ THUMB_TEMPLATES = {
         "shadow": {"dx": 0, "dy": 0.02, "blur": 0.09, "color": (0, 0, 0), "alpha": 160},
         "scale_mul": 0.85,
     },
+    "comic": {       # 만화 팝 — 흰 글씨 + 검정 외곽선 + 딱딱한 3D 압출 그림자
+        "label": "만화", "font": "jua", "weight": "heavy",
+        "fill": (255, 255, 255), "stroke": {"color": (20, 16, 12), "k": 9},
+        "shadow": {"dx": 0.09, "dy": 0.11, "blur": 0, "color": (20, 16, 12), "alpha": 255, "steps": 7},
+        "tilt": 2,
+    },
+    "retro": {       # Y2K 레트로 — 크림 + 네이비/핑크 이중 외곽선 + 하드 섀도
+        "label": "레트로", "font": "dohyeon", "weight": "bold",
+        "fill": (255, 244, 210), "stroke": {"color": (44, 42, 96), "k": 14},
+        "stroke2": {"color": (255, 120, 190), "k": 6},
+        "shadow": {"dx": 0.07, "dy": 0.08, "blur": 0, "color": (44, 42, 96), "alpha": 235},
+        "tilt": -2,
+    },
+    "fire": {        # 파이어 — 옐로→레드 그라디언트 + 불꽃 장식 (매운맛·도전)
+        "label": "파이어", "font": "blackhan", "weight": "heavy",
+        "fill": {"gradient": ((255, 232, 90), (255, 48, 24))},
+        "stroke": {"color": (60, 10, 4), "k": 18},
+        "effect": "fire", "scale_mul": 1.05,
+    },
+    "festa": {       # 축포 — 흰 글씨 + 골드 외곽선 + 폭죽 (축하·공개·기념)
+        "label": "축포", "font": "pretendard", "weight": "heavy",
+        "fill": (255, 255, 255), "stroke": {"color": (212, 160, 60), "k": 14},
+        "shadow": {"dx": 0.02, "dy": 0.04, "blur": 0.06, "color": (60, 40, 8), "alpha": 180},
+        "effect": "fireworks",
+    },
+    "ice": {         # 아이스 — 화이트→아이스블루 그라디언트 + 시안 글로우 (청량·겨울)
+        "label": "아이스", "font": "blackhan", "weight": "bold",
+        "fill": {"gradient": ((255, 255, 255), (140, 220, 255))},
+        "stroke": {"color": (20, 90, 130), "k": 20},
+        "shadow": {"dx": 0, "dy": 0, "blur": 0.14, "color": (120, 215, 255), "alpha": 240},
+    },
+    "grape": {       # 퍼플 네온 — 라벤더→퍼플 가로 그라디언트 + 마젠타 글로우 (뷰티·나이트)
+        "label": "퍼플 네온", "font": "pretendard", "weight": "heavy",
+        "fill": {"gradient": ((240, 220, 255), (186, 120, 255)), "dir": "h"},
+        "stroke": {"color": (120, 40, 200), "k": 22},
+        "shadow": {"dx": 0, "dy": 0, "blur": 0.15, "color": (255, 60, 220), "alpha": 235},
+    },
+    "breaking": {    # 속보 — 화면 풀폭 레드 바 + 흰 글씨 (뉴스·긴급)
+        "label": "속보", "font": "dohyeon", "weight": "bold",
+        "fill": (255, 255, 255), "stroke": None,
+        "bg": {"color": (196, 24, 24, 235), "pad_x": 0.30, "pad_y": 0.14, "radius": 0, "full": True},
+    },
+    "polaroid": {    # 폴라로이드 — 흰 라벨지 + 검정 손글씨 + 틸트 (일상·기록)
+        "label": "폴라로이드", "font": "nanumpen", "weight": "normal",
+        "fill": (30, 26, 22), "stroke": None,
+        "bg": {"color": (255, 253, 248, 240), "pad_x": 0.34, "pad_y": 0.10, "radius": 0.05},
+        "tilt": -2, "scale_mul": 1.1,
+    },
+    "mint": {        # 민트 — 민트 + 딥틸 외곽선 + 흰 하드 섀도 (여름·리프레시)
+        "label": "민트", "font": "jua", "weight": "heavy",
+        "fill": (64, 232, 190), "stroke": {"color": (8, 68, 60), "k": 12},
+        "shadow": {"dx": 0.05, "dy": 0.06, "blur": 0, "color": (255, 255, 255), "alpha": 235},
+        "tilt": 2,
+    },
+    "poster": {      # 롱섀도 포스터 — 흰 헤비 + 길게 뻗는 대각 그림자 (모던·시네마)
+        "label": "롱섀도", "font": "pretendard", "weight": "heavy",
+        "fill": (255, 255, 255), "stroke": None,
+        "shadow": {"dx": 0.16, "dy": 0.16, "blur": 0, "color": (10, 8, 6), "alpha": 170, "steps": 12},
+    },
 }
 
 
@@ -577,14 +636,17 @@ def wrap_hook_lines(text: str, measure, max_w: int, max_lines: int = 3) -> list[
     return lines
 
 
-def _vertical_gradient(size: tuple, y0: int, y1: int, top: tuple, bottom: tuple) -> Image.Image:
-    """블록 y0~y1 구간에서 top→bottom으로 보간되는 세로 그라디언트 캔버스."""
+def _linear_gradient(size: tuple, a0: int, a1: int, start: tuple, end: tuple,
+                     horizontal: bool = False) -> Image.Image:
+    """블록 a0~a1 구간(세로는 y, 가로는 x)에서 start→end로 보간되는 그라디언트 캔버스."""
     W, H = size
-    strip = Image.new("RGB", (1, H))
-    span = max(1, y1 - y0)
-    for yy in range(H):
-        f = min(1.0, max(0.0, (yy - y0) / span))
-        strip.putpixel((0, yy), tuple(int(a + (b - a) * f) for a, b in zip(top, bottom)))
+    n = W if horizontal else H
+    strip = Image.new("RGB", (n, 1) if horizontal else (1, n))
+    span = max(1, a1 - a0)
+    for i in range(n):
+        f = min(1.0, max(0.0, (i - a0) / span))
+        color = tuple(int(a + (b - a) * f) for a, b in zip(start, end))
+        strip.putpixel((i, 0) if horizontal else (0, i), color)
     return strip.resize((W, H))
 
 
@@ -640,12 +702,21 @@ def overlay_hook_text(
     layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     ld = ImageDraw.Draw(layer)
 
+    def text_pass(target: "ImageDraw.ImageDraw", color: tuple, width: int,
+                  dx: int = 0, dy: int = 0, fill_color: tuple | None = None) -> None:
+        yy = y0
+        for line, x in zip(lines, xs):
+            target.text((x + dx, yy + dy), line, font=fnt, fill=fill_color or color,
+                        stroke_width=width, stroke_fill=color if width else None)
+            yy += line_h
+
     bg = style.get("bg")
     if bg:
         for x, tw, ly in zip(xs, widths, range(y0, y0 + block_h, line_h)):
+            bx0, bx1 = ((0, W) if bg.get("full")
+                        else (x - em(bg["pad_x"]), x + tw + em(bg["pad_x"])))
             ld.rounded_rectangle(
-                [x - em(bg["pad_x"]), ly + em(0.02) - em(bg["pad_y"]),
-                 x + tw + em(bg["pad_x"]), ly + em(1.08) + em(bg["pad_y"])],
+                [bx0, ly + em(0.02) - em(bg["pad_y"]), bx1, ly + em(1.08) + em(bg["pad_y"])],
                 radius=em(bg["radius"]), fill=tuple(bg["color"]))
 
     sh = style.get("shadow")
@@ -653,39 +724,33 @@ def overlay_hook_text(
         shadow = Image.new("RGBA", (W, H), (0, 0, 0, 0))
         sd = ImageDraw.Draw(shadow)
         color = tuple(sh["color"]) + (sh["alpha"],)
-        yy = y0
-        for line, x in zip(lines, xs):
-            sd.text((x + em(sh["dx"]), yy + em(sh["dy"])), line, font=fnt,
-                    fill=color, stroke_width=stroke, stroke_fill=color)
-            yy += line_h
+        # steps>1이면 오프셋을 잘게 나눠 겹쳐 그린 압출(3D extrude) 그림자
+        steps = sh.get("steps", 1)
+        for i in range(steps, 0, -1):
+            f = i / steps
+            text_pass(sd, color, stroke, int(em(sh["dx"]) * f), int(em(sh["dy"]) * f))
         if sh["blur"]:
             shadow = shadow.filter(ImageFilter.GaussianBlur(em(sh["blur"])))
         layer = Image.alpha_composite(layer, shadow)
         ld = ImageDraw.Draw(layer)
 
+    st2 = style.get("stroke2")
+    if st2:  # 이중 외곽선 — 안쪽 외곽선 바깥에 한 겹 더
+        text_pass(ld, tuple(st2["color"]), stroke + max(2, size // st2.get("k", 6)))
+
     fill = style["fill"]
-    if isinstance(fill, dict):  # 세로 그라디언트 — 실루엣(외곽선 포함) 위에 마스크로 채움
-        yy = y0
-        for line, x in zip(lines, xs):
-            if stroke:
-                ld.text((x, yy), line, font=fnt, fill=tuple(st["color"]),
-                        stroke_width=stroke, stroke_fill=tuple(st["color"]))
-            yy += line_h
+    if isinstance(fill, dict):  # 그라디언트 — 실루엣(외곽선 포함) 위에 마스크로 채움
+        if stroke:
+            text_pass(ld, tuple(st["color"]), stroke)
         mask = Image.new("L", (W, H), 0)
-        md = ImageDraw.Draw(mask)
-        yy = y0
-        for line, x in zip(lines, xs):
-            md.text((x, yy), line, font=fnt, fill=255)
-            yy += line_h
-        top, bottom = fill["gradient"]
-        grad = _vertical_gradient((W, H), y0, y0 + block_h, top, bottom)
+        text_pass(ImageDraw.Draw(mask), (255,), 0, fill_color=255)
+        start, end = fill["gradient"]
+        horizontal = fill.get("dir") == "h"
+        a0, a1 = (box[0], box[2]) if horizontal else (y0, y0 + block_h)
+        grad = _linear_gradient((W, H), a0, a1, start, end, horizontal)
         layer.paste(grad, (0, 0), mask)
     else:
-        yy = y0
-        for line, x in zip(lines, xs):
-            ld.text((x, yy), line, font=fnt, fill=tuple(fill), stroke_width=stroke,
-                    stroke_fill=tuple(st["color"]) if st else None)
-            yy += line_h
+        text_pass(ld, tuple(st["color"]) if st else (0, 0, 0), stroke, fill_color=tuple(fill))
 
     tilt = style.get("tilt", 0)
     if tilt:
