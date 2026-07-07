@@ -736,13 +736,27 @@ details.settings[open] > summary { border-bottom: 1px solid var(--line); }
 .tc-scroll::-webkit-scrollbar { display: none; }
 .tc-scroll button { flex-shrink: 0; white-space: nowrap; }
 .tc-templates button { font-size: 14px; }
+/* 템플릿 선택 중엔 폰트·굵기·효과가 번들 값으로 표시만 된다 — 반투명이 "잠김" 신호 */
 .tc-row.tc-manual { transition: opacity .2s; }
-.tc-row.tc-manual.dimmed { opacity: 0.38; }
+.tc-row.tc-manual.dimmed { opacity: 0.55; }
 .tc-row input[type="range"] { flex: 1; max-width: none; accent-color: var(--amber); }
 
-/* 미리보기 — 템플릿·옵션을 고르는 동안 스크롤을 따라와 항상 보인다 */
+/* 미리보기 — 템플릿·옵션을 고르는 동안 스크롤을 따라와 항상 보인다.
+   비율 고정(--tc-ar) + 오버레이 로딩으로 갱신 중에도 높이가 출렁이지 않는다 */
 .thumb-preview { position: sticky; top: 14px; align-self: flex-start; max-width: 260px; }
-.thumb-preview img { width: 100%; border-radius: 8px; border: 1px solid var(--line); display: block; }
+.thumb-preview img {
+  width: 100%; border-radius: 8px; border: 1px solid var(--line); display: block;
+  aspect-ratio: var(--tc-ar, 16 / 9); object-fit: contain; background: #000;
+  transition: opacity .15s;
+}
+.thumb-preview img.loading { opacity: 0.55; }
+.tc-loading {
+  position: absolute; top: 8px; right: 8px;
+  font-family: var(--film); font-size: 10.5px; letter-spacing: 0.04em;
+  color: var(--paper); background: rgba(0, 0, 0, 0.65);
+  padding: 3px 9px; border-radius: 6px; pointer-events: none;
+}
+.thumb-preview .tc-note { min-height: 16px; margin: 6px 0 0; }
 .thumb-ctl { margin-top: 12px; }
 
 /* 타임라인 */

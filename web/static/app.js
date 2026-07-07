@@ -710,6 +710,7 @@ const TC_TEMPLATE = `
     </div>
     <div class="thumb-preview hidden tc-preview">
       <img class="tc-img" alt="썸네일 미리보기">
+      <span class="tc-loading hidden">준비 중…</span>
       <p class="sd-note tc-note"></p>
     </div>
   </div>`;
@@ -723,10 +724,12 @@ function createThumbControls(rootId, getBase, getAutoText) {
   let timer = null;
   let lastUrl = null;
 
-  // 템플릿 칩 — 서버 목록(폰트·대표색 힌트)으로 렌더
+  // 템플릿 칩 — 서버 목록(폰트·대표색 힌트)으로 렌더. 메타는 선택 시 번들 표시용
+  const tplMeta = {};
   loadThumbTemplates().then((tpls) => {
     const wrap = q(".tc-templates");
     tpls.forEach((t) => {
+      tplMeta[t.key] = t;
       const b = document.createElement("button");
       b.type = "button";
       b.dataset.tpl = t.key;
@@ -741,9 +744,14 @@ function createThumbControls(rootId, getBase, getAutoText) {
   async function renderPreview() {
     const wrap = q(".tc-preview");
     const note = q(".tc-note");
-    note.textContent = "미리보기 준비 중…";
+    const img = q(".tc-img");
+    const loading = q(".tc-loading");
+    // 로딩은 이미지 위 배지 + 살짝 디밍 — 아래에 줄이 생겨 높이가 출렁이지 않게
+    loading.classList.remove("hidden");
+    img.classList.add("loading");
+    const done = () => { loading.classList.add("hidden"); img.classList.remove("loading"); };
     const base = await getBase();
-    if (!base) { wrap.classList.add("hidden"); return; }
+    if (!base) { done(); wrap.classList.add("hidden"); return; }
     wrap.classList.remove("hidden");
     const fd = new FormData();
     fd.append("text", state.pos === "off" ? "" : (state.text.trim() || (getAutoText ? getAutoText() : "")));
@@ -761,9 +769,15 @@ function createThumbControls(rootId, getBase, getAutoText) {
       const url = URL.createObjectURL(await res.blob());
       if (lastUrl) URL.revokeObjectURL(lastUrl);
       lastUrl = url;
-      q(".tc-img").src = url;
+      img.onload = () => {
+        // 실제 프레임 비율로 고정 — 이후 갱신에서 높이가 변하지 않는다
+        wrap.style.setProperty("--tc-ar", `${img.naturalWidth} / ${img.naturalHeight}`);
+        done();
+      };
+      img.src = url;
       note.textContent = base.note || "";
     } catch (err) {
+      done();
       note.textContent = `미리보기 실패 (${err.message}) — 산출엔 영향 없음`;
     }
   }
@@ -789,6 +803,15 @@ function createThumbControls(rootId, getBase, getAutoText) {
     const b = e.target.closest("button[data-tpl]");
     if (!b) return;
     state.template = b.dataset.tpl;
+    // 번들 폰트·굵기·효과를 상태와 칩에 반영 — 뭘로 바뀌는지 보이고,
+    // "직접 조합"으로 돌아가도 이 조합에서 이어서 만질 수 있다
+    const meta = tplMeta[state.template];
+    if (meta) {
+      Object.assign(state, { font: meta.font, weight: meta.weight, effect: meta.effect });
+      syncSel(".tc-fonts", "font", state.font);
+      syncSel(".tc-weights", "weight", state.weight);
+      syncSel(".tc-effects", "effect", state.effect);
+    }
     syncTemplate();
     refresh(true);
   });

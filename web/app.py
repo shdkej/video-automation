@@ -905,7 +905,9 @@ async def thumb_templates():
         return {"color": "#%02x%02x%02x" % tuple(color[:3]),
                 "bg": "#%02x%02x%02x" % tuple(bg[:3]) if bg else None}
 
-    return [{"key": k, "label": t["label"], "font": t["font"], **chip_colors(t)}
+    return [{"key": k, "label": t["label"], "font": t["font"],
+             "weight": t.get("weight", "bold"), "effect": t.get("effect", "none"),
+             **chip_colors(t)}
             for k, t in THUMB_TEMPLATES.items()]
 
 
