@@ -57,16 +57,25 @@ def _stage(src: Path, stage_dir: Path, public_root: Path) -> str:
 
 
 def _auto_pages(images: list[Path], duration: float) -> list[dict]:
-    """이미지 목록만 받았을 때 영상 길이에 균등 배분. 앞뒤 0.8s 여백."""
-    lead, tail = 0.8, 0.5
-    usable = max(1.0, duration - lead - tail)
+    """이미지 목록만 받았을 때 영상 길이에 균등 배분.
+
+    앞뒤 여백·페이지 간격은 기본값을 쓰되, 영상이 짧아 페이지가 안 들어가면
+    간격부터 줄인다(0까지) — 어떤 입력에서도 start < end ≤ duration을 보장.
+    """
     n = len(images)
-    slot = (usable - AUTO_GAP_SEC * (n - 1)) / n
+    lead = min(0.8, duration * 0.1)
+    tail = min(0.5, duration * 0.1)
+    usable = duration - lead - tail
+    min_slot = 0.8
+    gap = AUTO_GAP_SEC
+    if usable - gap * (n - 1) < n * min_slot:
+        gap = max(0.0, (usable - n * min_slot) / max(n - 1, 1))
+    slot = (usable - gap * (n - 1)) / n
     pages = []
     t = lead
     for img in images:
         pages.append({"src": img, "start": round(t, 3), "end": round(t + slot, 3)})
-        t += slot + AUTO_GAP_SEC
+        t += slot + gap
     return pages
 
 

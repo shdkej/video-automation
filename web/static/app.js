@@ -81,9 +81,11 @@ fileInput.addEventListener("change", () => { addFiles(fileInput.files); fileInpu
 );
 const AUDIO_RE = /\.(m4a|mp3|wav|aac|flac|ogg|opus|aiff?)$/i;
 const MEDIA_RE = /\.(mp4|mov|mkv|webm|avi|m4v|m4a|mp3|wav|aac|flac|ogg|opus|aiff?)$/i;
+const NOTE_IMG_RE = /\.(png|jpe?g|webp)$/i; // 노트 오버레이용 이미지
 dz.addEventListener("drop", (e) => {
   const ok = [...e.dataTransfer.files].filter(
-    (f) => f.type.startsWith("video/") || f.type.startsWith("audio/") || MEDIA_RE.test(f.name)
+    (f) => f.type.startsWith("video/") || f.type.startsWith("audio/")
+      || MEDIA_RE.test(f.name) || NOTE_IMG_RE.test(f.name)
   );
   addFiles(ok);
 });
@@ -99,17 +101,25 @@ function fmtSize(bytes) {
   return (bytes / 1e3).toFixed(0) + " KB";
 }
 
+const isNoteImg = (f) => NOTE_IMG_RE.test(f.name) || f.type.startsWith("image/");
+// 영상 + 이미지가 함께 있으면 노트 오버레이 모드 — 별도 컨트롤 없이 파일 조합이 곧 의도
+function noteMode() {
+  return pickedFiles.some(isNoteImg) &&
+    pickedFiles.some((f) => !isNoteImg(f) && !AUDIO_RE.test(f.name) && !f.type.startsWith("audio/"));
+}
+
 function renderFileList() {
   const ul = $("file-list");
   ul.innerHTML = "";
-  let vn = 0; // 영상만 순번, 오디오는 ♪
+  let vn = 0; // 영상만 순번, 오디오는 ♪, 노트 이미지는 🗒
   pickedFiles.forEach((f, i) => {
     const isAudio = AUDIO_RE.test(f.name) || f.type.startsWith("audio/");
+    const isImg = isNoteImg(f);
     const li = document.createElement("li");
     li.className = "file-row" + (isAudio ? " audio" : "");
     const idx = document.createElement("span");
     idx.className = "fr-idx" + (isAudio ? " audio" : "");
-    idx.textContent = isAudio ? "♪" : String(++vn);
+    idx.textContent = isAudio ? "♪" : isImg ? "🗒" : String(++vn);
     const name = document.createElement("span"); name.className = "fr-name"; name.textContent = f.name;
     const size = document.createElement("span"); size.className = "fr-size"; size.textContent = fmtSize(f.size);
     const btns = document.createElement("span"); btns.className = "fr-btns";
@@ -124,8 +134,12 @@ function renderFileList() {
     ul.append(li);
   });
   // 영상이 있어야 썸네일 미리보기 섹션이 나타난다 — 없으면 통째로 숨김
-  const hasVideo = pickedFiles.some((f) => !AUDIO_RE.test(f.name) && !f.type.startsWith("audio/"));
-  $("thumb-form-sec").classList.toggle("hidden", !hasVideo);
+  const hasVideo = pickedFiles.some((f) => !isNoteImg(f) && !AUDIO_RE.test(f.name) && !f.type.startsWith("audio/"));
+  const note = noteMode();
+  // 노트 모드에선 4종 파이프라인 UI(썸네일 미리보기)가 무의미 — 숨기고 CTA만 바꾼다
+  $("thumb-form-sec").classList.toggle("hidden", !hasVideo || note);
+  $("note-hint").classList.toggle("hidden", !note);
+  $("cta-label").textContent = note ? "노트 오버레이 만들기" : "네 가지 만들기";
   formTC.refresh(); // 첫 영상이 바뀌면 썸네일 타이틀 미리보기 바탕도 갱신
 }
 
@@ -150,6 +164,7 @@ function uploadWithProgress(url, fd, onProgress) {
 $("job-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   if (pickedFiles.length === 0) { dz.classList.add("dragging"); setTimeout(() => dz.classList.remove("dragging"), 600); return; }
+  if (noteMode()) return submitNoteJob();
 
   const fd = new FormData();
   pickedFiles.forEach((f) => fd.append("files", f)); // 순서 보존
@@ -184,6 +199,7 @@ $("job-form").addEventListener("submit", async (e) => {
   requestNotifyPermission();
   hide($("form-section"));
   show($("progress-section"));
+  $("stepper").classList.remove("hidden");
   updateStepper(0);
   $("bar-fill").style.width = "0%";
   $("stage-text").textContent = "업로드 준비…";
@@ -206,6 +222,35 @@ $("job-form").addEventListener("submit", async (e) => {
     $("submit-btn").disabled = false;
   }
 });
+
+// 노트 오버레이 제출 — 파일만 보내면 끝 (옵션 없음, 타이밍은 서버가 균등 배분)
+async function submitNoteJob() {
+  const fd = new FormData();
+  pickedFiles.forEach((f) => fd.append("files", f)); // 순서 보존 = 페이지 순서
+  $("submit-btn").disabled = true;
+  requestNotifyPermission();
+  hide($("form-section"));
+  show($("progress-section"));
+  $("stepper").classList.add("hidden"); // 4종 스텝퍼는 노트 잡과 무관
+  $("bar-fill").style.width = "0%";
+  $("stage-text").textContent = "업로드 준비…";
+  try {
+    const { job_id } = await uploadWithProgress("/api/note-jobs", fd, (loaded, total) => {
+      const pct = Math.round((loaded / total) * 100);
+      $("bar-fill").style.width = pct + "%";
+      $("stage-text").textContent = pct >= 100
+        ? "업로드 완료 — 처리 대기 중…"
+        : `업로드 중 · ${pct}% (${fmtSize(loaded)} / ${fmtSize(total)})`;
+    });
+    const vid = pickedFiles.find((f) => !isNoteImg(f));
+    saveRecentJob(job_id, { mode: "note", name: vid ? vid.name : pickedFiles[0].name });
+    startPolling(job_id);
+  } catch (err) {
+    showError(err.message);
+  } finally {
+    $("submit-btn").disabled = false;
+  }
+}
 
 // ---------- 폴링 + 스텝퍼 ----------
 const STEP_THRESHOLDS = [
@@ -244,6 +289,7 @@ function startPolling(jobId) {
       const p = job.progress || 0;
       $("bar-fill").style.width = p + "%";
       $("stage-text").textContent = `${job.stage || ""} · ${p}%`;
+      $("stepper").classList.toggle("hidden", job.kind === "note");
       updateStepper(p);
       if (job.status === "done") {
         stopPolling();
@@ -363,6 +409,7 @@ function renderResults(jobId, job) {
   const o = job.outputs || {};
   updateRecentJob(jobId, { out: outputsSummary(o) });
   let html = "";
+  if (o.note) html += cut(jobId, o.note, "노트 오버레이", "영상+노트");
   if (o.subtitled) html += cut(jobId, o.subtitled, "자막본", "원본 그대로");
   if (o.longform) html += cut(jobId, o.longform, "롱폼", "16:9");
   (o.shorts || []).forEach((n, i) => (html += cut(jobId, n, `숏츠 ${i + 1}`, "9:16", { vertical: true })));
@@ -375,7 +422,9 @@ function renderResults(jobId, job) {
     `<a class="dl" href="/api/jobs/${jobId}/archive">전부 받기 ↓zip</a>` +
     (o.srt ? `<a class="dl" href="${fileUrl(jobId, o.srt)}" download>자막 ↓srt</a>` : "");
   renderCompare(jobId, o);
-  initEditor(jobId, job);
+  // 노트 잡은 분석(selection.json)이 없어 편집기가 성립하지 않는다
+  if (o.note) hide($("editor"));
+  else { show($("editor")); initEditor(jobId, job); }
 }
 
 // 분석 재사용 재생성 — 편집기(전체 설정 바)의 값으로 다시 만들기
@@ -451,6 +500,7 @@ function updateRecentJob(id, patch) {
 
 function outputsSummary(o = {}) {
   const parts = [];
+  if (o.note) parts.push("노트 오버레이");
   if (o.subtitled) parts.push("자막본");
   if (o.longform) parts.push("롱폼");
   if (o.shorts && o.shorts.length) parts.push(`숏츠${o.shorts.length}`);

@@ -45,6 +45,7 @@ from effects import (  # noqa: E402
     add_sfx,
     overlay_hook_text,
 )
+from note_overlay import render_note_overlay  # noqa: E402
 from web.media_library import resolve_library_file  # noqa: E402
 
 BASE = Path(__file__).resolve().parent
@@ -293,6 +294,43 @@ def _run_job(job_id: str, input_paths: list[Path], opts: dict) -> None:
     finally:
         job["llm_usage"] = get_llm_usage()  # 추정치 — 정확 청구는 프로바이더 대시보드
         _RUNNING.release()  # 동시 잡 슬롯 반환
+
+
+NOTE_IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp")
+
+
+def _run_note_job(job_id: str, input_paths: list[Path]) -> None:
+    """노트 오버레이 잡 — 영상 위에 노트 이미지가 페이지처럼 떠오르는 연출.
+
+    4종 파이프라인과 분리된 경량 경로: 분석(Whisper/LLM) 없이 Remotion 렌더 한 번.
+    이미지 등장 타이밍은 영상 길이에 균등 배분(note_overlay.py), 순서는 업로드 순서.
+    """
+    job = JOBS[job_id]
+    outdir = JOBS_DIR / job_id / "outputs"
+    outdir.mkdir(parents=True, exist_ok=True)
+    try:
+        notes = [p for p in input_paths if p.suffix.lower() in NOTE_IMAGE_SUFFIXES]
+        videos, _ = pl.split_media([p for p in input_paths if p not in notes])
+        if not videos or not notes:
+            raise ValueError("영상 1개 이상 + 노트 이미지 1장 이상이 필요합니다.")
+
+        if len(videos) > 1:
+            job["stage"], job["progress"] = f"{len(videos)}개 영상 이어붙이는 중", 10
+            merged = outdir / "_merged_source.mp4"
+            pl.concat_sources(videos, merged)
+            video = merged
+        else:
+            video = videos[0]
+
+        job["stage"], job["progress"] = f"노트 오버레이 렌더 (이미지 {len(notes)}장)", 30
+        render_note_overlay(video, notes, outdir / "note_overlay.mp4")
+
+        job["outputs"] = {"note": "note_overlay.mp4"}
+        job["status"], job["progress"], job["stage"] = "done", 100, "완료"
+    except Exception as e:  # noqa: BLE001 — 잡 단위 격리
+        job["status"], job["error"] = "error", str(e)
+    finally:
+        _RUNNING.release()
 
 
 # ============================================================================
@@ -544,6 +582,42 @@ async def create_job(
     return {"job_id": job_id}
 
 
+@app.post("/api/note-jobs")
+async def create_note_job(files: list[UploadFile]):
+    """노트 오버레이 잡 생성 — 영상 + 노트 이미지(png/jpg/webp)를 함께 업로드.
+
+    옵션 없음(기본값 신뢰): 이미지 순서는 업로드 순서, 타이밍은 균등 배분.
+    진행/결과 조회는 기존 GET /api/jobs/{id}를 그대로 쓴다.
+    """
+    names = [f.filename or "" for f in files]
+    if not any(n.lower().endswith(NOTE_IMAGE_SUFFIXES) for n in names):
+        raise HTTPException(400, "노트 이미지(png/jpg/webp)가 1장 이상 필요합니다")
+    if all(n.lower().endswith(NOTE_IMAGE_SUFFIXES) for n in names):
+        raise HTTPException(400, "배경 영상 파일이 필요합니다")
+    if not _RUNNING.acquire(blocking=False):
+        raise HTTPException(
+            429, f"동시 처리 한도({MAX_CONCURRENT_JOBS}개) 초과. 진행 중인 작업이 끝나면 다시 시도하세요."
+        )
+    cleanup_jobs()
+    job_id = uuid.uuid4().hex[:12]
+    job_dir = JOBS_DIR / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        input_paths = _save_uploads(files, job_dir)
+    except HTTPException:
+        _RUNNING.release()
+        shutil.rmtree(job_dir, ignore_errors=True)
+        raise
+
+    JOBS[job_id] = {
+        "status": "running", "stage": "대기", "progress": 0,
+        "outputs": None, "error": None, "mode": "note", "kind": "note",
+        "source_count": len(input_paths),
+    }
+    threading.Thread(target=_run_note_job, args=(job_id, input_paths), daemon=True).start()
+    return {"job_id": job_id}
+
+
 @app.post("/api/jobs/{job_id}/rebuild")
 async def rebuild_job(
     job_id: str,
@@ -657,6 +731,8 @@ def _outputs_from_dir(outdir: Path) -> dict:
         o["intro"] = "intro.mp4"
     if (outdir / "subtitled.mp4").is_file():
         o["subtitled"] = "subtitled.mp4"
+    if (outdir / "note_overlay.mp4").is_file():
+        o["note"] = "note_overlay.mp4"
     if (outdir / "longform.srt").is_file():
         o["srt"] = "longform.srt"
     elif (outdir / "subtitled.srt").is_file():

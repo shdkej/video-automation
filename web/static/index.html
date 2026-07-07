@@ -31,14 +31,15 @@
         <!-- 드롭존 -->
         <div class="step-num" data-n="01">소스 영상</div>
         <div id="dropzone" class="dropzone" tabindex="0" role="button" aria-label="영상 파일 추가">
-          <input type="file" name="files" id="file" accept="video/*,audio/*" multiple hidden>
+          <input type="file" name="files" id="file" accept="video/*,audio/*,image/*" multiple hidden>
           <div class="dz-inner">
             <div class="dz-icon">⌖</div>
             <p class="dz-title">영상을 끌어다 놓거나 <span class="dz-link">클릭해 선택</span></p>
-            <p class="dz-sub">여러 영상은 <strong>순서대로 이어붙이고</strong>, 음성 파일(mp3·m4a·wav)을 같이 올리면 <strong>영상에 입힙니다</strong></p>
+            <p class="dz-sub">여러 영상은 <strong>순서대로 이어붙이고</strong>, 음성 파일(mp3·m4a·wav)을 같이 올리면 <strong>영상에 입힙니다</strong>. 이미지(png·jpg)를 함께 올리면 <strong>영상 위에 노트 페이지처럼 띄웁니다</strong></p>
           </div>
         </div>
         <ul id="file-list" class="file-list"></ul>
+        <p id="note-hint" class="mode-note hidden">🗒 노트 오버레이 모드 — 이미지가 올린 순서대로 영상 위에 페이지처럼 떠오릅니다. 다른 산출물 없이 이 영상 하나만 만듭니다.</p>
 
         <!-- 썸네일 타이틀 — 영상을 올리면 자동으로 나타남 -->
         <div id="thumb-form-sec" class="hidden">
