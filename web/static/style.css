@@ -715,11 +715,30 @@ details.settings[open] > summary { border-bottom: 1px solid var(--line); }
   color: var(--paper-dim); font-size: 12px; padding: 7px 12px; cursor: pointer;
 }
 .pos-off.selected { border-color: var(--amber); color: var(--amber); }
-/* 썸네일 템플릿 칩 — 폰트·대표색 힌트로 렌더, 선택 중엔 수동 조합이 번들에 덮임 */
-.tc-templates { flex-wrap: wrap; }
+/* ---------- 썸네일 타이틀 패널 — 옵션 그룹은 가로 스크롤 한 줄씩, 미리보기 상시 노출 ---------- */
+.tc-wrap { display: flex; gap: 18px; align-items: flex-start; }
+.tc-rows { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.tc-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.tc-lab {
+  font-family: var(--film); font-size: 11px; letter-spacing: 0.06em;
+  color: var(--muted); flex-shrink: 0; min-width: 38px;
+}
+/* 한 줄 가로 스크롤 — 스크롤바는 숨기고 끝을 살짝 페이드해 "더 있다"를 암시 */
+.tc-scroll {
+  flex: 1; min-width: 0;
+  flex-wrap: nowrap; overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  padding: 2px 0;
+  mask-image: linear-gradient(90deg, #000 calc(100% - 26px), transparent);
+  -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 26px), transparent);
+}
+.tc-scroll::-webkit-scrollbar { display: none; }
+.tc-scroll button { flex-shrink: 0; white-space: nowrap; }
 .tc-templates button { font-size: 14px; }
-.tc-manual { display: flex; flex-direction: column; gap: 12px; transition: opacity .2s; }
-.tc-manual.dimmed { opacity: 0.38; }
+.tc-row.tc-manual { transition: opacity .2s; }
+.tc-row.tc-manual.dimmed { opacity: 0.38; }
+.tc-row input[type="range"] { flex: 1; max-width: none; accent-color: var(--amber); }
 
 /* 미리보기 — 템플릿·옵션을 고르는 동안 스크롤을 따라와 항상 보인다 */
 .thumb-preview { position: sticky; top: 14px; align-self: flex-start; max-width: 260px; }
@@ -820,13 +839,18 @@ details.settings[open] > summary { border-bottom: 1px solid var(--line); }
   .sd-preview { max-width: 260px; margin: 0 auto; }
   .ed-col { min-width: 100%; }
 
-  /* 좁은 화면 — 미리보기를 컨트롤 위로 올려 상단 고정, 칩을 눌러도 바로 보인다 */
+  /* 좁은 화면 — 미리보기(상단 고정) + 옵션 한 줄씩 가로 스크롤 = 한 화면에 전부 */
+  .tc-wrap { flex-direction: column; gap: 12px; }
+  .tc-rows { gap: 8px; width: 100%; }
   .thumb-preview {
     order: -1;
     margin: 0 auto;
-    max-width: 220px;
+    max-width: 240px;
     top: 8px;
     z-index: 30;
     box-shadow: 0 8px 26px -6px rgba(0, 0, 0, 0.75);
   }
+  .tc-row .chips button, .tc-row .font-picks button { padding: 6px 11px; font-size: 12.5px; }
+  .tc-templates button { font-size: 13px; }
+  .tc-text { font-size: 16px; }  /* iOS 포커스 줌 방지 */
 }

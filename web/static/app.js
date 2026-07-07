@@ -660,43 +660,47 @@ function loadThumbTemplates() {
   return tplListPromise;
 }
 const TC_TEMPLATE = `
-  <div class="ed-row-flex">
-    <div class="ed-col">
-      <div class="chip-line tc-tpl-line">템플릿
-        <div class="chips tc-templates">
+  <div class="tc-wrap">
+    <div class="tc-rows">
+      <textarea class="tc-text thumb-input" rows="2" placeholder="비우면 자동 (훅 문구) — 엔터로 줄바꿈">${DEFAULT_TC_TEXT}</textarea>
+      <div class="tc-row">
+        <span class="tc-lab">템플릿</span>
+        <div class="chips tc-scroll tc-templates">
           <button type="button" data-tpl="custom" class="selected">직접 조합</button>
         </div>
       </div>
-      <textarea class="tc-text thumb-input" rows="2" placeholder="비우면 자동 (훅 문구) — 엔터로 줄바꿈">${DEFAULT_TC_TEXT}</textarea>
-      <div class="tc-manual">
-        <div class="font-picks tc-fonts">
+      <div class="tc-row tc-manual">
+        <span class="tc-lab">폰트</span>
+        <div class="font-picks tc-scroll tc-fonts">
           <button type="button" data-font="pretendard" class="selected" style="font-family:'Pretendard';font-weight:800">프리텐다드</button>
           <button type="button" data-font="blackhan" style="font-family:'BlackHanSansW'">블랙한산스</button>
           <button type="button" data-font="dohyeon" style="font-family:'DoHyeonW'">도현</button>
           <button type="button" data-font="jua" style="font-family:'JuaW'">주아</button>
           <button type="button" data-font="nanumpen" style="font-family:'NanumPenW'">나눔손글씨</button>
         </div>
-        <div class="chip-line">굵기
-          <div class="chips tc-weights">
-            <button type="button" data-weight="normal">보통</button>
-            <button type="button" data-weight="bold" class="selected">굵게</button>
-            <button type="button" data-weight="heavy">아주 굵게</button>
-          </div>
+      </div>
+      <div class="tc-row tc-manual">
+        <span class="tc-lab">굵기</span>
+        <div class="chips tc-scroll tc-weights">
+          <button type="button" data-weight="normal">보통</button>
+          <button type="button" data-weight="bold" class="selected">굵게</button>
+          <button type="button" data-weight="heavy">아주 굵게</button>
         </div>
-        <div class="chip-line">효과
-          <div class="chips tc-effects">
-            <button type="button" data-effect="none" class="selected">없음</button>
-            <button type="button" data-effect="fireworks">폭죽</button>
-            <button type="button" data-effect="fire">불꽃</button>
-            <button type="button" data-effect="sparkle">반짝이</button>
-          </div>
+        <span class="tc-lab">효과</span>
+        <div class="chips tc-scroll tc-effects">
+          <button type="button" data-effect="none" class="selected">없음</button>
+          <button type="button" data-effect="fireworks">폭죽</button>
+          <button type="button" data-effect="fire">불꽃</button>
+          <button type="button" data-effect="sparkle">반짝이</button>
         </div>
       </div>
-      <div class="chip-line">크기
+      <div class="tc-row">
+        <span class="tc-lab">크기</span>
         <input type="range" class="tc-scale" min="50" max="200" step="5" value="150">
         <span class="scale-val tc-scale-val">150%</span>
       </div>
-      <div class="chip-line">위치
+      <div class="tc-row">
+        <span class="tc-lab">위치</span>
         <div class="pos-grid tc-pos">
           ${TC_POSITIONS.map((p) =>
             `<button type="button" data-pos="${p}"${p === "top-center" ? ' class="selected"' : ""}></button>`).join("")}
@@ -773,7 +777,8 @@ function createThumbControls(rootId, getBase, getAutoText) {
   // 템플릿 ↔ 직접 조합 — 템플릿 중엔 폰트·굵기·효과가 번들에 덮이므로 흐리게
   const syncTemplate = () => {
     syncSel(".tc-templates", "tpl", state.template);
-    q(".tc-manual").classList.toggle("dimmed", state.template !== "custom");
+    root.querySelectorAll(".tc-manual").forEach((el) =>
+      el.classList.toggle("dimmed", state.template !== "custom"));
   };
   const toCustom = () => {
     if (state.template === "custom") return;
