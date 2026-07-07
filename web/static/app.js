@@ -276,6 +276,7 @@ function startPolling(jobId) {
   currentJobId = jobId;
   stopPolling();
   let lastHiddenPoll = 0;
+  let failStreak = 0; // 서버·프록시 일시 장애 연속 횟수 — 잠깐 죽었다 살아나면 이어서 폴링
   pollTimer = setInterval(async () => {
     // 탭이 백그라운드면 5초 간격으로만 — 모바일 배터리·데이터 절약
     if (document.hidden) {
@@ -283,9 +284,28 @@ function startPolling(jobId) {
       if (now - lastHiddenPoll < 5000) return;
       lastHiddenPoll = now;
     }
+    // 5xx·비JSON(프록시 HTML 에러 페이지)·네트워크 단절은 전부 일시 장애로 취급.
+    // res.json()이 HTML을 만나면 Safari는 알 수 없는 generic SyntaxError를 던지는데,
+    // 잡은 서버에서 계속 돌고 있으므로 세션을 에러로 끝내면 안 된다.
+    const transient = () => {
+      failStreak++;
+      $("stage-text").textContent = `서버 연결 대기 중… (${failStreak}초) — 잡은 서버에서 계속 돕니다`;
+      if (failStreak >= 90) {
+        stopPolling();
+        showError("서버가 응답하지 않습니다 — 복구되면 '최근 작업'에서 이어서 확인할 수 있습니다");
+      }
+    };
     try {
       const res = await fetch(`/api/jobs/${jobId}`);
-      const job = await res.json();
+      if (res.status === 404) {
+        stopPolling();
+        showError("작업을 찾을 수 없습니다 (서버 재시작으로 정리됐을 수 있음)");
+        return;
+      }
+      let job = null;
+      if (res.ok) { try { job = await res.json(); } catch { /* HTML 에러 페이지 */ } }
+      if (!job) { transient(); return; }
+      failStreak = 0;
       const p = job.progress || 0;
       $("bar-fill").style.width = p + "%";
       $("stage-text").textContent = `${job.stage || ""} · ${p}%`;
@@ -300,7 +320,7 @@ function startPolling(jobId) {
         notifyDone(false, job.error || "");
         showError(job.error || "알 수 없는 오류");
       }
-    } catch (err) { stopPolling(); showError(err.message); }
+    } catch { transient(); }
   }, 1000);
 }
 
@@ -558,7 +578,9 @@ async function openJob(id, li) {
       }
       return;
     }
-    const job = await res.json();
+    let job;
+    try { job = await res.json(); }
+    catch { showError("서버 응답이 올바르지 않습니다 — 서버가 복구 중일 수 있으니 잠시 후 다시 시도해주세요"); return; }
     [$("form-section"), $("error-section"), $("result-section"), $("progress-section")].forEach(hide);
     currentJobId = id;
     if (job.status === "running") {
