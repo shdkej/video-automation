@@ -12,19 +12,26 @@ import {
 } from 'remotion';
 
 // 동봉 Pretendard ExtraBold를 헤드리스 Chromium에 등록 (PIL 엔진과 동일 폰트).
-const pretendardHandle = delayRender('load-pretendard');
-const pretendard = new FontFace(
-  'Pretendard',
-  `url(${staticFile('Pretendard-ExtraBold.otf')}) format('opentype')`,
-  { weight: '800' },
-);
-pretendard
-  .load()
-  .then((f) => {
-    document.fonts.add(f);
-    continueRender(pretendardHandle);
-  })
-  .catch(() => continueRender(pretendardHandle));
+// 모듈 평가 시점이 아니라 SubtitleOverlay 마운트 시점에 로딩 — 다른 컴포지션
+// 렌더가 폰트 로딩 delayRender에 볼모로 잡히지 않도록.
+let pretendardRequested = false;
+const ensurePretendard = () => {
+  if (pretendardRequested) return;
+  pretendardRequested = true;
+  const handle = delayRender('load-pretendard');
+  const pretendard = new FontFace(
+    'Pretendard',
+    `url(${staticFile('Pretendard-ExtraBold.otf')}) format('opentype')`,
+    { weight: '800' },
+  );
+  pretendard
+    .load()
+    .then((f) => {
+      document.fonts.add(f);
+      continueRender(handle);
+    })
+    .catch(() => continueRender(handle));
+};
 
 // 컷 영상 타임라인(초) 기준 자막 이벤트.
 export type SubEvent = {
@@ -350,6 +357,7 @@ const Caption: React.FC<{
 export const SubtitleOverlay: React.FC<SubtitleProps> = ({
   events, fontSize, marginBottom, style, palette, hook, mode,
 }) => {
+  ensurePretendard();
   const { fps, height } = useVideoConfig();
   const resolvedMode = mode ?? 'longform';
   const captionMode = resolvedMode === 'shorts' ? 'shorts' : 'longform';

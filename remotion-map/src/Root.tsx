@@ -2,6 +2,7 @@ import { Composition } from 'remotion';
 import { MapRoute } from './MapRoute';
 import { MapFlyStatic } from './MapFlyStatic';
 import { SubtitleOverlay, SubtitleProps } from './SubtitleOverlay';
+import { NoteOverlay, NoteOverlayProps } from './NoteOverlay';
 import data from './data.json';
 import flyMeta from './data-fly.json';
 
@@ -14,6 +15,19 @@ const SAMPLE_EVENTS: SubtitleProps['events'] = [
   { text: '헝가리 부다페스트에 도착!', start: 4.4, end: 6.5, speaker: '진행자' },
 ];
 const SAMPLE_PALETTE: Record<string, string> = { 진행자: '#ffd166', 게스트: '#4cc9f0' };
+
+// 데모 소재는 scripts/make_note_demo.py로 생성 (레포에 미포함)
+const NOTE_DEMO: NoteOverlayProps = {
+  videoSrc: 'note-demo/bg.mp4',
+  durationSec: 12,
+  width: 1080,
+  height: 1920,
+  fps: 30,
+  pages: [
+    { src: 'note-demo/note_tower.png', start: 0.8, end: 3.9 },
+    { src: 'note-demo/note_bridge.png', start: 4.8, end: 7.9 },
+  ],
+};
 
 export const RemotionRoot: React.FC = () => {
   return (
@@ -33,6 +47,26 @@ export const RemotionRoot: React.FC = () => {
         fps={flyMeta.fps}
         width={flyMeta.width}
         height={flyMeta.height}
+      />
+      <Composition
+        id="NoteOverlay"
+        component={NoteOverlay}
+        fps={NOTE_DEMO.fps!}
+        width={NOTE_DEMO.width!}
+        height={NOTE_DEMO.height!}
+        durationInFrames={1}
+        defaultProps={NOTE_DEMO}
+        calculateMetadata={({ props }) => {
+          const fps = props.fps || 30;
+          const pagesEnd = props.pages.length ? Math.max(...props.pages.map((p) => p.end)) : 0;
+          const durationSec = Math.max(props.durationSec ?? 0, pagesEnd + 0.5);
+          return {
+            durationInFrames: Math.max(1, Math.ceil(durationSec * fps)),
+            fps,
+            width: props.width || 1080,
+            height: props.height || 1920,
+          };
+        }}
       />
       <Composition
         id="SubtitleOverlay"

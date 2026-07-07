@@ -47,3 +47,7 @@ web/jobs/
 .playwright-mcp/
 remotion-map/build/
 web/music/
+
+# NoteOverlay 데모·스테이징 소재 (scripts/make_note_demo.py로 재생성)
+remotion-map/public/note-demo/
+remotion-map/public/note-src/
