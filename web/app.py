@@ -67,8 +67,27 @@ MAX_CONCURRENT_JOBS = int(os.environ.get("VIDAUTO_MAX_CONCURRENT_JOBS", "2"))
 MAX_UPLOAD_MB = float(os.environ.get("VIDAUTO_MAX_UPLOAD_MB", "2048"))
 _UPLOAD_CHUNK = 1024 * 1024  # 1MB
 
-# 동시 실행 슬롯. create/rebuild에서 비블로킹 acquire, _run_job finally에서 release.
+# 동시 실행 슬롯 — 잡 스레드가 시작 시 blocking acquire(순차 큐), finally에서 release.
+# 대기열 자체의 상한은 MAX_QUEUED_JOBS (업로드 디스크·대기 폭주 방지).
 _RUNNING = threading.Semaphore(MAX_CONCURRENT_JOBS)
+MAX_QUEUED_JOBS = int(os.environ.get("VIDAUTO_MAX_QUEUED_JOBS", "5"))
+
+
+def _wait_for_slot(job: dict) -> None:
+    """순차 큐 — 슬롯이 빌 때까지 대기. 대기 중엔 queued 상태로 폴링에 노출된다."""
+    if not _RUNNING.acquire(blocking=False):
+        job["status"], job["stage"] = "queued", "대기 중 — 앞선 작업이 끝나면 자동 시작"
+        _RUNNING.acquire()
+    job["status"], job["stage"] = "running", "시작"
+
+
+def _reject_if_queue_full() -> None:
+    queued = sum(1 for j in JOBS.values() if j.get("status") == "queued")
+    if queued >= MAX_QUEUED_JOBS:
+        raise HTTPException(
+            429, f"대기열이 가득 찼습니다({MAX_QUEUED_JOBS}개) — 잠시 후 다시 시도하세요."
+        )
+
 
 app = FastAPI(title="video-automation")
 
@@ -86,7 +105,7 @@ def cleanup_jobs() -> None:
 
     def is_running(name: str) -> bool:
         job = JOBS.get(name)
-        return bool(job and job.get("status") == "running")
+        return bool(job and job.get("status") in ("running", "queued"))
 
     def drop(d: Path) -> None:
         shutil.rmtree(d, ignore_errors=True)
@@ -155,6 +174,7 @@ def _args_from_opts(input_path: Path, outdir: Path, opts: dict) -> SimpleNamespa
 
 def _run_job(job_id: str, input_paths: list[Path], opts: dict) -> None:
     job = JOBS[job_id]
+    _wait_for_slot(job)  # 순차 큐 — 앞선 잡이 끝나야 시작
     outdir = JOBS_DIR / job_id / "outputs"
     outdir.mkdir(parents=True, exist_ok=True)
     reset_llm_usage()  # 동시 잡 1개 전제 — 잡 단위 LLM 비용 추정 누적
@@ -306,6 +326,7 @@ def _run_note_job(job_id: str, input_paths: list[Path]) -> None:
     이미지 등장 타이밍은 영상 길이에 균등 배분(note_overlay.py), 순서는 업로드 순서.
     """
     job = JOBS[job_id]
+    _wait_for_slot(job)  # 순차 큐 — 앞선 잡이 끝나야 시작
     outdir = JOBS_DIR / job_id / "outputs"
     outdir.mkdir(parents=True, exist_ok=True)
     try:
@@ -531,11 +552,7 @@ async def create_job(
         raise HTTPException(400, "shorts_focus는 left/center/right 중 하나")
     if not files:
         raise HTTPException(400, "영상 파일이 필요합니다")
-    # 동시 잡 상한 — 슬롯이 없으면 즉시 거부(429). 슬롯은 _run_job finally에서 반환.
-    if not _RUNNING.acquire(blocking=False):
-        raise HTTPException(
-            429, f"동시 처리 한도({MAX_CONCURRENT_JOBS}개) 초과. 진행 중인 작업이 끝나면 다시 시도하세요."
-        )
+    _reject_if_queue_full()  # 실행은 순차 큐(_wait_for_slot) — 대기열 상한만 거부
     cleanup_jobs()  # 새 잡 전에 오래된/초과 잡 폴더 정리
     job_id = uuid.uuid4().hex[:12]
     job_dir = JOBS_DIR / job_id
@@ -549,12 +566,11 @@ async def create_job(
             with open(job_dir / f"bgm{ext}", "wb") as f:
                 shutil.copyfileobj(bgm.file, f)
     except HTTPException:
-        _RUNNING.release()  # 저장 실패 시 슬롯 반환(스레드 시작 전이므로 여기서)
         shutil.rmtree(job_dir, ignore_errors=True)
         raise
 
     JOBS[job_id] = {
-        "status": "running", "stage": "대기", "progress": 0,
+        "status": "queued", "stage": "대기", "progress": 0,
         "outputs": None, "error": None, "mode": mode,
         "source_count": len(input_paths),
         "subtitle_only": subtitle_only, "beat_sync": beat_sync,
@@ -594,10 +610,7 @@ async def create_note_job(files: list[UploadFile]):
         raise HTTPException(400, "노트 이미지(png/jpg/webp)가 1장 이상 필요합니다")
     if all(n.lower().endswith(NOTE_IMAGE_SUFFIXES) for n in names):
         raise HTTPException(400, "배경 영상 파일이 필요합니다")
-    if not _RUNNING.acquire(blocking=False):
-        raise HTTPException(
-            429, f"동시 처리 한도({MAX_CONCURRENT_JOBS}개) 초과. 진행 중인 작업이 끝나면 다시 시도하세요."
-        )
+    _reject_if_queue_full()  # 실행은 순차 큐(_wait_for_slot) — 대기열 상한만 거부
     cleanup_jobs()
     job_id = uuid.uuid4().hex[:12]
     job_dir = JOBS_DIR / job_id
@@ -605,12 +618,11 @@ async def create_note_job(files: list[UploadFile]):
     try:
         input_paths = _save_uploads(files, job_dir)
     except HTTPException:
-        _RUNNING.release()
         shutil.rmtree(job_dir, ignore_errors=True)
         raise
 
     JOBS[job_id] = {
-        "status": "running", "stage": "대기", "progress": 0,
+        "status": "queued", "stage": "대기", "progress": 0,
         "outputs": None, "error": None, "mode": "note", "kind": "note",
         "source_count": len(input_paths),
     }
@@ -672,18 +684,15 @@ async def rebuild_job(
     )
     if not input_paths:
         raise HTTPException(404, "원본 입력이 남아있지 않습니다(정리됨). 새로 업로드해주세요.")
-    # 재생성도 _run_job 스레드를 띄우므로 동시 잡 슬롯을 확보한다(finally에서 반환).
-    if not _RUNNING.acquire(blocking=False):
-        raise HTTPException(
-            429, f"동시 처리 한도({MAX_CONCURRENT_JOBS}개) 초과. 진행 중인 작업이 끝나면 다시 시도하세요."
-        )
-
+    _reject_if_queue_full()  # 실행은 순차 큐(_wait_for_slot) — 대기열 상한만 거부
     prev = JOBS.get(job_id, {})
+    if prev.get("status") in ("running", "queued"):
+        raise HTTPException(409, "이 작업은 아직 진행·대기 중입니다 — 끝난 뒤 다시 만들어주세요.")
     mode = prev.get("mode", "scene")
     # 자막만 잡의 재생성은 자막만으로 유지 (프론트가 명시하지 않아도)
     subtitle_only = subtitle_only or bool(prev.get("subtitle_only"))
     JOBS[job_id] = {
-        "status": "running", "stage": "재생성 대기", "progress": 0,
+        "status": "queued", "stage": "재생성 대기", "progress": 0,
         "outputs": None, "error": None, "mode": mode,
         "source_count": prev.get("source_count", len(input_paths)),
         "subtitle_only": subtitle_only, "beat_sync": beat_sync,

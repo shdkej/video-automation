@@ -341,8 +341,10 @@ function watchBgJob(id) {
       const res = await fetch(`/api/jobs/${id}`);
       if (!res.ok) { clearBgWatch(); return; }
       const job = await res.json();
-      if (job.status === "running") {
-        banner.textContent = `⏳ 다른 작업 처리 중 · ${job.progress || 0}% — 보러 가기`;
+      if (job.status === "running" || job.status === "queued") {
+        banner.textContent = job.status === "queued"
+          ? "⏳ 다른 작업 대기 중 — 보러 가기"
+          : `⏳ 다른 작업 처리 중 · ${job.progress || 0}% — 보러 가기`;
         show(banner);
       } else {
         banner.textContent = job.status === "done"
@@ -583,7 +585,7 @@ async function openJob(id, li) {
     catch { showError("서버 응답이 올바르지 않습니다 — 서버가 복구 중일 수 있으니 잠시 후 다시 시도해주세요"); return; }
     [$("form-section"), $("error-section"), $("result-section"), $("progress-section")].forEach(hide);
     currentJobId = id;
-    if (job.status === "running") {
+    if (job.status === "running" || job.status === "queued") {
       show($("progress-section"));
       startPolling(id);
     } else if (job.status === "error") {
@@ -608,7 +610,7 @@ renderJobPanel();
     const res = await fetch(`/api/jobs/${last.id}`);
     if (!res.ok) return;
     const job = await res.json();
-    if (job.status === "running") openJob(last.id);
+    if (job.status === "running" || job.status === "queued") openJob(last.id);
   } catch { /* 서버 정리됨 — 조용히 무시 */ }
 })();
 
