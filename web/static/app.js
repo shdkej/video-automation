@@ -182,6 +182,7 @@ $("job-form").addEventListener("submit", async (e) => {
   fd.append("shorts_ideal_seconds", $("shorts_ideal").value);
   fd.append("scene_threshold", $("scene_th").value);
   fd.append("clip_seconds", $("clip_sec").value);
+  fd.append("montage_seconds", $("montage_sec").value);
   fd.append("bgm_volume", $("bgm_vol").value);
   if ($("bgm_file").files[0]) fd.append("bgm", $("bgm_file").files[0]);
   fd.append("subtitle_only", $("subtitle_only").checked);

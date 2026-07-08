@@ -151,6 +151,7 @@ def _args_from_opts(input_path: Path, outdir: Path, opts: dict) -> SimpleNamespa
         shorts_silence_min=0.45,
         no_shorts_jumpcut=not opts.get("shorts_jumpcut", True),
         no_shorts_punchin=not opts.get("shorts_punchin", True),
+        montage_seconds=float(opts.get("montage_seconds", 2.0)),
         thumbnail_count=int(opts["thumbnail_count"]),
         no_thumb_text=opts.get("thumb_pos", DEFAULT_THUMB_POS) == "off",
         thumb_text=str(opts.get("thumb_text", "")),
@@ -530,6 +531,7 @@ async def create_job(
     subtitle_only: bool = Form(False),
     beat_sync: bool = Form(True),
     bgm_auto: bool = Form(True),
+    montage_seconds: float = Form(2.0),
     thumb_text: str = Form(""),
     thumb_pos: str = Form(DEFAULT_THUMB_POS),
     thumb_font: str = Form("pretendard"),
@@ -540,6 +542,7 @@ async def create_job(
 ):
     thumb_scale = _validate_thumb(thumb_pos, thumb_font, thumb_weight, thumb_effect,
                                   thumb_scale, thumb_template)
+    montage_seconds = min(10.0, max(0.0, montage_seconds))
     if mode not in ("auto", "speech", "scene", "vision"):
         raise HTTPException(400, "mode는 auto/speech/scene/vision 중 하나")
     if not outputs or set(outputs) - set(pl.WANTED):
@@ -589,7 +592,7 @@ async def create_job(
         "shorts_ideal_seconds": shorts_ideal_seconds,
         "shorts_focus": shorts_focus, "bgm_volume": bgm_volume,
         "subtitle_only": subtitle_only, "beat_sync": beat_sync,
-        "bgm_auto": bgm_auto,
+        "bgm_auto": bgm_auto, "montage_seconds": montage_seconds,
         "thumb_text": thumb_text, "thumb_pos": thumb_pos, "thumb_font": thumb_font,
         "thumb_scale": thumb_scale, "thumb_weight": thumb_weight,
         "thumb_effect": thumb_effect, "thumb_template": thumb_template,

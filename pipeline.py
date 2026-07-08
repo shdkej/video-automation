@@ -25,8 +25,10 @@ from auto_cut import (
     cut_video,
     detect_scene_changes,
     filter_grounded_segments,
+    frame_motion_scores,
     full_coverage_segments,
     generate_scene_captions,
+    trim_montage_segments,
     get_llm_usage,
     mux_audio_into_video,
     overlaps,
@@ -427,6 +429,13 @@ def analyze(args, outdir: Path) -> tuple:
               "— 컷 선택 생략, 전체 유지(몽타주)")
         scenes = detect_scene_changes(args.input, args.scene_threshold)
         segments = full_coverage_segments(scenes, duration)
+        # 클립별 트림 — 각 클립에서 움직임이 가장 큰 montage_seconds초만 남긴다.
+        # 0이면 전체 유지. 5초짜리 6개 → 2초씩 6컷 릴 같은 템포를 만든다.
+        msec = float(getattr(args, "montage_seconds", 2.0) or 0)
+        if msec > 0:
+            segments = trim_montage_segments(segments, frame_motion_scores(args.input), msec)
+            kept = sum(s["end"] - s["start"] for s in segments)
+            print(f"  클립별 트림: {len(segments)}개 × ~{msec:.1f}초 (총 {kept:.1f}초)")
         _load_or_detect_beats(args, outdir)  # 펀치인·인트로·비트싱크가 캐시를 읽는다
         if args.mode == "speech":
             # 자막용 트랜스크립트는 그대로 뽑되, 품질 미달이어도 몽타주는 진행

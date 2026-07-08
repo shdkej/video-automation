@@ -659,3 +659,30 @@ def test_full_coverage_merges_tiny_and_edge_scenes():
 def test_full_coverage_no_scenes_single_span():
     segs = full_coverage_segments([], 8.0)
     assert segs == [{"start": 0.0, "end": 8.0, "reason": "montage(전체 유지)"}]
+
+
+# ---------- 몽타주 클립 트림 (trim_montage_segments) ----------
+
+from auto_cut import trim_montage_segments  # noqa: E402
+
+
+def test_trim_picks_high_motion_window():
+    seg = [{"start": 0.0, "end": 6.0, "reason": "montage(전체 유지)"}]
+    # 4~6초 구간에 움직임 집중
+    motion = [(t / 10, 0.9 if t >= 40 else 0.01) for t in range(60)]
+    out = trim_montage_segments(seg, motion, max_len=2.0)
+    assert len(out) == 1
+    assert out[0]["end"] - out[0]["start"] == pytest.approx(2.0, abs=0.01)
+    assert out[0]["start"] >= 3.5  # 고모션 창 쪽으로 이동
+
+
+def test_trim_keeps_short_segments():
+    seg = [{"start": 0.0, "end": 1.5, "reason": "montage(전체 유지)"}]
+    assert trim_montage_segments(seg, [], max_len=2.0) == seg
+
+
+def test_trim_fallback_center_biased_without_motion():
+    seg = [{"start": 10.0, "end": 15.0, "reason": "montage(전체 유지)"}]
+    out = trim_montage_segments(seg, [], max_len=2.0)
+    assert out[0]["start"] == 11.2  # 10 + (5-2)*0.4
+    assert out[0]["end"] == 13.2

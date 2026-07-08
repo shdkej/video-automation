@@ -229,6 +229,51 @@ def pick_scene_segments(
     return picked
 
 
+def frame_motion_scores(video_path: Path) -> list:
+    """전 프레임의 (pts_time, scene_score) — 프레임 간 변화량을 모션 프록시로 쓴다.
+
+    detect_scene_changes와 같은 필터에 threshold만 0 — 몽타주 트림이
+    '움직임이 가장 큰 창'을 고를 때 쓴다.
+    """
+    result = subprocess.run(
+        ["ffmpeg", "-i", str(video_path),
+         "-filter:v", "select='gte(scene,0)',metadata=print",
+         "-an", "-f", "null", "-"],
+        capture_output=True, text=True,
+    )
+    return parse_scene_metadata(result.stderr)
+
+
+def trim_montage_segments(segments: list, motion: list, max_len: float) -> list:
+    """몽타주 구간을 각각 '가장 움직임이 큰 max_len초 창'으로 다듬는다.
+
+    max_len 이하 구간은 그대로. 모션 데이터가 없으면 중앙 창(시작 40% 지점) —
+    촬영 시작·끝의 흔들림을 피하는 보수적 폴백.
+    """
+    trimmed = []
+    for seg in segments:
+        s, e = seg["start"], seg["end"]
+        if e - s <= max_len:
+            trimmed.append(seg)
+            continue
+        # 구간 시작 직후 0.3초는 제외 — 씬 컷 자체의 점수 스파이크가
+        # '움직임'으로 잡혀 모든 창이 시작점으로 쏠린다
+        pts = [(t, sc) for t, sc in motion if s + 0.3 <= t <= e]
+        if pts:
+            best_t, best_sum = s, -1.0
+            t0 = s
+            while t0 <= e - max_len + 1e-9:
+                w = sum(sc for t, sc in pts if t0 <= t <= t0 + max_len)
+                if w > best_sum:
+                    best_sum, best_t = w, t0
+                t0 += 0.1
+            start = best_t
+        else:
+            start = s + (e - s - max_len) * 0.4
+        trimmed.append({**seg, "start": round(start, 3), "end": round(start + max_len, 3)})
+    return trimmed
+
+
 def full_coverage_segments(scenes: list, video_duration: float, min_len: float = 1.0) -> list:
     """씬 경계로 전체 타임라인을 빠짐없이 나눈 연속 구간들 — 전체 유지(몽타주)용.
 
