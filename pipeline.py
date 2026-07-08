@@ -25,6 +25,7 @@ from auto_cut import (
     cut_video,
     detect_scene_changes,
     filter_grounded_segments,
+    full_coverage_segments,
     generate_scene_captions,
     get_llm_usage,
     mux_audio_into_video,
@@ -417,6 +418,31 @@ def analyze(args, outdir: Path) -> tuple:
 
     if args.mode == "auto":
         args.mode = _auto_detect_mode(args, duration, outdir)
+
+    # 총 길이가 목표 이하면 자를 이유가 없다 — 하이라이트 '선택'을 생략하고
+    # 씬 경계로 전체를 유지한다. 짧은 클립 여러 개를 이어붙인 몽타주 입력에서
+    # LLM이 일부 구간만 남겨 소스 대부분을 버리는 것을 막는다.
+    if duration <= args.target_minutes * 60 + 1.0:
+        print(f"[분석] 총 {duration:.0f}초 ≤ 목표 {args.target_minutes * 60:.0f}초 "
+              "— 컷 선택 생략, 전체 유지(몽타주)")
+        scenes = detect_scene_changes(args.input, args.scene_threshold)
+        segments = full_coverage_segments(scenes, duration)
+        _load_or_detect_beats(args, outdir)  # 펀치인·인트로·비트싱크가 캐시를 읽는다
+        if args.mode == "speech":
+            # 자막용 트랜스크립트는 그대로 뽑되, 품질 미달이어도 몽타주는 진행
+            transcript_path = args.input.with_suffix(".transcript.json")
+            if args.cache and transcript_path.exists():
+                transcript = json.loads(transcript_path.read_text())
+            else:
+                transcript = transcribe_video(args.input, args.whisper_model, args.language)
+                transcript_path.write_text(json.dumps(transcript, ensure_ascii=False, indent=2))
+            try:
+                validate_transcript_quality(transcript)
+            except ValueError:
+                return segments, _scene_captions_safe(args, segments, outdir), None
+            captions = [caption_for_segment(s, transcript["segments"]) for s in segments]
+            return segments, captions, transcript
+        return segments, _scene_captions_safe(args, segments, outdir), None
 
     if args.mode == "scene":
         print(f"[분석] scene 모드 (threshold={args.scene_threshold})")

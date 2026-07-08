@@ -118,13 +118,14 @@ def punch_plan(intervals: list, period: float = 4.0, beats: list | None = None) 
     통짜 1개가 길면 가상 컷으로 쪼갠다(시간 손실 없음).
 
     beats가 있으면 가상 컷을 고정 간격 대신 비트 시각에 놓는다 — 줌 전환이
-    음악 박자에 떨어진다. 컷 최소 간격 max(1.5, period/2)로 과다 컷을 막는다.
+    음악 박자에 떨어진다. 컷 최소 간격 max(2.5, period/2)로 과다 컷을 막는다
+    (더 촘촘하면 줌이 쉴 새 없이 왔다 갔다 해 어지럽다).
     """
     if len(intervals) != 1:
         return list(intervals)
     s, e = intervals[0]
     if beats:
-        min_gap = max(1.5, period / 2)
+        min_gap = max(2.5, period / 2)
         cuts, last = [], s
         for b in beats:
             if s + 1.0 <= b <= e - 1.0 and b - last >= min_gap:

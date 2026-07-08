@@ -632,3 +632,30 @@ def test_snap_to_word_bounds_keeps_original_if_too_short():
     clip = {"start": 1.0, "end": 1.6}
     # 스냅하면 1.4~1.5(0.1초)로 붕괴 → 원본 유지
     assert snap_to_word_bounds(clip, transcript) == clip
+
+
+# ---------- 전체 유지 몽타주 (full_coverage_segments) ----------
+
+from auto_cut import full_coverage_segments  # noqa: E402
+
+
+def test_full_coverage_splits_at_scenes():
+    scenes = [(5.7, 0.9), (11.3, 0.8), (16.2, 0.7)]
+    segs = full_coverage_segments(scenes, 33.5)
+    assert segs[0]["start"] == 0.0 and segs[-1]["end"] == 33.5
+    # 연속성 — 빈틈·겹침 없이 전체를 덮는다
+    for a, b in zip(segs, segs[1:]):
+        assert a["end"] == b["start"]
+    assert [s["start"] for s in segs] == [0.0, 5.7, 11.3, 16.2]
+
+
+def test_full_coverage_merges_tiny_and_edge_scenes():
+    # 0.4초 간격 씬과 끝 직전 씬은 경계로 안 쓴다 (min_len=1.0)
+    segs = full_coverage_segments([(0.4, 0.9), (5.0, 0.9), (5.5, 0.9), (9.7, 0.9)], 10.0)
+    assert [s["start"] for s in segs] == [0.0, 5.0]
+    assert segs[-1]["end"] == 10.0
+
+
+def test_full_coverage_no_scenes_single_span():
+    segs = full_coverage_segments([], 8.0)
+    assert segs == [{"start": 0.0, "end": 8.0, "reason": "montage(전체 유지)"}]

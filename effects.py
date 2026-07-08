@@ -912,7 +912,9 @@ def build_short_footage(
             cp = tmpdir / f"clip_{i:03d}.mp4"
             cmd = ["ffmpeg", "-y", "-loglevel", "error",
                    "-ss", f"{s:.3f}", "-i", str(input_path), "-t", f"{e - s:.3f}"]
-            punch = f"crop=iw/{punch_scale}:ih/{punch_scale}," if (punchin and i % 2 == 1) else ""
+            # 2.5초 미만 클립엔 펀치인 생략 — 잘게 쪼개진 컷마다 줌이 바뀌면 어지럽다
+            punch = (f"crop=iw/{punch_scale}:ih/{punch_scale},"
+                     if (punchin and i % 2 == 1 and e - s >= 2.5) else "")
             if vertical and blur_bg:
                 fc = (
                     f"[0:v]{punch}split[a][b];"

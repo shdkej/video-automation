@@ -229,6 +229,22 @@ def pick_scene_segments(
     return picked
 
 
+def full_coverage_segments(scenes: list, video_duration: float, min_len: float = 1.0) -> list:
+    """씬 경계로 전체 타임라인을 빠짐없이 나눈 연속 구간들 — 전체 유지(몽타주)용.
+
+    하이라이트 '선택'이 아니라 '분할'이다: 총 길이가 목표 이하라 자를 이유가
+    없을 때 쓴다. min_len 미만 구간은 앞 구간에 병합, 씬 체인지가 없으면 전체 1구간.
+    """
+    bounds = [0.0]
+    for ts in sorted(ts for ts, _ in scenes):
+        if ts - bounds[-1] >= min_len and video_duration - ts >= min_len:
+            bounds.append(ts)
+    return [
+        {"start": round(s, 3), "end": round(e, 3), "reason": "montage(전체 유지)"}
+        for s, e in zip(bounds, [*bounds[1:], video_duration])
+    ]
+
+
 def format_mmss(seconds: float) -> str:
     m = int(seconds // 60)
     s = int(seconds % 60)
