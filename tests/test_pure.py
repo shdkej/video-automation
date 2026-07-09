@@ -686,3 +686,23 @@ def test_trim_fallback_center_biased_without_motion():
     out = trim_montage_segments(seg, [], max_len=2.0)
     assert out[0]["start"] == 11.2  # 10 + (5-2)*0.4
     assert out[0]["end"] == 13.2
+
+
+# ---------- 몽타주 산출 통합 (is_montage / montage_sfx_events) ----------
+
+from pipeline import is_montage, montage_sfx_events  # noqa: E402
+
+
+def test_is_montage_by_reason_marker():
+    assert is_montage([{"start": 0, "end": 2, "reason": "montage(전체 유지)"}])
+    assert not is_montage([{"start": 0, "end": 2, "reason": "scene_score=0.5"}])
+    assert not is_montage([])
+
+
+def test_montage_sfx_events_cumulative_offsets():
+    segs = [
+        {"start": 10.0, "end": 12.0, "sfx": "pop"},
+        {"start": 20.0, "end": 22.5},
+        {"start": 30.0, "end": 31.0, "sfx": "ding"},
+    ]
+    assert montage_sfx_events(segs) == [(0.0, "pop"), (4.5, "ding")]

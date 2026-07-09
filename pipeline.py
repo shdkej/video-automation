@@ -673,6 +673,75 @@ def shorts_events(spec: dict, transcript: dict | None, timeline) -> list:
     return []
 
 
+def is_montage(segments: list) -> bool:
+    """분석이 전체 유지(몽타주)로 판단했는가 — selection.json에 남는 reason 마커로 판별.
+
+    캐시 재생성(rebuild)에서도 동작하도록 args 플래그 대신 데이터에 실린 마커를 쓴다.
+    """
+    return bool(segments) and str(segments[0].get("reason", "")).startswith("montage")
+
+
+def montage_sfx_events(segments: list) -> list:
+    """몽타주 숏폼 타임라인에서 구간별 효과음의 (시작 시각, 이름) 목록."""
+    events, t = [], 0.0
+    for s in segments:
+        if s.get("sfx"):
+            events.append((round(t, 3), s["sfx"]))
+        t += s["end"] - s["start"]
+    return events
+
+
+def build_montage_short(
+    args, segments: list, captions: list, outdir: Path,
+    transcript=None, clean_stem: str | None = None, stem: str = "shorts_01",
+) -> Path:
+    """몽타주 숏폼 1개 — 트림된 클립 전부를 순서대로 이어붙인 세로 영상.
+
+    짧은 클립 모음 입력용: rank_for_shorts(상위 K개 선정)와 클립 내 점프컷을
+    생략한다 — 클립은 이미 베스트 구간으로 트림돼 있고, 여기서 또 자르면
+    1초짜리 파편이 된다. 자막은 클립별 캡션을 출력 타임라인에 매핑.
+    """
+    clips = [(s["start"], s["end"]) for s in segments]
+    events, t = [], 0.0
+    for seg, cap in zip(segments, captions):
+        d = seg["end"] - seg["start"]
+        text = (cap or "").strip()
+        if text:
+            events.append({"start": round(t + 0.05, 3), "end": round(t + d, 3), "text": text})
+        t += d
+
+    vert = outdir / f".{stem}_vert.mp4"
+    subbed = outdir / f".{stem}_sub.mp4"
+    final = outdir / f"{stem}.mp4"
+    try:
+        build_short_footage(args.input, clips, vert, punchin=not args.no_shorts_punchin,
+                            vertical=True, blur_bg=args.shorts_blur,
+                            focus=getattr(args, "shorts_focus", "center"))
+        hook = pick_thumbnail_hook(segments, captions).strip() or None
+        if clean_stem and not args.no_subtitle and events:
+            apply_audio_fade_out(vert, outdir / f"{clean_stem}.mp4")
+        if args.no_subtitle or not events:
+            src = vert
+        elif args.sub_engine == "remotion":
+            render_subtitled_remotion(
+                cut_path=vert, output=subbed, captions=[], segments=[],
+                events=events, hook=hook, mode="shorts", style=args.sub_style,
+                font_size=int(_SHORTS_FONT_SIZE * getattr(args, "sub_scale", 1.0)),
+                margin_bottom=_SHORTS_MARGIN_BOTTOM,
+            )
+            src = subbed
+        else:
+            src = vert  # PIL 엔진은 몽타주 이벤트 자막 미지원 — 자막 없이 진행
+        apply_audio_fade_out(src, final)
+        extract_thumbnail(final, outdir / f"{stem}_cover.jpg", at_sec=0.1, grade=False)
+        total = sum(e - s for s, e in clips)
+        print(f"  {stem}: 몽타주 {len(clips)}컷 · {total:.1f}s (전 클립 유지)")
+        return final
+    finally:
+        for tmp in (vert, subbed):
+            tmp.unlink(missing_ok=True)
+
+
 def build_one_short(
     args, spec: dict, stem: str, outdir: Path, transcript=None, clean_stem: str | None = None,
 ) -> Path:
@@ -919,6 +988,13 @@ def run(args) -> None:
         print("  ⚠ 선정 구간이 1개뿐입니다. 썸네일/인트로/숏츠가 같은 장면에서 나옵니다.")
     if "shorts" in wanted and args.shorts_count > len(segments):
         print(f"  ⚠ 숏츠 {args.shorts_count}개 요청했으나 구간이 {len(segments)}개라 그만큼만 생성됩니다.")
+
+    # 몽타주(전체 유지)면 영상 산출물은 숏폼 1개로 통합 — 짧은 클립 모음에
+    # 롱폼·인트로·숏츠 K개를 각각 만들면 같은 소재가 파편으로 반복된다.
+    montage = is_montage(segments)
+    if montage and not getattr(args, "subtitle_only", False):
+        print("[몽타주] 짧은 클립 모음 — 숏폼 1개로 통합 (롱폼·인트로 생략)")
+        wanted = [w for w in wanted if w not in ("longform", "intro")]
     print()
 
     if getattr(args, "subtitle_only", False):
@@ -944,9 +1020,14 @@ def run(args) -> None:
     step("[1/4] 롱폼 생성…", "longform",
          lambda: build_longform(args, segments, captions, outdir, transcript=transcript))
     def _build_shorts() -> list:
+        want_clean = getattr(args, "shorts_clean", False)
+        if montage:
+            outs = [build_montage_short(args, segments, captions, outdir, transcript=transcript,
+                                        clean_stem="shorts_01_clean" if want_clean else None)]
+            clean = outdir / "shorts_01_clean.mp4"
+            return outs + ([clean] if clean.is_file() else [])
         specs = rank_for_shorts(segments, captions, args.shorts_count,
                                 args.shorts_max_seconds, args.shorts_ideal_seconds)
-        want_clean = getattr(args, "shorts_clean", False)
         outs = [build_one_short(args, s, f"shorts_{n:02d}", outdir, transcript=transcript,
                                 clean_stem=f"shorts_{n:02d}_clean" if want_clean else None)
                 for n, s in enumerate(specs, 1)]
@@ -954,7 +1035,9 @@ def run(args) -> None:
                  if (p := outdir / f"shorts_{n:02d}_clean.mp4").is_file()]
         return outs
 
-    step(f"[2/4] 숏츠 생성 (적정 길이 우선 상위 {args.shorts_count}개)…", "shorts", _build_shorts)
+    shorts_label = ("[2/4] 숏츠 생성 (몽타주 통합 1개)…" if montage
+                    else f"[2/4] 숏츠 생성 (적정 길이 우선 상위 {args.shorts_count}개)…")
+    step(shorts_label, "shorts", _build_shorts)
     step(f"[3/4] 썸네일 후보 {args.thumbnail_count}장 추출…", "thumbnail",
          lambda: build_thumbnail(args, segments, captions, outdir))
     step("[4/4] 인트로 생성…", "intro",

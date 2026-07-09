@@ -220,6 +220,12 @@ def _run_job(job_id: str, input_paths: list[Path], opts: dict) -> None:
             wanted = [x for x in wanted if x != "longform"]
             job.setdefault("notes", []).append("세로 입력 — 16:9 롱폼은 건너뜀")
 
+        # 몽타주(전체 유지)면 영상 산출물은 숏폼 1개로 통합
+        montage = pl.is_montage(segments)
+        if montage and not opts.get("subtitle_only"):
+            wanted = [w for w in wanted if w not in ("longform", "intro")]
+            job.setdefault("notes", []).append("짧은 클립 모음 — 숏폼 1개로 통합 (롱폼·인트로 생략)")
+
         outputs: dict = {}
         if opts.get("subtitle_only"):
             stage("자막 입히는 중", 60)
@@ -251,24 +257,33 @@ def _run_job(job_id: str, input_paths: list[Path], opts: dict) -> None:
 
         specs: list = []  # 숏츠 spec — 효과음 매핑에 재사용
         if "shorts" in wanted:
-            stage("숏츠 생성", 55)
-            specs = pl.rank_for_shorts(
-                segments, captions, args.shorts_count,
-                args.shorts_max_seconds, args.shorts_ideal_seconds,
-            )
             want_clean = bool(opts.get("shorts_clean"))
-            outputs["shorts"] = [
-                pl.build_one_short(
-                    args, s, f"shorts_{n:02d}", outdir, transcript=transcript,
-                    clean_stem=f"shorts_{n:02d}_clean" if want_clean else None,
-                ).name
-                for n, s in enumerate(specs, 1)
-            ]
-            # 클린은 자막 직전의 동일 컷을 남긴 것 — 자막이 안 들어간 숏츠는 생성되지 않음
-            clean_names = [f"shorts_{n:02d}_clean.mp4" for n in range(1, len(specs) + 1)
-                           if (outdir / f"shorts_{n:02d}_clean.mp4").is_file()]
-            if clean_names:
-                outputs["shorts_clean"] = clean_names
+            if montage:
+                stage("숏츠 생성 (몽타주 통합 1개)", 55)
+                outputs["shorts"] = [pl.build_montage_short(
+                    args, segments, captions, outdir, transcript=transcript,
+                    clean_stem="shorts_01_clean" if want_clean else None,
+                ).name]
+                if (outdir / "shorts_01_clean.mp4").is_file():
+                    outputs["shorts_clean"] = ["shorts_01_clean.mp4"]
+            else:
+                stage("숏츠 생성", 55)
+                specs = pl.rank_for_shorts(
+                    segments, captions, args.shorts_count,
+                    args.shorts_max_seconds, args.shorts_ideal_seconds,
+                )
+                outputs["shorts"] = [
+                    pl.build_one_short(
+                        args, s, f"shorts_{n:02d}", outdir, transcript=transcript,
+                        clean_stem=f"shorts_{n:02d}_clean" if want_clean else None,
+                    ).name
+                    for n, s in enumerate(specs, 1)
+                ]
+                # 클린은 자막 직전의 동일 컷을 남긴 것 — 자막이 안 들어간 숏츠는 생성되지 않음
+                clean_names = [f"shorts_{n:02d}_clean.mp4" for n in range(1, len(specs) + 1)
+                               if (outdir / f"shorts_{n:02d}_clean.mp4").is_file()]
+                if clean_names:
+                    outputs["shorts_clean"] = clean_names
 
         if "thumbnail" in wanted:
             stage("썸네일 추출", 80)
@@ -290,6 +305,11 @@ def _run_job(job_id: str, input_paths: list[Path], opts: dict) -> None:
                     (t, resolve_library_file(SFX_DIR, n))
                     for t, n in pl.sfx_events_longform(segments)
                 ])
+            if montage and outputs.get("shorts"):
+                evs = [(t, resolve_library_file(SFX_DIR, n))
+                       for t, n in pl.montage_sfx_events(segments)]
+                if any(p for _, p in evs):
+                    _mix_sfx_into(outdir, outputs["shorts"][0], evs)
             for spec, name in zip(specs, outputs.get("shorts", [])):
                 n = pl.sfx_for_short(spec, segments)
                 if n:
