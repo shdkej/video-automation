@@ -174,6 +174,25 @@ export function useEditor(jobId: string) {
     fd.append('sub_engine', animated ? 'remotion' : 'pil');
     fd.append('sub_style', animated ? st.style : 'fade');
     thumbStateToForm(fd, st.thumb);
+    // 부분 재생성 — 바뀐 것만 다시 만든다. 클립 컷 수정이 썸네일까지 전부
+    // 재생성하지 않도록: 영상 계열 변경 → 영상 산출물, 썸네일 변경 → 썸네일만.
+    try {
+      const a = JSON.parse(baseline.current || '{}');
+      const b = JSON.parse(snapshot(st));
+      const changed = new Set(Object.keys(b).filter((k) => JSON.stringify(a[k]) !== JSON.stringify(b[k])));
+      const fxA = (a.fx || {}) as Record<string, unknown>;
+      const fxB = (b.fx || {}) as Record<string, unknown>;
+      const fxVideo = ['jumpcut', 'punchin', 'blur', 'clean', 'shortsCount']
+        .some((k) => fxA[k] !== fxB[k]);
+      const videoChanged = fxVideo
+        || ['segs', 'style', 'subScale', 'bgmChoice', 'bgmVol', 'transcript'].some((k) => changed.has(k));
+      const outs: string[] = [];
+      if (videoChanged) outs.push('longform', 'shorts', 'intro');
+      if (changed.has('thumb') || fxA.thumbCount !== fxB.thumbCount) outs.push('thumbnail');
+      (outs.length ? outs : ['longform', 'shorts', 'intro']).forEach((o) => fd.append('outputs', o));
+    } catch {
+      // 진단 실패 시 전체 재생성 (outputs 미지정 = 서버 기본 전체)
+    }
     await rebuild(jobId, fd);
     baseline.current = snapshot(st);
   }, [jobId, snapshot, st]);

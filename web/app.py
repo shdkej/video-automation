@@ -345,7 +345,8 @@ def _run_job(job_id: str, input_paths: list[Path], opts: dict) -> None:
                 add_bgm(src, bgm, mixed, bgm_volume=vol)
                 mixed.replace(src)
 
-        job["outputs"] = outputs
+        # 부분 재생성 지원 — 이번에 안 만든 종류는 디스크의 기존 산출물을 보존
+        job["outputs"] = {**_outputs_from_dir(outdir), **outputs}
         job["status"], job["progress"], job["stage"] = "done", 100, "완료"
     except Exception as e:  # noqa: BLE001 — 잡 단위 격리 (PipelineError 포함)
         job["status"], job["error"] = "error", str(e)
@@ -474,6 +475,31 @@ def _mix_sfx_into(outdir: Path, name: str, events: list) -> None:
     mixed.replace(src)
 
 
+def _link_source_inputs(src_job_id: str, job_dir: Path) -> list[Path]:
+    """기존 잡의 input_* 원본을 새 잡으로 hardlink — 같은 소스 재사용(재업로드 생략).
+
+    잡 정리(24시간/개수 한도)로 원본이 사라졌으면 400으로 안내한다.
+    """
+    if not re.fullmatch(r"[0-9a-f]{12}", src_job_id):
+        raise HTTPException(400, "source_job 형식이 올바르지 않습니다")
+    src_dir = JOBS_DIR / src_job_id
+    inputs = sorted(
+        p for p in src_dir.glob("input_*")
+        if p.is_file() and not p.name.endswith(".transcript.json")
+    )
+    if not inputs:
+        raise HTTPException(400, "원본이 이미 정리됐습니다 — 다시 업로드해주세요")
+    out = []
+    for p in inputs:
+        dst = job_dir / p.name
+        try:
+            os.link(p, dst)
+        except OSError:
+            shutil.copy2(p, dst)
+        out.append(dst)
+    return out
+
+
 def _validate_thumb(pos: str, font: str, weight: str, effect: str, scale: float,
                     template: str = "custom") -> float:
     """썸네일 타이틀 파라미터 공통 검증 — 잘못된 값은 400, scale은 클램프해 반환."""
@@ -544,7 +570,8 @@ def _save_uploads(files: list[UploadFile], job_dir: Path) -> list[Path]:
 
 @app.post("/api/jobs")
 async def create_job(
-    files: list[UploadFile],
+    files: list[UploadFile] = File([]),
+    source_job: str = Form(""),
     bgm: UploadFile | None = File(None),
     mode: str = Form("scene"),
     target_minutes: float = Form(3.0),
@@ -590,7 +617,8 @@ async def create_job(
         raise HTTPException(400, f"sub_style은 {'/'.join(SUB_STYLES)} 중 하나")
     if shorts_focus not in ("left", "center", "right"):
         raise HTTPException(400, "shorts_focus는 left/center/right 중 하나")
-    if not files:
+    files = [f for f in files if f.filename]
+    if not files and not source_job:
         raise HTTPException(400, "영상 파일이 필요합니다")
     _reject_if_queue_full()  # 실행은 순차 큐(_wait_for_slot) — 대기열 상한만 거부
     cleanup_jobs()  # 새 잡 전에 오래된/초과 잡 폴더 정리
@@ -598,9 +626,13 @@ async def create_job(
     job_dir = JOBS_DIR / job_id
     job_dir.mkdir(parents=True, exist_ok=True)
 
-    # 업로드 저장 — 확장자만 취해 안전한 파일명으로 (여러 개면 순서 보존)
+    # 업로드 저장 — 확장자만 취해 안전한 파일명으로 (여러 개면 순서 보존).
+    # source_job이면 기존 잡의 원본을 hardlink로 재사용 (재업로드 생략).
     try:
-        input_paths = _save_uploads(files, job_dir)
+        if source_job and not files:
+            input_paths = _link_source_inputs(source_job, job_dir)
+        else:
+            input_paths = _save_uploads(files, job_dir)
         if bgm and bgm.filename:
             ext = Path(bgm.filename).suffix.lower() or ".mp3"
             with open(job_dir / f"bgm{ext}", "wb") as f:

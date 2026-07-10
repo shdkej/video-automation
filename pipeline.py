@@ -737,7 +737,8 @@ def build_montage_short(
     try:
         build_short_footage(args.input, clips, vert, punchin=not args.no_shorts_punchin,
                             vertical=True, blur_bg=args.shorts_blur,
-                            focus=getattr(args, "shorts_focus", "center"))
+                            focus=getattr(args, "shorts_focus", "center"),
+                            cache_dir=outdir / ".clipcache")
         # B컷 컷어웨이 — 자막보다 아래 레이어이므로 자막 전에 합성
         broll_pages = montage_broll_pages(segments, outdir.parent)
         if broll_pages:

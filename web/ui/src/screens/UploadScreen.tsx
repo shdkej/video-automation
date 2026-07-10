@@ -88,6 +88,8 @@ export function UploadScreen({ onSubmitted, onOpenJob }: {
 }) {
   const { jobs, save } = useRecentJobs();
   const [files, setFiles] = useState<File[]>([]);
+  // 기존 잡의 원본 재사용 — 재업로드 생략 (서버가 hardlink)
+  const [sourceJob, setSourceJob] = useState<{ id: string; name: string } | null>(null);
   const [thumb, setThumb] = useState<ThumbState>(DEFAULT_THUMB_STATE);
   const [mode, setMode] = useState('auto');
   const [targetMinutes, setTargetMinutes] = useState('3');
@@ -122,6 +124,7 @@ export function UploadScreen({ onSubmitted, onOpenJob }: {
 
   // 선택한 첫 영상의 프레임을 브라우저에서 뽑아 썸네일 미리보기 바탕으로 — 파일별 캐시
   const getBase = useCallback(async () => {
+    if (!firstVideo && sourceJob) return { jobId: sourceJob.id, t: 1.0 };
     if (!firstVideo) return null;
     if (frameCache.current.file !== firstVideo) {
       frameCache.current = { file: firstVideo, blob: await captureFrameFromFile(firstVideo) };
@@ -130,7 +133,7 @@ export function UploadScreen({ onSubmitted, onOpenJob }: {
     return blob
       ? { blob }
       : { note: '영상 프레임을 읽지 못해 임시 배경입니다 — 산출물엔 실제 장면이 들어갑니다' };
-  }, [firstVideo]);
+  }, [firstVideo, sourceJob]);
 
   const pickedOutputs = () => OUTPUT_KEYS.filter((k) => outputs[k]);
   const ctaLabel = noteMode
@@ -216,10 +219,20 @@ export function UploadScreen({ onSubmitted, onOpenJob }: {
   };
 
   const submit = () => {
-    if (files.length === 0) {
+    if (files.length === 0 && !sourceJob) {
       toast.error('먼저 영상을 추가해주세요');
       dzRef.current?.classList.add('ring-2');
       setTimeout(() => dzRef.current?.classList.remove('ring-2'), 600);
+      return;
+    }
+    if (files.length === 0 && sourceJob) {
+      if (!subtitleOnly && pickedOutputs().length === 0) {
+        setError('산출물을 하나 이상 선택해주세요.');
+        return;
+      }
+      const fd = buildForm();
+      fd.append('source_job', sourceJob.id);
+      void runUpload('/api/jobs', fd, mode, `${sourceJob.name} (소스 재사용)`);
       return;
     }
     if (noteMode) {
@@ -296,6 +309,15 @@ export function UploadScreen({ onSubmitted, onOpenJob }: {
             </label>
           </Card>
 
+          {sourceJob && files.length === 0 && (
+            <div className="mt-3 flex items-center gap-3 rounded-md border border-primary/50 bg-card px-3 py-2">
+              <span className="font-mono text-[12px] text-primary">↺ 소스 재사용</span>
+              <span className="min-w-0 flex-1 truncate text-[13px]">{sourceJob.name}</span>
+              <Button type="button" variant="ghost" size="icon-sm" aria-label="재사용 해제"
+                onClick={() => setSourceJob(null)} className="text-destructive hover:text-destructive">✕</Button>
+            </div>
+          )}
+
           {/* 파일 목록 */}
           {files.length > 0 && (
             <ul className="mt-3 space-y-2">
@@ -329,7 +351,7 @@ export function UploadScreen({ onSubmitted, onOpenJob }: {
         </div>
 
         {/* 썸네일 타이틀 — 영상이 있고 노트 모드가 아닐 때 */}
-        {hasVideo && !noteMode && (
+        {(hasVideo || !!sourceJob) && !noteMode && (
           <div>
             <StepNum n="02">썸네일 미리보기</StepNum>
             <Card className="py-4">
@@ -529,6 +551,18 @@ export function UploadScreen({ onSubmitted, onOpenJob }: {
                     <span className="shrink-0 font-mono text-[12px] text-muted-foreground">{fmtTs(j.ts)}</span>
                     {j.mode && <span className="shrink-0 rounded-full bg-secondary px-2 py-0.5 text-[11px] text-secondary-foreground">{j.mode}</span>}
                   </button>
+                  {j.mode !== 'note' && (
+                    <div className="mt-1 flex justify-end">
+                      <Button type="button" variant="ghost" size="sm"
+                        onClick={() => {
+                          setSourceJob({ id: j.id, name: j.name || j.id });
+                          window.scrollTo({ top: 0, behavior: 'smooth' });
+                          toast(`"${j.name || j.id}" 원본을 재사용합니다 — 옵션 조정 후 만들기`);
+                        }}>
+                        ↺ 소스 재사용
+                      </Button>
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import random
 import shutil
 import subprocess
@@ -917,6 +918,15 @@ def cut_with_xfade(
 # Shorts footage — 점프컷 서브클립 + punch-in 교차 (페이드 없음: 첫 프레임=커버)
 # ============================================================================
 
+def _clip_cache_key(src: Path, s: float, e: float, punch: bool, vertical: bool,
+                    blur_bg: bool, focus: str) -> str:
+    """클립 인코딩 캐시 키 — 소스 파일 상태 + 컷·변환 파라미터."""
+    import hashlib
+    st = src.stat()
+    raw = f"{st.st_mtime_ns}:{st.st_size}:{s:.3f}:{e:.3f}:{punch}:{vertical}:{blur_bg}:{focus}"
+    return hashlib.sha1(raw.encode()).hexdigest()[:16]
+
+
 def build_short_footage(
     input_path: Path,
     clips: list[tuple],
@@ -928,6 +938,7 @@ def build_short_footage(
     focus: str = "center",
     target_w: int = 1080,
     target_h: int = 1920,
+    cache_dir: Path | None = None,
 ) -> None:
     """clips(원본 시점 (s, e) 목록)를 잘라 concat. 홀수번째 클립에 punch-in.
 
@@ -949,11 +960,24 @@ def build_short_footage(
         paths = []
         for i, (s, e) in enumerate(clips):
             cp = tmpdir / f"clip_{i:03d}.mp4"
+            # 2.5초 미만 클립엔 펀치인 생략 — 잘게 쪼개진 컷마다 줌이 바뀌면 어지럽다
+            punch_on = punchin and i % 2 == 1 and e - s >= 2.5
+            # 클립 캐시 — 구간 하나만 고친 재생성에서 안 바뀐 클립의 재인코딩 생략
+            cached = None
+            if cache_dir is not None:
+                cache_dir.mkdir(parents=True, exist_ok=True)
+                cached = cache_dir / (
+                    _clip_cache_key(input_path, s, e, punch_on, vertical, blur_bg, focus) + ".mp4")
+                if cached.is_file():
+                    try:
+                        os.link(cached, cp)
+                    except OSError:
+                        shutil.copy2(cached, cp)
+                    paths.append(cp)
+                    continue
             cmd = ["ffmpeg", "-y", "-loglevel", "error",
                    "-ss", f"{s:.3f}", "-i", str(input_path), "-t", f"{e - s:.3f}"]
-            # 2.5초 미만 클립엔 펀치인 생략 — 잘게 쪼개진 컷마다 줌이 바뀌면 어지럽다
-            punch = (f"crop=iw/{punch_scale}:ih/{punch_scale},"
-                     if (punchin and i % 2 == 1 and e - s >= 2.5) else "")
+            punch = f"crop=iw/{punch_scale}:ih/{punch_scale}," if punch_on else ""
             if vertical and blur_bg:
                 fc = (
                     f"[0:v]{punch}split[a][b];"
@@ -973,6 +997,11 @@ def build_short_footage(
                     "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
                     "-avoid_negative_ts", "make_zero", str(cp)]
             subprocess.run(cmd, check=True)
+            if cached is not None:
+                try:
+                    os.link(cp, cached)
+                except OSError:
+                    shutil.copy2(cp, cached)
             paths.append(cp)
 
         list_file = tmpdir / "concat.txt"
