@@ -139,7 +139,10 @@ export function UploadScreen({ onSubmitted, onOpenJob }: {
         : `${KO_COUNT[pickedOutputs().length]} 가지 만들기`;
 
   // ---------- 파일 ----------
-  const addFiles = (list: FileList | File[]) => setFiles((prev) => [...prev, ...Array.from(list)]);
+  const addFiles = (list: FileList | File[]) => {
+    const snapshot = Array.from(list); // FileList는 live — input.value 초기화 전에 스냅샷
+    setFiles((prev) => [...prev, ...snapshot]);
+  };
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault();
     dzRef.current?.classList.remove('ring-2');
