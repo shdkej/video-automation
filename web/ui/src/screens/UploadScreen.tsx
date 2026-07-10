@@ -522,6 +522,7 @@ export function UploadScreen({ onSubmitted, onOpenJob }: {
           </div>
         )}
       </div>
+          <p className="mt-8 text-center font-mono text-[10px] text-muted-foreground/60">build {__BUILD__}</p>
     </div>
   );
 }

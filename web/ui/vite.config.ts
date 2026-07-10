@@ -5,6 +5,7 @@ import { defineConfig } from 'vite';
 
 // FastAPI(:8765)가 dist를 정적 서빙한다 — dev 서버는 API만 프록시.
 export default defineConfig({
+  define: { __BUILD__: JSON.stringify(new Date().toISOString().slice(0, 16).replace('T', ' ')) },
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: { '@': path.resolve(__dirname, './src') },

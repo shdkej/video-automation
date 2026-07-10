@@ -96,6 +96,19 @@ def _reject_if_queue_full() -> None:
 app = FastAPI(title="video-automation")
 
 
+@app.middleware("http")
+async def no_cache_html(request, call_next):
+    """index.html은 항상 재검증 — 배포 후 폰 Safari가 구 번들을 계속 쓰는 것을 방지.
+    해시 파일명이 붙는 /assets는 영구 캐시."""
+    resp = await call_next(request)
+    path = request.url.path
+    if path == "/" or path.endswith(".html"):
+        resp.headers["Cache-Control"] = "no-cache"
+    elif path.startswith("/assets/"):
+        resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    return resp
+
+
 def cleanup_jobs() -> None:
     """오래됐거나 개수를 초과한 잡 폴더를 삭제. 진행 중(running) 잡은 보호.
 
