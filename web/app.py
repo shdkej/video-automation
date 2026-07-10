@@ -1123,8 +1123,12 @@ async def get_file(job_id: str, name: str):
 # 동봉 폰트 — 편집기의 썸네일 타이틀 폰트 미리보기용 (@font-face)
 app.mount("/fonts", StaticFiles(directory=str(ROOT / "assets" / "fonts")), name="fonts")
 
-# 정적 파일 (index.html, app.js, style.css) — 마지막에 마운트(루트 "/")
-app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")
+# 정적 파일 — 마지막에 마운트(루트 "/").
+# React UI(web/ui/dist)가 빌드돼 있으면 그것을, 아니면 구 정적 파일을 서빙.
+# VIDAUTO_UI=legacy 로 강제 롤백 가능 (컷오버 안전장치).
+_DIST_DIR = BASE / "ui" / "dist"
+_use_react = (_DIST_DIR / "index.html").is_file() and os.environ.get("VIDAUTO_UI", "react") != "legacy"
+app.mount("/", StaticFiles(directory=str(_DIST_DIR if _use_react else STATIC_DIR), html=True), name="static")
 
 
 if __name__ == "__main__":
