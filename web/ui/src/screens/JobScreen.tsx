@@ -7,6 +7,7 @@ import { Card } from '@/components/ui/card';
 import { Editor } from '@/components/editor/Editor';
 import { useJobPolling } from '@/hooks/useJobPolling';
 import { useRecentJobs } from '@/hooks/useRecentJobs';
+import { notifyDone } from '@/lib/notify';
 import type { Job } from '@/lib/types';
 
 const STEPS = [
@@ -73,6 +74,19 @@ export function JobScreen({ jobId, onReset, onOpenJob: _onOpenJob }: {
   // 재생성 중에도 편집실 유지 — 마지막 done 잡을 보관
   const lastDone = useRef<Job | null>(null);
   const [, force] = useState(0);
+
+  const notified = useRef(false);
+  useEffect(() => {
+    if (job?.status === 'done' && !notified.current) {
+      notified.current = true;
+      notifyDone(true, '산출물이 준비됐습니다');
+    }
+    if (job?.status === 'error' && !notified.current) {
+      notified.current = true;
+      notifyDone(false, job.error || '');
+    }
+    if (job?.status === 'queued' || job?.status === 'running') notified.current = false;
+  }, [job]);
 
   useEffect(() => {
     if (job?.status === 'done') {

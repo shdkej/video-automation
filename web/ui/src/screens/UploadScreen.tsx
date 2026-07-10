@@ -1,7 +1,9 @@
 // 업로드 화면 — 레거시 form-section 이식 + DESIGN.md 업로드 페이지 패턴.
 // 마스트헤드 → 드롭존 → (썸네일 타이틀) → 세부 설정(접힘) → CTA → 최근 작업.
 import { toast } from 'sonner';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { requestNotifyPermission, notifyDone } from '@/lib/notify';
+import { useJobPolling } from '@/hooks/useJobPolling';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { fmtSize, captureFrameFromFile, isAudio, isVideo, isNoteImg, isNoteMode, MEDIA_RE, NOTE_IMG_RE } from '@/lib/media';
 import { useRecentJobs } from '@/hooks/useRecentJobs';
 import { cn } from '@/lib/utils';
@@ -198,6 +200,7 @@ export function UploadScreen({ onSubmitted, onOpenJob }: {
   };
 
   const runUpload = async (url: string, fd: FormData, jobMode: string, name: string) => {
+    requestNotifyPermission(); // 완료 알림 권한 — 제출 제스처 안에서만 요청 가능
     setError('');
     setUploading(true);
     setProgress({ loaded: 0, total: 0 });
@@ -241,6 +244,7 @@ export function UploadScreen({ onSubmitted, onOpenJob }: {
 
   return (
     <div className="mx-auto max-w-[920px] px-4 py-10">
+      {jobs[0] && <JobBanner key={jobs[0].id} jobId={jobs[0].id} onOpen={() => onOpenJob(jobs[0].id)} />}
       {/* 마스트헤드 — Fraunces 허용 유일 구간 */}
       <header className="mb-8 space-y-3">
         <span className="inline-flex items-center gap-2 rounded-full border bg-card px-3 py-1 font-mono text-[11px] text-muted-foreground">
@@ -533,5 +537,32 @@ export function UploadScreen({ onSubmitted, onOpenJob }: {
       </div>
           <p className="mt-8 text-center font-mono text-[10px] text-muted-foreground/60">build {__BUILD__}</p>
     </div>
+  );
+}
+
+
+// 업로드 화면에 떠 있는 동안 최근 잡을 지켜본다 — 처리 중이면 상단 배너로 복귀 도선
+function JobBanner({ jobId, onOpen }: { jobId: string; onOpen: () => void }) {
+  const { job } = useJobPolling(jobId);
+  const doneNotified = useRef(false);
+  useEffect(() => {
+    if (job?.status === 'done' && !doneNotified.current) {
+      doneNotified.current = true;
+      notifyDone(true, '백그라운드 작업이 끝났습니다');
+    }
+  }, [job]);
+  if (!job) return null;
+  const running = job.status === 'running' || job.status === 'queued';
+  if (!running && !doneNotified.current) return null;
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="fixed inset-x-0 top-0 z-50 border-b border-border bg-popover/95 px-4 py-2.5 text-center font-mono text-xs text-accent backdrop-blur"
+    >
+      {running
+        ? `⏳ 작업 처리 중 · ${job.progress || 0}% — 보러 가기`
+        : '✓ 작업 완성 — 보러 가기'}
+    </button>
   );
 }
