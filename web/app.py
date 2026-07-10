@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -71,6 +72,9 @@ _UPLOAD_CHUNK = 1024 * 1024  # 1MB
 # 대기열 자체의 상한은 MAX_QUEUED_JOBS (업로드 디스크·대기 폭주 방지).
 _RUNNING = threading.Semaphore(MAX_CONCURRENT_JOBS)
 MAX_QUEUED_JOBS = int(os.environ.get("VIDAUTO_MAX_QUEUED_JOBS", "5"))
+
+# Remotion 자막 스타일 — SubtitleOverlay.tsx의 SubStyle과 단일 계약
+SUB_STYLES = ("fade", "kinetic", "impact", "bounce", "typewriter", "wave")
 
 
 def _wait_for_slot(job: dict) -> None:
@@ -569,8 +573,8 @@ async def create_job(
         raise HTTPException(400, f"outputs는 {'/'.join(pl.WANTED)} 중에서 1개 이상")
     if sub_engine not in ("pil", "remotion"):
         raise HTTPException(400, "sub_engine은 pil/remotion 중 하나")
-    if sub_style not in ("fade", "kinetic", "impact"):
-        raise HTTPException(400, "sub_style은 fade/kinetic/impact 중 하나")
+    if sub_style not in SUB_STYLES:
+        raise HTTPException(400, f"sub_style은 {'/'.join(SUB_STYLES)} 중 하나")
     if shorts_focus not in ("left", "center", "right"):
         raise HTTPException(400, "shorts_focus는 left/center/right 중 하나")
     if not files:
@@ -1001,6 +1005,45 @@ async def thumb_preview(
         return Response(content=tmp.read_bytes(), media_type="image/jpeg")
     finally:
         tmp.unlink(missing_ok=True)
+
+
+BROLL_MAX_MB = 15
+BROLL_EXTS = {".png", ".jpg", ".jpeg", ".webp"}
+_BROLL_RE = re.compile(r"^broll_[0-9a-f]{8}\.(png|jpe?g|webp)$")
+
+
+@app.get("/api/jobs/{job_id}/broll/{name}")
+async def get_broll(job_id: str, name: str):
+    """B컷 이미지 서빙 — 서버 발급 이름만 (경로 조작 차단)."""
+    if not _BROLL_RE.match(name):
+        raise HTTPException(404, "파일 없음")
+    target = JOBS_DIR / job_id / name
+    if not target.is_file():
+        raise HTTPException(404, "파일 없음")
+    return FileResponse(target)
+
+
+@app.post("/api/jobs/{job_id}/broll")
+async def upload_broll(job_id: str, file: UploadFile = File(...)):
+    """구간 B컷 이미지 업로드 — 서버 발급 이름(broll_<hex>.<ext>)을 돌려주고,
+    편집기가 그 이름을 segment.broll에 실어 재생성 때 컷어웨이로 합성한다."""
+    job_dir = JOBS_DIR / job_id
+    if not job_dir.is_dir():
+        raise HTTPException(404, "잡 없음")
+    ext = Path(file.filename or "").suffix.lower()
+    if ext not in BROLL_EXTS:
+        raise HTTPException(400, f"B컷은 이미지({'/'.join(sorted(BROLL_EXTS))})만 가능합니다")
+    name = f"broll_{uuid.uuid4().hex[:8]}{ext}"
+    size = 0
+    with open(job_dir / name, "wb") as f:
+        while chunk := await file.read(_UPLOAD_CHUNK):
+            size += len(chunk)
+            if size > BROLL_MAX_MB * 1024 * 1024:
+                f.close()
+                (job_dir / name).unlink(missing_ok=True)
+                raise HTTPException(413, f"B컷 이미지는 {BROLL_MAX_MB}MB 이하")
+            f.write(chunk)
+    return {"name": name}
 
 
 @app.get("/api/thumb-templates")

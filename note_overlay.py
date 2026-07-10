@@ -79,25 +79,20 @@ def _auto_pages(images: list[Path], duration: float) -> list[dict]:
     return pages
 
 
-def render_note_overlay(
+def _render_pages_overlay(
     video: Path,
-    pages: list[dict | str | Path],
+    pages: list[dict],
     output: Path,
-    page_width_ratio: float = 0.78,
+    composition: str,
+    extra_props: dict | None = None,
 ) -> dict:
-    """배경 영상 위에 노트 페이지들이 flip으로 떠오르는 영상을 렌더.
-
-    pages: [{"src", "start", "end"}] 또는 이미지 경로 목록(균등 배분).
-    Returns: {"output", "props"}
-    """
+    """영상 + 이미지 페이지들을 지정 컴포지션으로 렌더 — Note/BRoll 공용 엔진."""
     if not REMOTION_BIN.exists():
         raise RuntimeError(f"Remotion 미설치: {REMOTION_BIN} 없음. remotion-map에서 npm install 필요.")
 
     duration = probe_duration_sec(video)
     if duration <= 0:
         raise ValueError(f"영상 길이를 읽지 못함: {video}")
-    if pages and not isinstance(pages[0], dict):
-        pages = _auto_pages([Path(p) for p in pages], duration)
 
     w, h = probe_resolution(video)
     w, h = w & ~1, h & ~1
@@ -120,14 +115,14 @@ def render_note_overlay(
             "height": h,
             "fps": round(probe_fps(video)),
             "durationSec": round(duration, 3),
-            "pageWidthRatio": page_width_ratio,
+            **(extra_props or {}),
         }
         with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as f:
             json.dump(props, f, ensure_ascii=False)
             props_path = f.name
 
         cmd = [
-            str(REMOTION_BIN), "render", _render_entry(), COMPOSITION, str(output.resolve()),
+            str(REMOTION_BIN), "render", _render_entry(), composition, str(output.resolve()),
             f"--props={props_path}",
             "--timeout=120000",
             "--log=error",
@@ -138,6 +133,32 @@ def render_note_overlay(
         shutil.rmtree(stage_dir, ignore_errors=True)
 
     return {"output": str(output), "props": props}
+
+
+def render_note_overlay(
+    video: Path,
+    pages: list[dict | str | Path],
+    output: Path,
+    page_width_ratio: float = 0.78,
+) -> dict:
+    """배경 영상 위에 노트 페이지들이 flip으로 떠오르는 영상을 렌더.
+
+    pages: [{"src", "start", "end"}] 또는 이미지 경로 목록(균등 배분).
+    Returns: {"output", "props"}
+    """
+    if pages and not isinstance(pages[0], dict):
+        duration = probe_duration_sec(video)
+        pages = _auto_pages([Path(p) for p in pages], duration)
+    return _render_pages_overlay(video, pages, output, COMPOSITION,
+                                 {"pageWidthRatio": page_width_ratio})
+
+
+def render_broll_overlay(video: Path, pages: list[dict], output: Path) -> dict:
+    """B컷 컷어웨이 — 구간 동안 화면을 이미지가 덮는다(켄번즈), 오디오는 원본 유지.
+
+    pages: [{"src", "start", "end"}] — 출력 타임라인 기준 초.
+    """
+    return _render_pages_overlay(video, pages, output, "BRollOverlay")
 
 
 if __name__ == "__main__":

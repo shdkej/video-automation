@@ -243,7 +243,8 @@ if __name__ == "__main__":
     parser.add_argument("-o", "--output", type=Path, default=None)
     parser.add_argument("--font-size", type=int, default=44)
     parser.add_argument("--margin-bottom", type=int, default=72)
-    parser.add_argument("--style", choices=["fade", "kinetic"], default="fade")
+    parser.add_argument("--style", default="fade",
+                        choices=["fade", "kinetic", "impact", "bounce", "typewriter", "wave"])
     parser.add_argument("--speakers-json", type=Path, default=None, help='["화자1", ...] captions와 같은 길이')
     parser.add_argument("--palette-json", type=Path, default=None, help='{"화자1": "#ffd166", ...}')
     args = parser.parse_args()

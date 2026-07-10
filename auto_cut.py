@@ -253,6 +253,7 @@ def trim_montage_segments(segments: list, motion: list, max_len: float) -> list:
     trimmed = []
     for seg in segments:
         s, e = seg["start"], seg["end"]
+        seg = {**seg, "clip_start": s, "clip_end": e}  # 원본 클립 경계 — 편집기 트림 바용
         if e - s <= max_len:
             trimmed.append(seg)
             continue

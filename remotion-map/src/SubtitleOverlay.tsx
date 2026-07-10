@@ -33,13 +33,17 @@ const ensurePretendard = () => {
     .catch(() => continueRender(handle));
 };
 
+// 자막 스타일 — fade(페이드) kinetic(단어 슬라이드) impact(원워드 슬램)
+// bounce(단어 팝 바운스) typewriter(타자기) wave(글자 물결)
+export type SubStyle = 'fade' | 'kinetic' | 'impact' | 'bounce' | 'typewriter' | 'wave';
+
 // 컷 영상 타임라인(초) 기준 자막 이벤트.
 export type SubEvent = {
   text: string;
   start: number;
   end: number;
   speaker?: string; // 화자 키(색 매핑). 없으면 기본색
-  style?: 'fade' | 'kinetic' | 'impact'; // 이벤트별 스타일 override
+  style?: SubStyle; // 이벤트별 스타일 override
   words?: { text: string; start: number; end: number }[]; // 카라오케 단어 타이밍(이벤트 상대 초)
 };
 export type SubtitleProps = {
@@ -49,7 +53,7 @@ export type SubtitleProps = {
   width: number;
   height: number;
   fps: number;
-  style: 'fade' | 'kinetic' | 'impact'; // 전역 기본 스타일
+  style: SubStyle; // 전역 기본 스타일
   palette: Record<string, string>; // 화자 → hex
   hook?: string; // 숏츠/인트로 상단 후킹 배너 문구
   mode?: 'shorts' | 'longform' | 'intro'; // shorts: 펀치 자막+배너, longform: fade+키워드강조, intro: 배너 온리
@@ -275,7 +279,7 @@ const Caption: React.FC<{
   durationInFrames: number;
   fontSize: number;
   marginBottom: number;
-  defaultStyle: 'fade' | 'kinetic' | 'impact';
+  defaultStyle: SubStyle;
   mode: 'shorts' | 'longform';
   palette: Record<string, string>;
 }> = ({ ev, durationInFrames, fontSize, marginBottom, defaultStyle, mode, palette }) => {
@@ -314,6 +318,65 @@ const Caption: React.FC<{
   }
 
   const style = ev.style ?? defaultStyle;
+
+  if (style === 'bounce') {
+    // 단어별 팝 바운스 — 작게 시작해 크게 튀며 안착, 살짝 회전 지터 (경쾌·예능)
+    const words = ev.text.split(/\s+/).filter(Boolean);
+    const stagger = 3;
+    return (
+      <Pill fontSize={fontSize} marginBottom={marginBottom} containerOpacity={exit} containerY={0}>
+        {words.map((w, i) => {
+          const wf = frame - i * stagger;
+          const pop = spring({ frame: Math.max(0, wf), fps, config: { damping: 9, mass: 0.7, stiffness: 190 }, durationInFrames: 16 });
+          const rot = (random(`b:${i}:${w}`) - 0.5) * 12 * Math.max(0, 1 - wf / 12);
+          return (
+            <span key={i} style={{
+              display: 'inline-block', marginRight: '0.28em',
+              opacity: wf < 0 ? 0 : Math.min(1, wf / 2),
+              transform: `scale(${0.2 + pop * 0.8}) rotate(${rot}deg)`,
+              ...(accent ? { color: accent } : {}),
+            }}>
+              {w}
+            </span>
+          );
+        })}
+      </Pill>
+    );
+  }
+
+  if (style === 'typewriter') {
+    // 타자기 — 글자가 차례로 찍히고 앰버 커서가 깜빡인다 (브이로그·설명)
+    const chars = [...ev.text];
+    const typeSec = Math.max(0.4, (durationInFrames / fps) * 0.55);
+    const shown = Math.min(chars.length, Math.floor((frame / fps) * (chars.length / typeSec)));
+    const cursorOn = shown < chars.length || Math.floor(frame / (fps * 0.28)) % 2 === 0;
+    return (
+      <Pill fontSize={fontSize} marginBottom={marginBottom} containerOpacity={exit} containerY={0}>
+        <span>{chars.slice(0, shown).join('')}</span>
+        <span style={{ opacity: cursorOn ? 1 : 0, color: ACCENT }}>▎</span>
+      </Pill>
+    );
+  }
+
+  if (style === 'wave') {
+    // 글자 물결 — 각 글자가 사인파로 출렁인다 (리듬·음악 콘텐츠)
+    const enter = spring({ frame, fps, config: { damping: 18, mass: 0.6 }, durationInFrames: 12 });
+    const chars = [...ev.text];
+    return (
+      <Pill fontSize={fontSize} marginBottom={marginBottom}
+        containerOpacity={Math.min(enter, exit)} containerY={interpolate(enter, [0, 1], [18, 0])}>
+        {chars.map((c, i) => (
+          <span key={i} style={{
+            display: 'inline-block', whiteSpace: 'pre',
+            transform: `translateY(${Math.sin((frame / fps) * 4.2 + i * 0.55) * fontSize * 0.09}px)`,
+            ...(accent ? { color: accent } : {}),
+          }}>
+            {c}
+          </span>
+        ))}
+      </Pill>
+    );
+  }
 
   if (style === 'kinetic') {
     const boxIn = spring({ frame, fps, config: { damping: 20, mass: 0.5 }, durationInFrames: 8 });

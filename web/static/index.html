@@ -92,6 +92,9 @@
                 <option value="fade" selected>애니메이션·페이드 (기본)</option>
                 <option value="kinetic">애니메이션·키네틱</option>
                 <option value="impact">임팩트 (원워드 슬램·스파크)</option>
+                <option value="bounce">바운스 (단어 팝)</option>
+                <option value="typewriter">타자기</option>
+                <option value="wave">웨이브 (글자 물결)</option>
                 <option value="pil">정적 (PIL)</option>
                 <option value="off">끄기</option>
               </select>
@@ -183,92 +186,110 @@
       <p class="stage-text" id="stage-text">대기 중…</p>
     </section>
 
-    <!-- 결과 -->
+    <!-- 결과 — 편집실(플레이어 + 타임라인 + 도구바) 그리고 아래에 산출물 다운로드 -->
     <section id="result-section" class="hidden">
       <div class="result-head">
         <h2>완성</h2>
         <span class="result-meta" id="seg-info"></span>
         <span class="dl-extra" id="dl-extra"></span>
       </div>
-      <div id="results" class="reel"></div>
-      <div id="compare"></div>
 
-      <details id="editor" class="rebuild editor" open>
-        <summary>편집 <small>자막 · 음악 · 썸네일 타이틀 — 바꾸고 "적용해서 다시 만들기"</small></summary>
+      <div class="editor-shell" id="editor">
+        <!-- 플레이어 — 필름 게이트 프레임 안에서 결과물 재생 -->
+        <div class="player-bay">
+          <div class="player-gate">
+            <video id="ed-player" playsinline preload="metadata"></video>
+            <div class="player-rest" id="player-rest">⏵</div>
+          </div>
+          <div class="out-picker" id="out-picker"></div>
+        </div>
 
-        <!-- ① 영상 자막 — 화면에 새겨지는 말자막 -->
-        <div class="ed-sec">
-          <div class="step-num" data-n="01">영상 자막 <small>스타일·크기 — 문구는 고급 편집의 타임라인에서 구간별로</small></div>
-          <div class="ed-row-flex">
-            <div class="ed-col">
-              <div class="style-picks" id="style-picks">
-                <button type="button" data-style="fade" class="selected">페이드</button>
-                <button type="button" data-style="kinetic">키네틱</button>
-                <button type="button" data-style="impact">임팩트</button>
-                <button type="button" data-style="pil">정적</button>
-                <button type="button" data-style="off">끄기</button>
-              </div>
-              <div class="chip-line">크기
-                <div class="chips" id="sub-scale-picks">
-                  <button type="button" data-scale="0.85">작게</button>
-                  <button type="button" data-scale="1" class="selected">보통</button>
-                  <button type="button" data-scale="1.2">크게</button>
-                </div>
-              </div>
-            </div>
-            <video id="style-demo" class="style-demo hidden" muted playsinline loop preload="none"></video>
+        <!-- 트랜스포트 — 재생 · 타임코드 · 적용 -->
+        <div class="transport">
+          <button type="button" id="tp-play" class="tp-play" aria-label="재생/일시정지">⏵</button>
+          <span class="tp-time" id="tp-time">0:00.0 / 0:00.0</span>
+          <span class="jp-empty tp-status" id="edit-status"></span>
+          <button type="button" id="apply-btn" class="cta-sm">적용 →</button>
+        </div>
+
+        <!-- 타임라인 — 필름스트립(영상·자막·효과음 트랙) + 플레이헤드 -->
+        <div class="tl-shell">
+          <div class="tl-scroll" id="tl-scroll">
+            <div class="tl-tracks" id="tl-tracks"></div>
+            <div class="tl-playhead hidden" id="tl-playhead"></div>
           </div>
         </div>
 
-        <!-- ② 음악 -->
-        <div class="ed-sec">
-          <div class="step-num" data-n="02">음악</div>
-          <div id="bgm-list" class="bgm-list"><p class="jp-empty">불러오는 중…</p></div>
-        </div>
+        <!-- 도구 패널 — 하단 도구바 탭에 따라 교체 -->
+        <div class="tool-panels" id="tool-panels">
+          <div class="tool-panel" data-panel="clip">
+            <p class="panel-hint" id="clip-hint">타임라인에서 클립을 탭하세요 — 시간 · 자막 문구 · 효과음 · 사용 여부를 편집합니다</p>
+            <div id="seg-detail" class="seg-detail hidden"></div>
+          </div>
 
-        <!-- ③ 썸네일 타이틀 — 썸네일 이미지에만 (컨트롤은 JS 공용 템플릿) -->
-        <div class="ed-sec" id="thumb-group">
-          <div class="step-num" data-n="03">썸네일 타이틀 <small>썸네일 이미지에만 — 영상 자막과 별개</small></div>
-          <div class="thumb-ctl" id="tc-editor"></div>
-        </div>
+          <div class="tool-panel hidden" data-panel="subtitle">
+            <div class="ed-row-flex">
+              <div class="ed-col">
+                <div class="style-picks" id="style-picks">
+                  <button type="button" data-style="fade" class="selected">페이드</button>
+                  <button type="button" data-style="kinetic">키네틱</button>
+                  <button type="button" data-style="impact">임팩트</button>
+                  <button type="button" data-style="bounce">바운스</button>
+                  <button type="button" data-style="typewriter">타자기</button>
+                  <button type="button" data-style="wave">웨이브</button>
+                  <button type="button" data-style="pil">정적</button>
+                  <button type="button" data-style="off">끄기</button>
+                </div>
+                <div class="chip-line">크기
+                  <div class="chips" id="sub-scale-picks">
+                    <button type="button" data-scale="0.85">작게</button>
+                    <button type="button" data-scale="1" class="selected">보통</button>
+                    <button type="button" data-scale="1.2">크게</button>
+                  </div>
+                </div>
+              </div>
+              <video id="style-demo" class="style-demo hidden" muted playsinline loop preload="none"></video>
+            </div>
+            <!-- 발화 자막 교정 (speech) -->
+            <div id="transcript-edit"></div>
+          </div>
 
-        <!-- 고급 편집 — 효과·산출 개수·타임라인·발화 자막 교정 -->
-        <details class="adv ed-adv">
-          <summary>고급 편집 <small>효과 · 산출 개수 · 타임라인(구간·효과음) · 발화 자막 교정</small></summary>
+          <div class="tool-panel hidden" data-panel="music">
+            <div id="bgm-list" class="bgm-list"><p class="jp-empty">불러오는 중…</p></div>
+            <label class="rb-num bgm-vol-line">볼륨<input type="number" id="ed_bgmvol" min="0.05" max="1" step="0.05" value="0.3"></label>
+          </div>
 
-          <div class="ed-sec">
-            <div class="step-num">효과 · 산출</div>
+          <div class="tool-panel hidden" data-panel="thumb">
+            <div class="thumb-ctl" id="tc-editor"></div>
+            <label class="rb-num">썸네일 장수<input type="number" id="ed_thumb" min="1" max="10" value="3"></label>
+          </div>
+
+          <div class="tool-panel hidden" data-panel="fx">
             <div class="toggles eds-toggles">
-              <label class="toggle"><input type="checkbox" id="ed_jumpcut" checked><span class="tg-box"></span>점프컷</label>
-              <label class="toggle"><input type="checkbox" id="ed_punchin" checked><span class="tg-box"></span>펀치인</label>
+              <label class="toggle"><input type="checkbox" id="ed_jumpcut" checked><span class="tg-box"></span>점프컷(무음 제거)</label>
+              <label class="toggle"><input type="checkbox" id="ed_punchin" checked><span class="tg-box"></span>펀치인(줌 강조)</label>
               <label class="toggle"><input type="checkbox" id="ed_blur"><span class="tg-box"></span>흐린 배경</label>
               <label class="toggle"><input type="checkbox" id="ed_clean" checked><span class="tg-box"></span>클린 버전 함께</label>
             </div>
             <div class="eds-nums">
-              <label class="rb-num">숏츠<input type="number" id="ed_shorts" min="0" max="10" value="2"></label>
-              <label class="rb-num">썸네일<input type="number" id="ed_thumb" min="1" max="10" value="3"></label>
-              <label class="rb-num">BGM 볼륨<input type="number" id="ed_bgmvol" min="0.05" max="1" step="0.05" value="0.3"></label>
+              <label class="rb-num">숏츠 개수<input type="number" id="ed_shorts" min="0" max="10" value="2"></label>
             </div>
           </div>
-
-          <div class="ed-sec">
-            <div class="step-num">타임라인 <small>구간 탭 → 구간 자막·효과음·시간 편집</small></div>
-            <div class="tl-scroll" id="tl-scroll">
-              <div class="tl-head"><span>영상</span><span>글자</span><span class="tl-head-sfx">효과음</span></div>
-              <div class="tl-tracks" id="tl-tracks"></div>
-            </div>
-            <div id="seg-detail" class="seg-detail hidden"></div>
-          </div>
-
-          <!-- 발화 자막 교정 (speech) -->
-          <div id="transcript-edit"></div>
-        </details>
-
-        <div class="rebuild-opts">
-          <button type="button" id="apply-btn" class="cta-sm">적용해서 다시 만들기 →</button>
-          <span class="jp-empty" id="edit-status"></span>
         </div>
-      </details>
+
+        <!-- 하단 도구바 — CapCut식 도구 전환 -->
+        <nav class="toolbar" id="toolbar" aria-label="편집 도구">
+          <button type="button" data-tool="clip" class="active"><span class="tb-ico">✂</span>클립</button>
+          <button type="button" data-tool="subtitle"><span class="tb-ico">Ⓣ</span>자막</button>
+          <button type="button" data-tool="music"><span class="tb-ico">♪</span>음악</button>
+          <button type="button" data-tool="thumb"><span class="tb-ico">▣</span>썸네일</button>
+          <button type="button" data-tool="fx"><span class="tb-ico">✦</span>효과</button>
+        </nav>
+      </div>
+
+      <div class="step-num dl-head" data-n="↓">산출물 <small>다운로드 · 공유</small></div>
+      <div id="results" class="reel"></div>
+      <div id="compare"></div>
 
       <button id="reset-btn" class="ghost">새 영상으로 다시</button>
     </section>

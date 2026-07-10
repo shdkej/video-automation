@@ -3,6 +3,7 @@ import { MapRoute } from './MapRoute';
 import { MapFlyStatic } from './MapFlyStatic';
 import { SubtitleOverlay, SubtitleProps } from './SubtitleOverlay';
 import { NoteOverlay, NoteOverlayProps } from './NoteOverlay';
+import { BRollOverlay, BRollOverlayProps } from './BRollOverlay';
 import data from './data.json';
 import flyMeta from './data-fly.json';
 
@@ -60,6 +61,26 @@ export const RemotionRoot: React.FC = () => {
           const fps = props.fps || 30;
           const pagesEnd = props.pages.length ? Math.max(...props.pages.map((p) => p.end)) : 0;
           const durationSec = Math.max(props.durationSec ?? 0, pagesEnd + 0.5);
+          return {
+            durationInFrames: Math.max(1, Math.ceil(durationSec * fps)),
+            fps,
+            width: props.width || 1080,
+            height: props.height || 1920,
+          };
+        }}
+      />
+      <Composition
+        id="BRollOverlay"
+        component={BRollOverlay}
+        fps={30}
+        width={1080}
+        height={1920}
+        durationInFrames={1}
+        defaultProps={{ videoSrc: 'note-demo/bg.mp4', pages: [] } as BRollOverlayProps}
+        calculateMetadata={({ props }) => {
+          const fps = props.fps || 30;
+          const pagesEnd = props.pages.length ? Math.max(...props.pages.map((p) => p.end)) : 0;
+          const durationSec = Math.max(props.durationSec ?? 0, pagesEnd + 0.2);
           return {
             durationInFrames: Math.max(1, Math.ceil(durationSec * fps)),
             fps,

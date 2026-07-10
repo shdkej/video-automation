@@ -678,7 +678,9 @@ def test_trim_picks_high_motion_window():
 
 def test_trim_keeps_short_segments():
     seg = [{"start": 0.0, "end": 1.5, "reason": "montage(전체 유지)"}]
-    assert trim_montage_segments(seg, [], max_len=2.0) == seg
+    out = trim_montage_segments(seg, [], max_len=2.0)
+    assert (out[0]["start"], out[0]["end"]) == (0.0, 1.5)          # 구간은 그대로
+    assert (out[0]["clip_start"], out[0]["clip_end"]) == (0.0, 1.5)  # 편집기 트림 바용 경계
 
 
 def test_trim_fallback_center_biased_without_motion():

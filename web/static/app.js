@@ -48,11 +48,12 @@ $("subtitle_only").addEventListener("change", () => {
   refreshCtaLabel();
 });
 
+const REMOTION_STYLES = ["fade", "kinetic", "impact", "bounce", "typewriter", "wave"];
 function appendSubOpts(fd, subMode) {
-  const animated = subMode === "fade" || subMode === "kinetic" || subMode === "impact";
+  const animated = REMOTION_STYLES.includes(subMode);
   fd.append("no_subtitle", subMode === "off");
   fd.append("sub_engine", animated ? "remotion" : "pil");
-  fd.append("sub_style", subMode === "kinetic" || subMode === "impact" ? subMode : "fade");
+  fd.append("sub_style", animated ? subMode : "fade");
 }
 
 // ---------- 모드 카드 ----------
@@ -1083,13 +1084,19 @@ async function initEditor(jobId, job) {
     use: true,
     start: s.start,
     end: s.end,
+    clipStart: s.clip_start,   // 원본 클립 경계 — 트림 바 (몽타주 트림 시 존재)
+    clipEnd: s.clip_end,
     caption: (edData.captions || [])[i] || "",
     hook: s.hook || "",
     sfx: s.sfx || "",
+    broll: s.broll || "",      // B컷 이미지 (서버 발급 이름) — 구간 동안 화면을 덮는 컷어웨이
+    tpl: s,                    // 재생성 시 원본 segment 필드 계승용 (구간 추가·삭제에도 안전)
   }));
   renderBgmList(job);
   renderTimeline();
   renderTranscriptEdit();
+  activateTool("clip");
+  initPlayer(jobId, job);
 
   // 썸네일 타이틀 — 원본 프레임 위 서버 렌더 미리보기 (편집기 인스턴스)
   subScale = 1;
@@ -1097,6 +1104,118 @@ async function initEditor(jobId, job) {
   editorTC.reset();
   editorTC.refresh(true);
 }
+
+// ----- 도구바 — 하단 탭으로 패널 전환 -----
+function activateTool(tool) {
+  document.querySelectorAll("#toolbar button").forEach((b) =>
+    b.classList.toggle("active", b.dataset.tool === tool));
+  document.querySelectorAll(".tool-panel").forEach((p) =>
+    p.classList.toggle("hidden", p.dataset.panel !== tool));
+  if (tool !== "subtitle") $("style-demo").pause();
+}
+document.querySelectorAll("#toolbar button").forEach((b) =>
+  b.addEventListener("click", () => activateTool(b.dataset.tool)));
+
+// ----- 플레이어 — 결과물 재생 + 타임라인 플레이헤드 동기화 -----
+// 매핑 가능(몽타주 숏폼·롱폼)한 출력에서만 플레이헤드를 움직인다.
+const edPlayer = $("ed-player");
+let outVideos = [];   // [{name, label, mappable}]
+let outMappable = false;
+let phRaf = null;
+
+function isMontageData() {
+  const segs = (edData && edData.segments) || [];
+  return !!segs.length && String(segs[0].reason || "").startsWith("montage");
+}
+
+function initPlayer(jobId, job) {
+  const o = job.outputs || {};
+  const montage = isMontageData();
+  outVideos = [];
+  if (o.subtitled) outVideos.push({ name: o.subtitled, label: "자막본", mappable: false });
+  if (o.longform) outVideos.push({ name: o.longform, label: "롱폼", mappable: true });
+  (o.shorts || []).forEach((n, i) =>
+    outVideos.push({ name: n, label: `숏츠 ${i + 1}`, mappable: montage && i === 0 }));
+  if (o.intro) outVideos.push({ name: o.intro, label: "인트로", mappable: false });
+
+  const picker = $("out-picker");
+  picker.innerHTML = outVideos.length > 1
+    ? outVideos.map((v, i) => `<button type="button" data-i="${i}">${escHtml(v.label)}</button>`).join("")
+    : "";
+  const first = Math.max(0, outVideos.findIndex((v) => v.mappable));
+  if (outVideos.length) selectOut(first);
+  else { edPlayer.removeAttribute("src"); $("tp-time").textContent = "0:00.0 / 0:00.0"; }
+}
+
+function selectOut(i) {
+  const v = outVideos[i];
+  if (!v) return;
+  edPlayer.pause();
+  edPlayer.src = fileUrl(edJobId, v.name);
+  outMappable = v.mappable;
+  $("tl-playhead").classList.toggle("hidden", !outMappable);
+  document.querySelectorAll("#out-picker button").forEach((b) =>
+    b.classList.toggle("active", Number(b.dataset.i) === i));
+}
+$("out-picker").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-i]");
+  if (b) selectOut(Number(b.dataset.i));
+});
+
+const fmtTc = (s) => {
+  if (!isFinite(s)) s = 0;
+  const m = Math.floor(s / 60);
+  return `${m}:${String(Math.floor(s % 60)).padStart(2, "0")}.${Math.floor((s % 1) * 10)}`;
+};
+
+// 편집 상태의 출력 타임라인 — 사용 구간 누적 (몽타주=정확, 롱폼=xfade 근사)
+function outTimelineMap() {
+  let t = 0;
+  return edSegs.map((s) => {
+    const d = s.use ? Math.max(0, s.end - s.start) : 0;
+    const m = { t0: t, d };
+    t += d;
+    return m;
+  });
+}
+
+function updatePlayhead() {
+  if (!outMappable || edSel === -2) return;
+  const map = outTimelineMap();
+  const cells = document.querySelectorAll(".tl-vcell");
+  const t = edPlayer.currentTime;
+  let x = null;
+  for (let i = 0; i < map.length; i++) {
+    if (!map[i].d || !cells[i]) continue;
+    if (t < map[i].t0 + map[i].d) {
+      const f = Math.min(1, Math.max(0, (t - map[i].t0) / map[i].d));
+      x = cells[i].offsetLeft + f * cells[i].offsetWidth;
+      break;
+    }
+    x = cells[i].offsetLeft + cells[i].offsetWidth;  // 마지막 사용 클립 끝
+  }
+  if (x != null) $("tl-playhead").style.left = `${Math.round(x)}px`;
+}
+
+function syncTransport() {
+  $("tp-time").textContent = `${fmtTc(edPlayer.currentTime)} / ${fmtTc(edPlayer.duration)}`;
+  const playing = !edPlayer.paused && !edPlayer.ended;
+  $("tp-play").textContent = playing ? "⏸" : "⏵";
+  $("player-rest").style.opacity = playing ? 0 : 1;
+}
+function phLoop() {
+  updatePlayhead();
+  syncTransport();
+  if (!edPlayer.paused && !edPlayer.ended) phRaf = requestAnimationFrame(phLoop);
+}
+["play", "pause", "ended", "loadedmetadata", "timeupdate", "seeked"].forEach((ev) =>
+  edPlayer.addEventListener(ev, () => {
+    if (phRaf) cancelAnimationFrame(phRaf);
+    phLoop();
+  }));
+const togglePlay = () => { if (edPlayer.src) { edPlayer.paused ? edPlayer.play() : edPlayer.pause(); } };
+$("tp-play").addEventListener("click", togglePlay);
+edPlayer.addEventListener("click", togglePlay);
 
 // ----- 음악(BGM) 리스트 -----
 function renderBgmList(job) {
@@ -1142,13 +1261,12 @@ function sfxLabel(name) {
 }
 function renderTimeline() {
   const showSfx = !!(sfxLib && sfxLib.length);
-  document.querySelector(".tl-head-sfx").style.display = showSfx ? "" : "none";
   let vid = "", txt = "", sfx = "";
   edSegs.forEach((s, i) => {
     const w = Math.max(72, Math.round((Number(s.end) - Number(s.start)) * PX_PER_SEC));
     const mid = ((Number(s.start) + Number(s.end)) / 2).toFixed(1);
     const cls = `tl-cell${i === edSel ? " selected" : ""}${s.use ? "" : " excluded"}`;
-    vid += `<div class="${cls} tl-vcell" data-i="${i}" style="width:${w}px;background-image:url('/api/jobs/${edJobId}/frame?t=${mid}')"><span class="tl-dur">${(s.end - s.start).toFixed(1)}s</span></div>`;
+    vid += `<div class="${cls} tl-vcell" data-i="${i}" style="width:${w}px;background-image:url('/api/jobs/${edJobId}/frame?t=${mid}')">${s.broll ? '<span class="tl-broll">B</span>' : ""}<span class="tl-dur">${(s.end - s.start).toFixed(1)}s</span></div>`;
     txt += `<div class="${cls} tl-tcell" data-i="${i}" style="width:${w}px">${escHtml((s.caption || "").split("\n")[0] || "–")}</div>`;
     if (showSfx) sfx += `<div class="${cls} tl-scell${s.sfx ? " has-sfx" : ""}" data-i="${i}" style="width:${w}px">${escHtml(s.sfx ? sfxLabel(s.sfx) : "＋")}</div>`;
   });
@@ -1162,6 +1280,12 @@ $("tl-tracks").addEventListener("click", (e) => {
   edSel = Number(cell.dataset.i);
   renderTimeline();
   renderSegDetail();
+  activateTool("clip");
+  // 매핑 가능한 출력이면 그 클립의 시작으로 시크 — 탭이 곧 미리보기
+  const s = edSegs[edSel];
+  if (outMappable && s && s.use && edPlayer.src) {
+    edPlayer.currentTime = outTimelineMap()[edSel].t0 + 0.01;
+  }
 });
 
 // ----- 선택 구간 상세 (자막 오버레이 근사 미리보기 포함) -----
@@ -1190,6 +1314,21 @@ function renderSegDetail() {
   const mid = ((Number(s.start) + Number(s.end)) / 2).toFixed(1);
   const sfxOpts = (sfxLib || []).map((x) =>
     `<option value="${escHtml(x.name)}"${s.sfx === x.name ? " selected" : ""}>${escHtml(x.label || x.name)}</option>`).join("");
+  // 트림 바 — 원본 클립 경계(clipStart/End)가 있으면 어느 구간을 쓰는지 보여주고
+  // 핸들 드래그(앞뒤 트림)·이동·전체 사용·같은 클립에서 구간 추가를 지원한다
+  const hasClip = s.clipStart != null && s.clipEnd != null && s.clipEnd - s.clipStart > 0.2;
+  const trimHtml = hasClip ? `
+    <div class="trim-line">
+      <span class="trim-lab">클립 내 사용 구간 <em id="sd_trim_lab"></em></span>
+      <button type="button" class="pos-off" id="sd_full">클립 전체</button>
+      <button type="button" class="pos-off" id="sd_addcut">＋ 구간 추가</button>
+    </div>
+    <div class="trim-bar" id="sd_trim">
+      <div class="trim-ghosts" id="sd_trim_ghosts"></div>
+      <div class="trim-win" id="sd_trim_win">
+        <span class="trim-h" data-h="l"></span><span class="trim-h" data-h="r"></span>
+      </div>
+    </div>` : "";
   box.innerHTML = `
     <div class="sd-head">
       <span>구간 ${edSel + 1} · ${secToMmss(s.start)}~${secToMmss(s.end)}</span>
@@ -1201,6 +1340,7 @@ function renderSegDetail() {
         <div class="sub-overlay" id="sd-overlay"></div>
       </div>
       <div class="sd-fields">
+        ${trimHtml}
         <span class="sd-time">
           <input type="number" id="sd_start" value="${s.start}" step="0.1" min="0"> ~
           <input type="number" id="sd_end" value="${s.end}" step="0.1" min="0"> 초
@@ -1210,14 +1350,25 @@ function renderSegDetail() {
         ${sfxLib && sfxLib.length ? `<label class="sd-sfx">효과음
           <select id="sd_sfx"><option value="">없음</option>${sfxOpts}</select>
           <button type="button" class="play-btn" id="sd_sfx_play">▶</button></label>` : ""}
+        <div class="sd-broll">
+          <span class="trim-lab">B컷</span>
+          <input type="file" id="sd_broll_file" accept="image/png,image/jpeg,image/webp" hidden>
+          ${s.broll
+            ? `<img class="sd-broll-thumb" src="/api/jobs/${edJobId}/broll/${encodeURIComponent(s.broll)}" alt="B컷">
+               <button type="button" class="pos-off" id="sd_broll_btn">교체</button>
+               <button type="button" class="pos-off" id="sd_broll_rm">제거</button>`
+            : `<button type="button" class="pos-off" id="sd_broll_btn">＋ 이미지 추가</button>
+               <span class="sd-note" style="margin:0">이 구간 화면을 덮는 컷어웨이 (오디오 유지 · 켄번즈)</span>`}
+        </div>
       </div>
     </div>
-    <p class="sd-note">미리보기는 줄바꿈·크기 확인용 근사치 — 움직임은 위 스타일 데모 참고</p>`;
+    <p class="sd-note">미리보기는 줄바꿈·크기 확인용 근사치 — 움직임은 자막 탭의 스타일 데모 참고</p>`;
   updateOverlay();
+  if (hasClip) initTrimBar(s);
 
   $("sd_use").onchange = () => { s.use = $("sd_use").checked; renderTimeline(); };
-  $("sd_start").oninput = () => { s.start = parseFloat($("sd_start").value) || 0; };
-  $("sd_end").oninput = () => { s.end = parseFloat($("sd_end").value) || 0; };
+  $("sd_start").oninput = () => { s.start = parseFloat($("sd_start").value) || 0; syncTrimBar(s); };
+  $("sd_end").oninput = () => { s.end = parseFloat($("sd_end").value) || 0; syncTrimBar(s); };
   $("sd_caption").oninput = () => {
     s.caption = $("sd_caption").value;
     updateOverlay();
@@ -1232,7 +1383,120 @@ function renderSegDetail() {
       if (s.sfx) togglePreview(`/api/sfx/${encodeURIComponent(s.sfx)}`, `sfx:${s.sfx}`, $("sd_sfx_play"));
     };
   }
+
+  // B컷 — 업로드 즉시 서버에 올리고 이름만 상태에 (적용 시 재생성에 합성)
+  $("sd_broll_btn").onclick = () => $("sd_broll_file").click();
+  $("sd_broll_file").onchange = async () => {
+    const f = $("sd_broll_file").files[0];
+    if (!f) return;
+    $("edit-status").textContent = "B컷 업로드 중…";
+    try {
+      const fd = new FormData();
+      fd.append("file", f);
+      const res = await fetch(`/api/jobs/${edJobId}/broll`, { method: "POST", body: fd });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || res.statusText);
+      s.broll = (await res.json()).name;
+      $("edit-status").textContent = "";
+      renderTimeline();
+      renderSegDetail();
+    } catch (err) {
+      $("edit-status").textContent = `B컷 업로드 실패: ${err.message}`;
+    }
+  };
+  const brollRm = $("sd_broll_rm");
+  if (brollRm) brollRm.onclick = () => { s.broll = ""; renderTimeline(); renderSegDetail(); };
+
   box.classList.remove("hidden");
+}
+
+// ----- 트림 바 — 원본 클립 안에서 사용 구간 확인·이동·앞뒤 트림·구간 추가 -----
+const TRIM_MIN = 0.4;  // 최소 구간 길이(초)
+
+function syncTrimBar(s) {
+  if (!$("sd_trim") || s.clipStart == null) return;
+  const span = s.clipEnd - s.clipStart;
+  const l = Math.max(0, (s.start - s.clipStart) / span) * 100;
+  const r = Math.min(100, ((s.end - s.clipStart) / span) * 100);
+  const win = $("sd_trim_win");
+  win.style.left = `${l}%`;
+  win.style.width = `${Math.max(2, r - l)}%`;
+  $("sd_trim_lab").textContent = `${(s.end - s.start).toFixed(1)}s / 클립 ${span.toFixed(1)}s`;
+  // 같은 클립에서 나온 다른 구간 — 고스트로 함께 보여 겹침을 피할 수 있게
+  $("sd_trim_ghosts").innerHTML = edSegs
+    .filter((o, j) => j !== edSel && o.use && o.clipStart === s.clipStart)
+    .map((o) => {
+      const gl = Math.max(0, (o.start - s.clipStart) / span) * 100;
+      const gr = Math.min(100, ((o.end - s.clipStart) / span) * 100);
+      return `<div class="trim-ghost" style="left:${gl}%;width:${Math.max(1.5, gr - gl)}%"></div>`;
+    }).join("");
+}
+
+function afterTrimChange(s, final) {
+  syncTrimBar(s);
+  if (!final) return;
+  s.start = Math.round(s.start * 10) / 10;
+  s.end = Math.round(s.end * 10) / 10;
+  $("sd_start").value = s.start;
+  $("sd_end").value = s.end;
+  $("sd-frame").src = `/api/jobs/${edJobId}/frame?t=${((s.start + s.end) / 2).toFixed(1)}`;
+  renderTimeline();  // 셀 폭·길이 라벨 갱신 (선택 유지)
+}
+
+function initTrimBar(s) {
+  syncTrimBar(s);
+  const bar = $("sd_trim");
+  const span = s.clipEnd - s.clipStart;
+  let drag = null;  // {mode: 'l'|'r'|'move', startX, s0, e0}
+
+  bar.addEventListener("pointerdown", (e) => {
+    const h = e.target.closest(".trim-h");
+    const win = e.target.closest(".trim-win");
+    if (!h && !win) {
+      // 바 빈 곳 탭 — 창을 그 위치로 이동(중심 정렬) 후 바로 드래그 이어가기
+      const rect = bar.getBoundingClientRect();
+      const t = s.clipStart + ((e.clientX - rect.left) / rect.width) * span;
+      const len = s.end - s.start;
+      s.start = Math.min(Math.max(s.clipStart, t - len / 2), s.clipEnd - len);
+      s.end = s.start + len;
+      afterTrimChange(s, false);
+    }
+    drag = { mode: h ? h.dataset.h : "move", startX: e.clientX, s0: s.start, e0: s.end };
+    bar.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+  bar.addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    const d = ((e.clientX - drag.startX) / bar.clientWidth) * span;
+    if (drag.mode === "l") {
+      s.start = Math.min(Math.max(s.clipStart, drag.s0 + d), s.end - TRIM_MIN);
+    } else if (drag.mode === "r") {
+      s.end = Math.max(Math.min(s.clipEnd, drag.e0 + d), s.start + TRIM_MIN);
+    } else {
+      const len = drag.e0 - drag.s0;
+      s.start = Math.min(Math.max(s.clipStart, drag.s0 + d), s.clipEnd - len);
+      s.end = s.start + len;
+    }
+    afterTrimChange(s, false);
+  });
+  ["pointerup", "pointercancel"].forEach((ev) =>
+    bar.addEventListener(ev, () => { if (drag) { drag = null; afterTrimChange(s, true); } }));
+
+  $("sd_full").onclick = () => { s.start = s.clipStart; s.end = s.clipEnd; afterTrimChange(s, true); };
+  $("sd_addcut").onclick = () => {
+    // 같은 클립에서 구간 하나 더 — 현재 창 뒤(자리 없으면 앞)에 같은 길이로
+    const len = Math.min(Math.max(TRIM_MIN, s.end - s.start), span);
+    let ns = s.end, ne = s.end + len;
+    if (ne > s.clipEnd) { ne = s.start; ns = s.start - len; }
+    if (ns < s.clipStart) { ns = s.clipStart; ne = Math.min(s.clipEnd, ns + len); }
+    edSegs.splice(edSel + 1, 0, {
+      use: true, start: Math.round(ns * 10) / 10, end: Math.round(ne * 10) / 10,
+      clipStart: s.clipStart, clipEnd: s.clipEnd,
+      caption: "", hook: "", sfx: "", tpl: s.tpl,
+    });
+    edSel += 1;
+    renderTimeline();
+    renderSegDetail();
+  };
 }
 
 // ----- 발화 자막 교정 (speech 모드) -----
@@ -1259,9 +1523,12 @@ $("apply-btn").addEventListener("click", async () => {
     const s = edSegs[i];
     if (!s.use) continue;
     if (!(s.start < s.end)) { $("edit-status").textContent = `구간 ${i + 1}: 시작이 끝보다 앞서야 합니다`; return; }
-    const seg = { ...edData.segments[i], start: s.start, end: s.end };
+    // 원본 필드는 tpl에서 계승 — 구간 추가·순서 변화에도 인덱스에 의존하지 않는다
+    const seg = { ...(s.tpl || {}), start: s.start, end: s.end };
+    if (s.clipStart != null) { seg.clip_start = s.clipStart; seg.clip_end = s.clipEnd; }
     if (s.hook.trim()) seg.hook = s.hook.trim(); else delete seg.hook;
     if (s.sfx) seg.sfx = s.sfx; else delete seg.sfx;
+    if (s.broll) seg.broll = s.broll; else delete seg.broll;
     segments.push(seg);
     captions.push(s.caption.trim());
   }

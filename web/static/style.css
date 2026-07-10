@@ -363,24 +363,6 @@ h1 .amp {
 .dl::before { content: "↓"; color: var(--amber); }
 .dl:hover { color: var(--amber); }
 
-/* ---------- rebuild ---------- */
-.rebuild {
-  margin-top: 22px;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 4px 18px;
-}
-.rebuild summary {
-  cursor: pointer; padding: 12px 0; font-size: 14px; color: var(--paper-dim);
-  font-family: var(--body); list-style-position: inside;
-}
-.rebuild summary small { color: var(--muted); font-family: var(--film); font-size: 11px; margin-left: 6px; }
-.rebuild summary::marker { color: var(--amber); }
-.rebuild-opts {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 18px;
-  padding: 8px 0 18px;
-}
 .rb-num { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--paper-dim); font-family: var(--film); }
 .rb-num input { width: 66px; padding: 8px 10px; font-size: 14px; }
 .cta-sm {
@@ -617,12 +599,117 @@ details.settings[open] > summary { border-bottom: 1px solid var(--line); }
    통합 편집기 — 전체 설정 · 타임라인 · 구간 상세
    ============================================================ */
 
-.editor[open] > summary { border-bottom: 1px solid var(--line); margin-bottom: 14px; }
+/* ============================================================
+   편집실 셸 — 플레이어(필름 게이트) · 트랜스포트 · 타임라인 · 도구바
+   CapCut의 편집 패러다임을 Reel Room의 다크룸 스킨으로
+   ============================================================ */
+/* overflow:hidden 금지 — player-bay/toolbar의 position:sticky가 죽는다. 라운딩은 자식에서 */
+.editor-shell {
+  margin-top: 18px;
+  background: linear-gradient(180deg, var(--surface) 0%, var(--ink) 100%);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+}
 
-/* 편집기 섹션 — step-num(01·02…) 헤더로 자막/효과/음악/썸네일/타임라인 구획 */
-.ed-sec { padding-bottom: 20px; }
-.ed-sec .step-num { margin-top: 6px; word-break: keep-all; }
-.ed-sec .step-num small { color: var(--muted); text-transform: none; letter-spacing: 0.02em; }
+/* 플레이어 — 검정 게이트 안에 결과물, 세로/가로 모두 레터박스 */
+.player-bay { background: #000; position: relative; border-radius: 15px 15px 0 0; overflow: hidden; }
+.player-gate { position: relative; display: grid; place-items: center; }
+.player-gate video {
+  width: 100%; max-height: min(46vh, 460px); object-fit: contain;
+  background: #000; display: block; cursor: pointer;
+}
+.player-rest {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  font-size: 44px; color: var(--paper); pointer-events: none;
+  background: radial-gradient(closest-side, rgba(0,0,0,0.35), transparent 70%);
+  text-shadow: 0 2px 18px rgba(0,0,0,0.8);
+  transition: opacity .2s;
+}
+.player-rest.hidden { display: grid !important; opacity: 0; }
+
+/* 산출물 전환 — 게이트 좌상단 칩 */
+.out-picker {
+  position: absolute; top: 10px; left: 10px; display: flex; gap: 6px; flex-wrap: wrap;
+}
+.out-picker:empty { display: none; }
+.out-picker button {
+  font-family: var(--film); font-size: 10.5px; letter-spacing: 0.05em;
+  color: var(--paper-dim); background: rgba(10, 9, 8, 0.72);
+  border: 1px solid var(--line-bright); border-radius: 999px;
+  padding: 4px 10px; cursor: pointer; backdrop-filter: blur(4px);
+}
+.out-picker button.active { color: var(--amber); border-color: var(--amber); }
+
+/* 트랜스포트 — 재생 · 모노 타임코드 · 적용 */
+.transport {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: var(--ink);
+}
+.tp-play {
+  width: 38px; height: 38px; border-radius: 50%; flex-shrink: 0;
+  background: var(--surface-2); border: 1px solid var(--line-bright);
+  color: var(--paper); font-size: 15px; cursor: pointer;
+  display: grid; place-items: center; transition: all .15s;
+}
+.tp-play:hover { border-color: var(--amber); color: var(--amber); }
+.tp-time {
+  font-family: var(--film); font-size: 12.5px; letter-spacing: 0.06em;
+  color: var(--amber-soft); white-space: nowrap;
+}
+.tp-status { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.transport .cta-sm { margin-left: auto; flex-shrink: 0; }
+
+/* 타임라인 셸 — 스프로킷 스트립 사이의 필름스트립 */
+.tl-shell {
+  padding: 10px 12px;
+  background:
+    repeating-linear-gradient(90deg, var(--line) 0 5px, transparent 5px 16px) top / 100% 3px no-repeat,
+    repeating-linear-gradient(90deg, var(--line) 0 5px, transparent 5px 16px) bottom / 100% 3px no-repeat,
+    var(--black);
+}
+.tl-playhead {
+  position: absolute; top: 2px; bottom: 2px; width: 2px;
+  background: var(--amber);
+  box-shadow: 0 0 8px rgba(255, 122, 24, 0.8);
+  pointer-events: none; z-index: 5;
+}
+.tl-playhead::before {
+  content: ""; position: absolute; top: -1px; left: -4px;
+  border: 5px solid transparent; border-top-color: var(--amber);
+}
+
+/* 도구 패널 — 도구바 탭이 켜는 시트 */
+.tool-panels { padding: 16px 16px 8px; min-height: 150px; }
+.panel-hint {
+  font-family: var(--film); font-size: 12px; color: var(--muted);
+  margin: 8px 0 14px; line-height: 1.6;
+}
+
+/* 하단 도구바 — 모바일에선 화면 하단 고정 */
+.toolbar {
+  display: flex;
+  border-top: 1px solid var(--line);
+  background: var(--ink);
+  border-radius: 0 0 15px 15px;
+}
+.toolbar button {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px;
+  background: transparent; border: none; cursor: pointer;
+  padding: 10px 4px 12px;
+  font-family: var(--film); font-size: 11px; letter-spacing: 0.08em;
+  color: var(--muted); transition: color .15s;
+  border-top: 2px solid transparent; margin-top: -1px;
+}
+.toolbar .tb-ico { font-size: 17px; line-height: 1; font-family: var(--body); }
+.toolbar button.active { color: var(--amber); border-top-color: var(--amber); }
+.toolbar button:hover { color: var(--paper); }
+.toolbar button.active:hover { color: var(--amber); }
+
+.dl-head { margin-top: 30px; }
+.bgm-vol-line { margin-top: 12px; }
 .ed-row-flex { display: flex; flex-wrap: wrap; gap: 18px; align-items: flex-start; }
 .ed-col { display: flex; flex-direction: column; gap: 12px; flex: 1; min-width: 240px; }
 .eds-toggles { margin-top: 0; gap: 12px; }
@@ -759,15 +846,9 @@ details.settings[open] > summary { border-bottom: 1px solid var(--line); }
 .thumb-preview .tc-note { min-height: 16px; margin: 6px 0 0; }
 .thumb-ctl { margin-top: 12px; }
 
-/* 타임라인 */
-.tl-scroll { display: flex; gap: 10px; margin: 6px 0 14px; }
-.tl-head {
-  display: flex; flex-direction: column; gap: 4px; flex-shrink: 0;
-  font-family: var(--film); font-size: 10.5px; letter-spacing: 0.08em;
-  text-transform: uppercase; color: var(--muted);
-}
-.tl-head span { height: 64px; display: flex; align-items: center; }
-.tl-tracks { overflow-x: auto; display: flex; flex-direction: column; gap: 4px; padding-bottom: 6px; }
+/* 타임라인 — 필름스트립 트랙 (영상·자막·효과음), 플레이헤드의 좌표 기준 */
+.tl-scroll { position: relative; overflow-x: auto; padding: 2px 0 6px; }
+.tl-tracks { display: flex; flex-direction: column; gap: 4px; width: max-content; min-width: 100%; }
 .tl-row { display: flex; gap: 4px; width: max-content; }
 .tl-cell {
   height: 64px; border-radius: 8px; border: 1px solid var(--line);
@@ -789,6 +870,49 @@ details.settings[open] > summary { border-bottom: 1px solid var(--line); }
 }
 .tl-scell { color: var(--muted); font-size: 14px; }
 .tl-scell.has-sfx { color: var(--amber-soft); font-size: 12px; }
+
+/* 트림 바 — 원본 클립 안의 사용 구간 (창=사용, 고스트=같은 클립의 다른 구간) */
+.trim-line {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  font-family: var(--film); font-size: 12px; color: var(--paper-dim);
+}
+.trim-lab { flex: 1; min-width: 0; }
+.trim-lab em { font-style: normal; color: var(--amber-soft); margin-left: 6px; }
+.trim-bar {
+  position: relative; height: 36px;
+  background: var(--black); border: 1px solid var(--line); border-radius: 8px;
+  touch-action: none; cursor: pointer; overflow: hidden;
+}
+.trim-ghost {
+  position: absolute; top: 5px; bottom: 5px;
+  background: rgba(242, 236, 225, 0.14); border-radius: 4px; pointer-events: none;
+}
+.trim-win {
+  position: absolute; top: 0; bottom: 0;
+  background: rgba(255, 122, 24, 0.22);
+  border: 1.5px solid var(--amber); border-radius: 7px;
+  cursor: grab; box-shadow: 0 0 10px rgba(255, 122, 24, 0.25);
+}
+.trim-win:active { cursor: grabbing; }
+.trim-h { position: absolute; top: 0; bottom: 0; width: 14px; cursor: ew-resize; }
+.trim-h[data-h="l"] { left: -3px; border-left: 4px solid var(--amber); border-radius: 7px 0 0 7px; }
+.trim-h[data-h="r"] { right: -3px; border-right: 4px solid var(--amber); border-radius: 0 7px 7px 0; }
+
+/* B컷 — 구간 컷어웨이 이미지 */
+.sd-broll {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  font-family: var(--film); font-size: 12px; color: var(--paper-dim);
+}
+.sd-broll-thumb {
+  width: 56px; height: 34px; object-fit: cover;
+  border-radius: 6px; border: 1px solid var(--line-bright);
+}
+.tl-broll {
+  position: absolute; left: 4px; top: 3px;
+  font-family: var(--film); font-size: 10px; font-weight: 600;
+  color: var(--black); background: var(--amber-soft);
+  border-radius: 4px; padding: 0 5px;
+}
 
 /* 구간 상세 */
 .seg-detail {
@@ -852,6 +976,12 @@ details.settings[open] > summary { border-bottom: 1px solid var(--line); }
   .sd-grid { grid-template-columns: 1fr; }
   .sd-preview { max-width: 260px; margin: 0 auto; }
   .ed-col { min-width: 100%; }
+
+  /* 편집실 — CapCut처럼 플레이어는 위, 도구바는 아래 고정. 패널이 그 사이를 스크롤 */
+  .player-bay { position: sticky; top: 0; z-index: 45; }
+  .toolbar { position: sticky; bottom: 0; z-index: 45; box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.5); }
+  .player-gate video { max-height: 38vh; }
+  .tool-panels { padding: 12px 12px 8px; }
 
   /* 좁은 화면 — 미리보기(상단 고정) + 옵션 한 줄씩 가로 스크롤 = 한 화면에 전부 */
   .tc-wrap { flex-direction: column; gap: 12px; }

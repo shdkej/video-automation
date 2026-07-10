@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -681,6 +682,24 @@ def is_montage(segments: list) -> bool:
     return bool(segments) and str(segments[0].get("reason", "")).startswith("montage")
 
 
+_BROLL_NAME_RE = re.compile(r"^broll_[0-9a-f]{8}\.(png|jpe?g|webp)$")
+
+
+def montage_broll_pages(segments: list, job_dir: Path) -> list:
+    """몽타주 출력 타임라인의 B컷 페이지 — 구간별 broll 이미지의 (경로, 시작, 끝).
+
+    이름은 서버가 발급한 broll_<hex>.<ext>만 신뢰(경로 조작 차단), 파일이 없으면 건너뛴다.
+    """
+    pages, t = [], 0.0
+    for s in segments:
+        d = s["end"] - s["start"]
+        name = str(s.get("broll") or "")
+        if _BROLL_NAME_RE.match(name) and (job_dir / name).is_file():
+            pages.append({"src": job_dir / name, "start": round(t + 0.02, 3), "end": round(t + d, 3)})
+        t += d
+    return pages
+
+
 def montage_sfx_events(segments: list) -> list:
     """몽타주 숏폼 타임라인에서 구간별 효과음의 (시작 시각, 이름) 목록."""
     events, t = [], 0.0
@@ -711,12 +730,20 @@ def build_montage_short(
         t += d
 
     vert = outdir / f".{stem}_vert.mp4"
+    brolled = outdir / f".{stem}_broll.mp4"
     subbed = outdir / f".{stem}_sub.mp4"
     final = outdir / f"{stem}.mp4"
     try:
         build_short_footage(args.input, clips, vert, punchin=not args.no_shorts_punchin,
                             vertical=True, blur_bg=args.shorts_blur,
                             focus=getattr(args, "shorts_focus", "center"))
+        # B컷 컷어웨이 — 자막보다 아래 레이어이므로 자막 전에 합성
+        broll_pages = montage_broll_pages(segments, outdir.parent)
+        if broll_pages:
+            from note_overlay import render_broll_overlay
+            print(f"  B컷 {len(broll_pages)}장 합성 (Remotion 켄번즈)")
+            render_broll_overlay(vert, broll_pages, brolled)
+            brolled.replace(vert)
         hook = pick_thumbnail_hook(segments, captions).strip() or None
         if clean_stem and not args.no_subtitle and events:
             apply_audio_fade_out(vert, outdir / f"{clean_stem}.mp4")
@@ -738,7 +765,7 @@ def build_montage_short(
         print(f"  {stem}: 몽타주 {len(clips)}컷 · {total:.1f}s (전 클립 유지)")
         return final
     finally:
-        for tmp in (vert, subbed):
+        for tmp in (vert, brolled, subbed):
             tmp.unlink(missing_ok=True)
 
 
