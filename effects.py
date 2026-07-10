@@ -597,6 +597,45 @@ def thumb_font_path(key: str, weight: str = "bold") -> Path | None:
     return p if p.is_file() else None
 
 
+def render_hook_banner(text: str, width: int, height: int, out_path: Path) -> Path:
+    """인트로 훅 배너 PNG(투명 배경) — Remotion HookBanner와 동일 룩의 정적 렌더.
+
+    배너는 프레임 간 변화가 없어 브라우저 렌더러가 과잉이다: PIL 한 장 +
+    ffmpeg overlay면 파드에서 분 단위 → 초 단위. 흰 글씨 + 그림자, 상단 10%.
+    """
+    from PIL import ImageFilter
+
+    img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    picked = thumb_font_path("pretendard", "bold")
+    font_path = str(picked) if picked else find_korean_font()[0]
+    # Remotion 배너 위계와 동일: 자막(폭/19.3)의 1.8배 ≈ 폭/10.7
+    size = max(28, int(width / 10.7))
+    fnt = ImageFont.truetype(font_path, size)
+    draw = ImageDraw.Draw(img)
+    lines = wrap_hook_lines(text, lambda s: draw.textlength(s, font=fnt), int(width * 0.92))[:3]
+    line_h = int(size * 1.25)
+    y = int(height * 0.10)
+
+    # 그림자 레이어 — TITLE_SHADOW 근사 (아래로 드리운 소프트 섀도)
+    shadow = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    sd = ImageDraw.Draw(shadow)
+    yy = y
+    for ln in lines:
+        x = int((width - draw.textlength(ln, font=fnt)) / 2)
+        sd.text((x, yy + int(size * 0.06)), ln, font=fnt, fill=(0, 0, 0, 220),
+                stroke_width=max(2, size // 20), stroke_fill=(0, 0, 0, 220))
+        yy += line_h
+    img = Image.alpha_composite(img, shadow.filter(ImageFilter.GaussianBlur(size * 0.05)))
+    draw = ImageDraw.Draw(img)
+    yy = y
+    for ln in lines:
+        x = int((width - draw.textlength(ln, font=fnt)) / 2)
+        draw.text((x, yy), ln, font=fnt, fill=(255, 255, 255, 255))
+        yy += line_h
+    img.save(out_path)
+    return out_path
+
+
 def hook_anchor_y(v: str, height: int, block_h: int) -> int:
     """타이틀 블록의 y 시작 — top 8% / middle 중앙 / bottom 하단 12% 여백."""
     if v == "top":

@@ -54,6 +54,7 @@ from effects import (
     cut_with_xfade,
     extract_thumbnail,
     overlay_hook_text,
+    render_hook_banner,
 )
 from beats import detect_beats, snap_segments_to_beats, snap_to_beat
 from probe import has_audio_stream, has_video_stream, probe_duration, probe_resolution
@@ -939,26 +940,48 @@ def build_intro(args, segments: list, outdir: Path, transcript: dict | None = No
     clips, hook = pick_intro_clips(segments, args.intro_seconds, transcript,
                                    beats=_load_beats(outdir))
     raw = outdir / ".intro_raw.mp4"
-    hooked = outdir / ".intro_hooked.mp4"
+    banner = outdir / ".intro_banner.png"
     final = outdir / "intro.mp4"
     try:
         cut_video(args.input, clips, raw)
-        fade_src = raw
-        if hook and not args.no_subtitle and args.sub_engine == "remotion":
+        # 배너는 정적 — PIL PNG + ffmpeg overlay 한 패스.
+        # (브라우저 렌더러(Remotion)는 4초 클립에 파드 기준 분 단위 — 과잉)
+        use_banner = False
+        if hook and not args.no_subtitle:
             try:
-                from subtitle_remotion import render_subtitled_remotion
-                render_subtitled_remotion(
-                    raw, [], [], hooked, events=[], hook=hook, mode="intro",
-                   
-                )
-                fade_src = hooked
+                w, h = probe_resolution(raw)
+                render_hook_banner(hook, w, h, banner)
+                use_banner = True
             except Exception as e:  # noqa: BLE001 — 배너는 장식, 실패해도 인트로는 낸다
                 print(f"  ⚠ 인트로 훅 배너 렌더 실패(배너 없이 진행): {e}")
-        apply_fade(fade_src, final, fade_in=0.4, fade_out=0.4)
+
+        # overlay + fade(영상/오디오)를 한 번의 인코딩으로
+        total = probe_duration(raw)
+        f_in = f_out = 0.4
+        budget = total * 0.4
+        if f_in + f_out > budget:
+            s = budget / (f_in + f_out)
+            f_in, f_out = f_in * s, f_out * s
+        out_start = max(0.0, total - f_out)
+        fade_v = f"fade=in:st=0:d={f_in:.3f},fade=out:st={out_start:.3f}:d={f_out:.3f}"
+        chain = [("[0:v][1:v]overlay=0:0," if use_banner else "[0:v]") + fade_v + "[v]"]
+        maps = ["-map", "[v]"]
+        has_a = has_audio_stream(raw)
+        if has_a:
+            chain.append(f"[0:a]afade=in:st=0:d={f_in:.3f},afade=out:st={out_start:.3f}:d={f_out:.3f}[a]")
+            maps += ["-map", "[a]"]
+        cmd = ["ffmpeg", "-y", "-loglevel", "error", "-i", str(raw)]
+        if use_banner:
+            cmd += ["-i", str(banner)]
+        cmd += ["-filter_complex", ";".join(chain), *maps,
+                "-c:v", "libx264", "-preset", "fast", "-crf", "20"]
+        if has_a:
+            cmd += ["-c:a", "aac"]
+        subprocess.run(cmd + [str(final)], check=True)
         return final
     finally:
         raw.unlink(missing_ok=True)
-        hooked.unlink(missing_ok=True)
+        banner.unlink(missing_ok=True)
 
 
 # ============================================================================
