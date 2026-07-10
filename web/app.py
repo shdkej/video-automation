@@ -1059,6 +1059,15 @@ async def upload_broll(job_id: str, file: UploadFile = File(...)):
     return {"name": name}
 
 
+@app.post("/api/client-log")
+async def client_log(payload: dict = Body(...)):
+    """프론트 에러 원격 수집 — 실기기(iOS)에서만 나는 문제의 유일한 증거 채널."""
+    msg = str(payload.get("message", ""))[:500]
+    ua = str(payload.get("ua", ""))[:200]
+    print(f"[client-error] {ua} :: {msg}", flush=True)
+    return {"ok": True}
+
+
 @app.get("/api/thumb-templates")
 async def thumb_templates():
     """썸네일 타이틀 템플릿 목록 — 키·라벨·칩 힌트(폰트·대표색). 정의는 effects.py 단일 출처."""

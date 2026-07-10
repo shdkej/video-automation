@@ -1,5 +1,6 @@
 // 업로드 화면 — 레거시 form-section 이식 + DESIGN.md 업로드 페이지 패턴.
 // 마스트헤드 → 드롭존 → (썸네일 타이틀) → 세부 설정(접힘) → CTA → 최근 작업.
+import { toast } from 'sonner';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { fmtSize, captureFrameFromFile, isAudio, isVideo, isNoteImg, isNoteMode, MEDIA_RE, NOTE_IMG_RE } from '@/lib/media';
 import { useRecentJobs } from '@/hooks/useRecentJobs';
@@ -141,7 +142,12 @@ export function UploadScreen({ onSubmitted, onOpenJob }: {
   // ---------- 파일 ----------
   const addFiles = (list: FileList | File[]) => {
     const snapshot = Array.from(list); // FileList는 live — input.value 초기화 전에 스냅샷
+    if (snapshot.length === 0) {
+      toast.error('파일을 읽지 못했습니다 — 다시 선택해주세요');
+      return;
+    }
     setFiles((prev) => [...prev, ...snapshot]);
+    toast(`${snapshot.length}개 파일 추가됨`);
   };
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault();
@@ -208,6 +214,7 @@ export function UploadScreen({ onSubmitted, onOpenJob }: {
 
   const submit = () => {
     if (files.length === 0) {
+      toast.error('먼저 영상을 추가해주세요');
       dzRef.current?.classList.add('ring-2');
       setTimeout(() => dzRef.current?.classList.remove('ring-2'), 600);
       return;
@@ -257,19 +264,20 @@ export function UploadScreen({ onSubmitted, onOpenJob }: {
             role="button"
             tabIndex={0}
             aria-label="영상 파일 추가"
-            onClick={() => fileInputRef.current?.click()}
             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInputRef.current?.click(); } }}
             onDragOver={(e) => { e.preventDefault(); dzRef.current?.classList.add('ring-2'); }}
             onDragLeave={(e) => { e.preventDefault(); dzRef.current?.classList.remove('ring-2'); }}
             onDrop={onDrop}
             className="cursor-pointer gap-0 py-8 text-center ring-primary/60 transition-shadow"
           >
+            <label htmlFor="rr-file-input" className="block cursor-pointer">
             <input
+              id="rr-file-input"
               ref={fileInputRef}
               type="file"
               accept="video/*,audio/*,image/*"
               multiple
-              hidden
+              className="sr-only"
               onChange={(e) => { if (e.target.files) addFiles(e.target.files); e.target.value = ''; }}
             />
             <div className="text-[28px] text-primary">⌖</div>
@@ -281,6 +289,7 @@ export function UploadScreen({ onSubmitted, onOpenJob }: {
               <strong className="text-foreground">영상에 입힙니다</strong>. 이미지(png·jpg)를 함께 올리면{' '}
               <strong className="text-foreground">영상 위에 노트 페이지처럼 띄웁니다</strong>
             </p>
+            </label>
           </Card>
 
           {/* 파일 목록 */}
