@@ -106,7 +106,7 @@ export function UploadScreen({ onSubmitted, onOpenJob }: {
   });
   const [adv, setAdv] = useState({
     shorts_focus: 'center', shorts_max: '45', shorts_ideal: '25',
-    scene_th: '0.3', clip_sec: '6', montage_sec: '2', bgm_vol: '0.3',
+    scene_th: '0.3', clip_sec: '6', montage_sec: '', bgm_vol: '0.3',
   });
   const [bgmFile, setBgmFile] = useState<File | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -187,7 +187,7 @@ export function UploadScreen({ onSubmitted, onOpenJob }: {
     fd.append('shorts_ideal_seconds', adv.shorts_ideal);
     fd.append('scene_threshold', adv.scene_th);
     fd.append('clip_seconds', adv.clip_sec);
-    fd.append('montage_seconds', adv.montage_sec);
+    if (adv.montage_sec !== '') fd.append('montage_seconds', adv.montage_sec);
     fd.append('bgm_volume', adv.bgm_vol);
     if (bgmFile) fd.append('bgm', bgmFile);
     fd.append('subtitle_only', String(subtitleOnly));
@@ -502,8 +502,8 @@ export function UploadScreen({ onSubmitted, onOpenJob }: {
                       <Input type="number" min="2" max="20" value={adv.clip_sec} onChange={(e) => setAdv((p) => ({ ...p, clip_sec: e.target.value }))} className="bg-background" />
                     </label>
                     <label className="space-y-2">
-                      <Label>몽타주 클립 (초·0=전체)</Label>
-                      <Input type="number" min="0" max="10" step="0.5" value={adv.montage_sec} onChange={(e) => setAdv((p) => ({ ...p, montage_sec: e.target.value }))} className="bg-background" />
+                      <Label>몽타주 클립 (초·빈칸=자동)</Label>
+                      <Input type="number" min="0" max="10" step="0.5" placeholder="자동" value={adv.montage_sec} onChange={(e) => setAdv((p) => ({ ...p, montage_sec: e.target.value }))} className="bg-background" />
                     </label>
                     <label className="space-y-2">
                       <Label>BGM 파일</Label>

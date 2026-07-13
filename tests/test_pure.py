@@ -625,6 +625,39 @@ def test_merge_scene_captions_empty_response():
     assert merge_scene_captions(segs, {}) == [""]
 
 
+def test_merge_scene_captions_peak_and_keep():
+    segs = [{"start": 0.0, "end": 6.0}, {"start": 6.0, "end": 12.0}, {"start": 12.0, "end": 18.0}]
+    data = {"scenes": [
+        {"idx": 1, "caption": "a", "peak": 0.25, "keep": "trim"},
+        {"idx": 2, "caption": "b", "peak": 1.7, "keep": "maybe"},  # 둘 다 무효 — 병합 안 함
+        {"idx": 3, "caption": "c", "keep": "whole"},
+    ]}
+    merge_scene_captions(segs, data)
+    assert segs[0]["peak"] == 0.25 and segs[0]["keep"] == "trim"
+    assert "peak" not in segs[1] and "keep" not in segs[1]
+    assert segs[2]["keep"] == "whole" and "peak" not in segs[2]
+
+
+def test_montage_frame_times_three_per_clip():
+    from auto_cut import montage_frame_times
+    segs = [{"start": 0.0, "end": 4.0}, {"start": 4.0, "end": 8.0}]
+    assert montage_frame_times(segs, 3) == [1.0, 2.0, 3.0, 5.0, 6.0, 7.0]
+
+
+def test_montage_frame_times_single_is_midpoint():
+    from auto_cut import montage_frame_times
+    segs = [{"start": 0.0, "end": 6.0}]
+    assert montage_frame_times(segs, 1) == [3.0]
+
+
+def test_scene_caption_prompt_mentions_peak_for_multiframe():
+    from auto_cut import build_scene_caption_prompt
+    p1 = build_scene_caption_prompt(4)
+    p3 = build_scene_caption_prompt(4, frames_per_clip=3)
+    assert "peak" not in p1
+    assert "peak" in p3 and "keep" in p3 and "초반" in p3
+
+
 def test_snap_to_word_bounds_keeps_original_if_too_short():
     transcript = {"segments": [{"words": [
         {"word": "짧게", "start": 1.4, "end": 1.5},
@@ -670,7 +703,7 @@ def test_trim_picks_high_motion_window():
     seg = [{"start": 0.0, "end": 6.0, "reason": "montage(전체 유지)"}]
     # 4~6초 구간에 움직임 집중
     motion = [(t / 10, 0.9 if t >= 40 else 0.01) for t in range(60)]
-    out = trim_montage_segments(seg, motion, max_len=2.0)
+    out = trim_montage_segments(seg, motion, 2.0)
     assert len(out) == 1
     assert out[0]["end"] - out[0]["start"] == pytest.approx(2.0, abs=0.01)
     assert out[0]["start"] >= 3.5  # 고모션 창 쪽으로 이동
@@ -678,16 +711,50 @@ def test_trim_picks_high_motion_window():
 
 def test_trim_keeps_short_segments():
     seg = [{"start": 0.0, "end": 1.5, "reason": "montage(전체 유지)"}]
-    out = trim_montage_segments(seg, [], max_len=2.0)
+    out = trim_montage_segments(seg, [], 2.0)
     assert (out[0]["start"], out[0]["end"]) == (0.0, 1.5)          # 구간은 그대로
     assert (out[0]["clip_start"], out[0]["clip_end"]) == (0.0, 1.5)  # 편집기 트림 바용 경계
 
 
 def test_trim_fallback_center_biased_without_motion():
     seg = [{"start": 10.0, "end": 15.0, "reason": "montage(전체 유지)"}]
-    out = trim_montage_segments(seg, [], max_len=2.0)
+    out = trim_montage_segments(seg, [], 2.0)
     assert out[0]["start"] == 11.2  # 10 + (5-2)*0.4
     assert out[0]["end"] == 13.2
+
+
+def test_trim_uses_llm_peak_center():
+    seg = [{"start": 0.0, "end": 6.0, "peak": 0.75}]
+    out = trim_montage_segments(seg, [], 2.0)
+    assert out[0]["start"] == pytest.approx(3.5)  # 중심 4.5 - 1.0
+    assert out[0]["end"] == pytest.approx(5.5)
+
+
+def test_trim_peak_clamped_to_clip_bounds():
+    seg = [{"start": 0.0, "end": 6.0, "peak": 1.0}]
+    out = trim_montage_segments(seg, [], 2.0)
+    assert (out[0]["start"], out[0]["end"]) == (4.0, 6.0)
+
+
+def test_trim_ignores_peak_when_disabled():
+    # --montage-seconds 명시(A/B) → 구버전 모션 동작 재현
+    seg = [{"start": 10.0, "end": 15.0, "peak": 0.9}]
+    out = trim_montage_segments(seg, [], 2.0, use_peak=False)
+    assert out[0]["start"] == 11.2  # 40% 지점 폴백
+
+
+def test_trim_per_clip_lengths():
+    segs = [{"start": 0.0, "end": 6.0, "keep": "whole"}, {"start": 6.0, "end": 12.0}]
+    out = trim_montage_segments(segs, [], [6.0, 2.0])
+    assert (out[0]["start"], out[0]["end"]) == (0.0, 6.0)  # whole — 통 유지
+    assert out[1]["end"] - out[1]["start"] == pytest.approx(2.0)
+
+
+def test_trim_invalid_peak_falls_back_to_motion():
+    seg = [{"start": 0.0, "end": 6.0, "peak": 1.7}]  # 범위 밖 — 무시
+    motion = [(t / 10, 0.9 if t >= 40 else 0.01) for t in range(60)]
+    out = trim_montage_segments(seg, motion, 2.0)
+    assert out[0]["start"] >= 3.5
 
 
 # ---------- 몽타주 산출 통합 (is_montage / montage_sfx_events) ----------
@@ -708,3 +775,74 @@ def test_montage_sfx_events_cumulative_offsets():
         {"start": 30.0, "end": 31.0, "sfx": "ding"},
     ]
     assert montage_sfx_events(segs) == [(0.0, "pop"), (4.5, "ding")]
+
+
+# ---------- 몽타주 예산 역산 (plan_montage_lengths) ----------
+
+from auto_cut import plan_montage_lengths  # noqa: E402
+
+
+def test_plan_none_when_total_fits_budget():
+    # 10초 영상 1개 — 예산(25초) 이내라 자를 이유가 없다 → 전체 유지
+    segs = [{"start": 0.0, "end": 10.0}]
+    assert plan_montage_lengths(segs, ideal_sec=25.0, max_sec=45.0) is None
+
+
+def test_plan_divides_budget_when_over():
+    segs = [{"start": i * 5.0, "end": i * 5.0 + 5.0} for i in range(10)]  # 총 50초
+    lengths = plan_montage_lengths(segs, 25.0, 45.0)
+    assert lengths == [2.5] * 10  # ideal 25 ÷ 10클립
+
+
+def test_plan_respects_keep_whole():
+    segs = [{"start": 0.0, "end": 5.0, "keep": "whole"}] + [
+        {"start": 5.0 + i * 5.0, "end": 10.0 + i * 5.0} for i in range(9)
+    ]  # 총 50초
+    lengths = plan_montage_lengths(segs, 25.0, 45.0)
+    assert lengths[0] == 5.0   # whole은 원 길이 유지
+    assert lengths[1] == 2.5
+
+
+def test_plan_scales_down_to_max_cap():
+    # whole 남발로 상한(45초) 초과 → 비례 축소
+    segs = [{"start": i * 10.0, "end": (i + 1) * 10.0, "keep": "whole"} for i in range(6)]
+    lengths = plan_montage_lengths(segs, 25.0, 45.0)
+    assert sum(lengths) <= 45.0 + 1e-6
+    assert all(ln >= 1.5 for ln in lengths)
+
+
+def test_plan_min_clip_floor():
+    # 25 ÷ 20 = 1.25 < 1.5 → 바닥값 1.5로
+    segs = [{"start": i * 2.0, "end": i * 2.0 + 2.0} for i in range(20)]  # 총 40초
+    lengths = plan_montage_lengths(segs, 25.0, 45.0)
+    assert lengths == [1.5] * 20
+
+
+# ---------- 몽타주 트림 창 단어 스냅 (_snap_trim_to_words) ----------
+
+
+def test_snap_trim_to_words_expands_to_word_bounds():
+    from pipeline import _snap_trim_to_words
+    transcript = {"segments": [{"words": [
+        {"word": "안녕", "start": 1.8, "end": 2.4},
+        {"word": "하세요", "start": 2.4, "end": 3.1},
+    ]}]}
+    seg = {"start": 2.0, "end": 3.0, "clip_start": 0.0, "clip_end": 5.0}
+    out = _snap_trim_to_words(seg, transcript)
+    assert out["start"] == 1.8 and out["end"] == 3.1  # 단어 경계로 확장, 말 안 끊김
+
+
+def test_snap_trim_to_words_clamps_to_clip_bounds():
+    from pipeline import _snap_trim_to_words
+    transcript = {"segments": [{"words": [
+        {"word": "넘어감", "start": 4.7, "end": 5.4},  # 클립 끝(5.0) 밖으로 스냅 시도
+    ]}]}
+    seg = {"start": 3.0, "end": 5.0, "clip_start": 0.0, "clip_end": 5.0}
+    out = _snap_trim_to_words(seg, transcript)
+    assert out["end"] <= 5.0  # 클립 경계 밖으로 못 나감
+
+
+def test_snap_trim_to_words_noop_for_untrimmed():
+    from pipeline import _snap_trim_to_words
+    seg = {"start": 0.0, "end": 5.0, "clip_start": 0.0, "clip_end": 5.0}
+    assert _snap_trim_to_words(seg, {"segments": []}) == seg
