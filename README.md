@@ -121,9 +121,11 @@ python pipeline.py input.mp4 --only shorts thumbnail
 
 **부분 실패 격리**: 4종 중 하나가 실패해도 나머지는 생성되고, 끝에 실패한 종만 `--cache --only <종>`으로 재시도하라는 안내가 나온다. `--cache`는 `outputs/selection.json`을 재사용해 **LLM/Whisper 재호출 비용을 아낀다**.
 
-주요 옵션: `--only`, `--shorts-count`(기본 2), `--shorts-ideal-seconds`(기본 25), `--shorts-max-seconds`(기본 45), `--shorts-blur`, `--shorts-silence-min`(기본 0.45 — 점프컷으로 제거할 최소 무음), `--no-shorts-jumpcut`·`--no-shorts-punchin`(트렌드 편집 끄기, A/B 비교용), `--thumbnail-count`(기본 3), `--no-thumb-text`, `--intro-seconds`(기본 4), `--cache`, `--no-subtitle`, `--no-grade`, `--sub-engine`(기본 `remotion`), `--sub-style`(기본 `fade`). 분석 옵션(`--mode`/`-t`/`--llm-model` 등)은 auto_cut과 동일.
+주요 옵션: `--only`, `--shorts-count`(기본 2), `--shorts-ideal-seconds`(기본 25), `--shorts-max-seconds`(기본 45), `--shorts-blur`, `--shorts-silence-min`(기본 0.45 — 점프컷으로 제거할 최소 무음), `--no-shorts-jumpcut`·`--no-shorts-punchin`(트렌드 편집 끄기, A/B 비교용), `--montage-seconds`(기본 자동 — 아래 참고), `--thumbnail-count`(기본 3), `--no-thumb-text`, `--intro-seconds`(기본 4), `--cache`, `--no-subtitle`, `--no-grade`, `--sub-engine`(기본 `remotion`), `--sub-style`(기본 `fade`). 분석 옵션(`--mode`/`-t`/`--llm-model` 등)은 auto_cut과 동일.
 
 > 숏츠는 speech 모드에서 단어 타임스탬프 기반으로 **0.45초+ 무음을 잘라내는 점프컷**과 컷 경계 **1.0x↔1.08x punch-in**을 기본 적용한다(생성 로그에 무음 제거량·점프컷 수·초당 화면변화 측정치 출력). scene/vision·구캐시는 자동으로 통짜 클립 + 주기적 punch로 폴백한다.
+
+> **몽타주 트림(짧은 클립 모음)**: 총 길이가 롱폼 목표 이하면 전체를 몽타주 숏폼 1개로 만든다. 이때 클립별 트림은 기본이 **숏츠 예산 역산** — 총량이 `--shorts-ideal-seconds`(25초) 이하면 전체 유지, 초과하면 예산을 클립 수로 나눠 트림한다. 어느 구간을 남길지는 장면 자막 비전 LLM이 클립당 초·중·후반 3프레임을 보고 고른 **핵심 순간(peak)** 중심이고, 통으로 이어져야 하는 클립은 **keep=whole**로 트림에서 제외된다(LLM 키 없으면 모션 폴백, speech면 단어 경계 스냅). `--montage-seconds N`은 클립당 N초 고정(구버전 모션 동작, A/B용), `0`은 무트림.
 
 ## 모드
 
