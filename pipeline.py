@@ -1199,6 +1199,11 @@ def main() -> None:
                         help="컷 편집 없이 원본 전체에 자막만 입힘 (이미 완성된 숏츠/편집본용)")
     parser.add_argument("--no-beat-sync", action="store_true",
                         help="비트 싱크 끄기 (기본: 소스 오디오의 리듬에 컷·펀치인 스냅)")
+    parser.add_argument(
+        "--montage-seconds", type=float, default=None,
+        help="몽타주 클립당 유지 길이(초). 미지정=자동(숏츠 예산 역산), "
+             "0=트림 없음, 양수=고정 길이(구버전 모션 동작 재현, A/B용)",
+    )
     parser.add_argument("-m", "--whisper-model", default="medium", help="Whisper 모델(speech)")
     parser.add_argument("--language", default="ko", help="언어 코드(auto 가능)")
     parser.add_argument("--llm-model", default=None, help="하이라이트 선정 LLM(claude-*/gpt-*)")
