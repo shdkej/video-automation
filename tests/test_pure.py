@@ -708,3 +708,44 @@ def test_montage_sfx_events_cumulative_offsets():
         {"start": 30.0, "end": 31.0, "sfx": "ding"},
     ]
     assert montage_sfx_events(segs) == [(0.0, "pop"), (4.5, "ding")]
+
+
+# ---------- 몽타주 예산 역산 (plan_montage_lengths) ----------
+
+from auto_cut import plan_montage_lengths  # noqa: E402
+
+
+def test_plan_none_when_total_fits_budget():
+    # 10초 영상 1개 — 예산(25초) 이내라 자를 이유가 없다 → 전체 유지
+    segs = [{"start": 0.0, "end": 10.0}]
+    assert plan_montage_lengths(segs, ideal_sec=25.0, max_sec=45.0) is None
+
+
+def test_plan_divides_budget_when_over():
+    segs = [{"start": i * 5.0, "end": i * 5.0 + 5.0} for i in range(10)]  # 총 50초
+    lengths = plan_montage_lengths(segs, 25.0, 45.0)
+    assert lengths == [2.5] * 10  # ideal 25 ÷ 10클립
+
+
+def test_plan_respects_keep_whole():
+    segs = [{"start": 0.0, "end": 5.0, "keep": "whole"}] + [
+        {"start": 5.0 + i * 5.0, "end": 10.0 + i * 5.0} for i in range(9)
+    ]  # 총 50초
+    lengths = plan_montage_lengths(segs, 25.0, 45.0)
+    assert lengths[0] == 5.0   # whole은 원 길이 유지
+    assert lengths[1] == 2.5
+
+
+def test_plan_scales_down_to_max_cap():
+    # whole 남발로 상한(45초) 초과 → 비례 축소
+    segs = [{"start": i * 10.0, "end": (i + 1) * 10.0, "keep": "whole"} for i in range(6)]
+    lengths = plan_montage_lengths(segs, 25.0, 45.0)
+    assert sum(lengths) <= 45.0 + 1e-6
+    assert all(ln >= 1.5 for ln in lengths)
+
+
+def test_plan_min_clip_floor():
+    # 25 ÷ 20 = 1.25 < 1.5 → 바닥값 1.5로
+    segs = [{"start": i * 2.0, "end": i * 2.0 + 2.0} for i in range(20)]  # 총 40초
+    lengths = plan_montage_lengths(segs, 25.0, 45.0)
+    assert lengths == [1.5] * 20

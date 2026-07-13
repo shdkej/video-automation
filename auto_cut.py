@@ -275,6 +275,32 @@ def trim_montage_segments(segments: list, motion: list, max_len: float) -> list:
     return trimmed
 
 
+def plan_montage_lengths(
+    segments: list, ideal_sec: float, max_sec: float, min_clip: float = 1.5,
+) -> list | None:
+    """몽타주 예산 역산 — 클립별 유지 길이. None이면 전체 유지(트림 불필요).
+
+    총량이 ideal_sec 이하면 자를 이유가 없다(None). 초과하면 ideal_sec을
+    클립 수로 나눈 창을 기본으로 하되, keep=whole 클립(내용이 이어져 통으로
+    필요)은 원 길이를 지킨다. 그 합이 max_sec을 넘으면 전 클립을 비례 축소해
+    상한을 지킨다(min_clip 바닥, 원 길이 초과 금지).
+    """
+    durs = [s["end"] - s["start"] for s in segments]
+    total = sum(durs)
+    if total <= ideal_sec:
+        return None
+    per_clip = max(min_clip, ideal_sec / len(durs))
+    lengths = [
+        d if s.get("keep") == "whole" else min(d, per_clip)
+        for d, s in zip(durs, segments)
+    ]
+    over = sum(lengths)
+    if over > max_sec:
+        scale = max_sec / over
+        lengths = [min(d, max(min_clip, ln * scale)) for d, ln in zip(durs, lengths)]
+    return [round(ln, 3) for ln in lengths]
+
+
 def full_coverage_segments(scenes: list, video_duration: float, min_len: float = 1.0) -> list:
     """씬 경계로 전체 타임라인을 빠짐없이 나눈 연속 구간들 — 전체 유지(몽타주)용.
 
