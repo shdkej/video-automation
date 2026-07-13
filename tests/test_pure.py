@@ -625,6 +625,39 @@ def test_merge_scene_captions_empty_response():
     assert merge_scene_captions(segs, {}) == [""]
 
 
+def test_merge_scene_captions_peak_and_keep():
+    segs = [{"start": 0.0, "end": 6.0}, {"start": 6.0, "end": 12.0}, {"start": 12.0, "end": 18.0}]
+    data = {"scenes": [
+        {"idx": 1, "caption": "a", "peak": 0.25, "keep": "trim"},
+        {"idx": 2, "caption": "b", "peak": 1.7, "keep": "maybe"},  # 둘 다 무효 — 병합 안 함
+        {"idx": 3, "caption": "c", "keep": "whole"},
+    ]}
+    merge_scene_captions(segs, data)
+    assert segs[0]["peak"] == 0.25 and segs[0]["keep"] == "trim"
+    assert "peak" not in segs[1] and "keep" not in segs[1]
+    assert segs[2]["keep"] == "whole" and "peak" not in segs[2]
+
+
+def test_montage_frame_times_three_per_clip():
+    from auto_cut import montage_frame_times
+    segs = [{"start": 0.0, "end": 4.0}, {"start": 4.0, "end": 8.0}]
+    assert montage_frame_times(segs, 3) == [1.0, 2.0, 3.0, 5.0, 6.0, 7.0]
+
+
+def test_montage_frame_times_single_is_midpoint():
+    from auto_cut import montage_frame_times
+    segs = [{"start": 0.0, "end": 6.0}]
+    assert montage_frame_times(segs, 1) == [3.0]
+
+
+def test_scene_caption_prompt_mentions_peak_for_multiframe():
+    from auto_cut import build_scene_caption_prompt
+    p1 = build_scene_caption_prompt(4)
+    p3 = build_scene_caption_prompt(4, frames_per_clip=3)
+    assert "peak" not in p1
+    assert "peak" in p3 and "keep" in p3 and "초반" in p3
+
+
 def test_snap_to_word_bounds_keeps_original_if_too_short():
     transcript = {"segments": [{"words": [
         {"word": "짧게", "start": 1.4, "end": 1.5},

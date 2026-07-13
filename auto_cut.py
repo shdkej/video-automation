@@ -646,7 +646,19 @@ def call_openai_vision(model: str, prompt: str, image_path: Path) -> str:
     return response.choices[0].message.content
 
 
-def build_segment_mosaic(video_path: Path, times: list, output_path: Path) -> None:
+def montage_frame_times(segments: list, frames_per_clip: int) -> list:
+    """장면 자막 그리드에 넣을 프레임 시각. 1이면 중앙점, N이면 클립당 균등 N점.
+
+    frames_per_clip=3 → 각 클립의 25%/50%/75% 지점 — 비전 LLM이 클립의
+    흐름(초·중·후반)을 보고 핵심 순간(peak)과 통유지 여부(keep)를 정한다.
+    """
+    if frames_per_clip <= 1:
+        return [(s["start"] + s["end"]) / 2 for s in segments]
+    fracs = [(i + 1) / (frames_per_clip + 1) for i in range(frames_per_clip)]
+    return [s["start"] + (s["end"] - s["start"]) * f for s in segments for f in fracs]
+
+
+def build_segment_mosaic(video_path: Path, times: list, output_path: Path, cols: int | None = None) -> None:
     """지정 시각들의 프레임을 순서대로 배열한 그리드 한 장 — 장면 자막 생성용.
 
     build_mosaic_image는 고정 간격 샘플이라 선정 구간과 어긋난다.
@@ -666,7 +678,7 @@ def build_segment_mosaic(video_path: Path, times: list, output_path: Path) -> No
                  str(tmpdir / f"f_{i:03d}.jpg")],
                 check=True,
             )
-        cols = min(4, len(times))
+        cols = cols or min(4, len(times))
         rows = math.ceil(len(times) / cols)
         subprocess.run(
             ["ffmpeg", "-y", "-loglevel", "error",
@@ -679,39 +691,55 @@ def build_segment_mosaic(video_path: Path, times: list, output_path: Path) -> No
         shutil.rmtree(tmpdir, ignore_errors=True)
 
 
-def build_scene_caption_prompt(n: int) -> str:
-    return f"""이 이미지는 한 영상에서 선정한 {n}개 장면을 왼쪽→오른쪽, 위→아래 순서로 배열한 그리드다. i번째 칸이 i번째 장면이다.
+def build_scene_caption_prompt(n: int, frames_per_clip: int = 1) -> str:
+    if frames_per_clip <= 1:
+        grid_desc = (f"이 이미지는 한 영상에서 선정한 {n}개 장면을 왼쪽→오른쪽, "
+                     "위→아래 순서로 배열한 그리드다. i번째 칸이 i번째 장면이다.")
+        trim_fields = ""
+        trim_example = ""
+    else:
+        grid_desc = (f"이 이미지는 한 영상의 {n}개 클립을 행으로 배열한 그리드다. "
+                     "i번째 행이 i번째 클립이고, 각 행의 왼쪽→오른쪽은 그 클립의 "
+                     "초반(25%)·중반(50%)·후반(75%) 시점이다.")
+        trim_fields = """
+- peak: 이 클립에서 가장 핵심적인 순간의 상대 위치 0.0~1.0. 초반 프레임이 핵심이면 0.25, 후반이면 0.75처럼.
+- keep: 클립 내용이 처음부터 끝까지 이어져 통으로 살려야 하면 whole, 한 순간이면 충분하면 trim."""
+        trim_example = ' "peak": 0.5, "keep": "trim",'
+    return f"""{grid_desc}
 
 무발화 영상에 화면 자막을 입힌다. 요즘 릴스/숏츠 트렌드처럼 장면을 설명하지 말고, 보는 사람의 감정을 건드리는 짧은 한 줄을 쓴다.
 
 각 장면마다:
 - caption: 화면 하단에 얹을 자막. 한국어 구어체 반말, 8~18자 한 줄. 상황·감정·여운 중심 (예: 이 골목에서 한참 서 있었다 / 오늘의 하이라이트는 이거).
 - hook: 그 장면으로 숏츠를 만들 때 상단 배너에 띄울 후킹 문구. 15자 이내, 의문·숫자·반전 중 하나.
-- score: 숏폼 임팩트 0~100.
+- score: 숏폼 임팩트 0~100.{trim_fields}
 
 그리고 영상 전체에 어울리는 BGM 무드를 하나 고른다:
 - mood: calm(잔잔한 풍경·감성) / upbeat(활기찬 이동·시티) / cinematic(웅장한 하이라이트) / warm(따뜻한 일상·음식) / tension(긴박·반전) 중 하나.
 
 규칙: 이모지·특수문자·따옴표 금지. 이미지에 보이는 것만 근거로 하고 없는 사실을 지어내지 않는다.
 
-JSON만 출력: {{"mood": "calm", "scenes": [{{"idx": 1, "caption": "...", "hook": "...", "score": 50}}, ...]}}"""
+JSON만 출력: {{"mood": "calm", "scenes": [{{"idx": 1, "caption": "...", "hook": "...", "score": 50,{trim_example}}}, ...]}}"""
 
 
 BGM_MOODS = ("calm", "upbeat", "cinematic", "warm", "tension")
 
 
-def generate_scene_captions(video_path: Path, segments: list, model: str) -> tuple:
+def generate_scene_captions(
+    video_path: Path, segments: list, model: str, frames_per_clip: int = 1,
+) -> tuple:
     """무발화(scene/vision) 구간에 릴스 톤 화면 자막 생성.
 
     구간 대표 프레임 그리드 1장 + 비전 LLM 1콜. (captions, mood)를 반환하고,
-    hook/score는 segments에 직접 병합한다(selection.json 캐시에 함께 보존).
-    mood는 BGM 자동 선곡용 — 유효하지 않으면 None.
+    hook/score(+frames_per_clip>1이면 peak/keep)는 segments에 직접 병합한다
+    (selection.json 캐시에 함께 보존). mood는 BGM 자동 선곡용 — 유효하지 않으면 None.
     """
-    times = [(s["start"] + s["end"]) / 2 for s in segments]
+    times = montage_frame_times(segments, frames_per_clip)
     mosaic = video_path.with_suffix(".captions.jpg")
-    build_segment_mosaic(video_path, times, mosaic)
+    build_segment_mosaic(video_path, times, mosaic,
+                         cols=frames_per_clip if frames_per_clip > 1 else None)
     provider = detect_provider(model)
-    prompt = build_scene_caption_prompt(len(segments))
+    prompt = build_scene_caption_prompt(len(segments), frames_per_clip)
     try:
         text = (
             call_anthropic_vision(model, prompt, mosaic) if provider == "anthropic"
@@ -726,10 +754,11 @@ def generate_scene_captions(video_path: Path, segments: list, model: str) -> tup
 
 
 def merge_scene_captions(segments: list, data: dict) -> list:
-    """LLM 응답을 captions 리스트로 변환하고 hook/score를 segments에 병합.
+    """LLM 응답을 captions 리스트로 변환하고 hook/score/peak/keep을 segments에 병합.
 
     idx가 범위를 벗어나거나 형식이 어긋난 항목은 조용히 버린다 — 일부만
-    유효해도 그만큼은 살린다.
+    유효해도 그만큼은 살린다. peak(0~1 밖)·keep(whole/trim 외)도 무효면
+    병합하지 않는다 — 해당 클립은 모션 폴백.
     """
     captions = ["" for _ in segments]
     for sc in data.get("scenes", []):
@@ -745,6 +774,12 @@ def merge_scene_captions(segments: list, data: dict) -> list:
             segments[i]["hook"] = hook
         if isinstance(sc.get("score"), (int, float)):
             segments[i]["score"] = float(sc["score"])
+        peak = sc.get("peak")
+        if isinstance(peak, (int, float)) and 0.0 <= float(peak) <= 1.0:
+            segments[i]["peak"] = float(peak)
+        keep = str(sc.get("keep", "")).strip()
+        if keep in ("whole", "trim"):
+            segments[i]["keep"] = keep
     return captions
 
 
