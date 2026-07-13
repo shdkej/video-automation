@@ -34,6 +34,7 @@ from auto_cut import (
     mux_audio_into_video,
     overlaps,
     pick_scene_segments,
+    plan_montage_lengths,
     resolve_llm_model,
     segments_from_transcript,
     select_highlights,
@@ -242,6 +243,56 @@ def snap_to_word_bounds(clip: dict, transcript: dict | None, max_shift: float = 
     return {**clip, "start": round(start, 3), "end": round(end, 3)}
 
 
+def _snap_trim_to_words(seg: dict, transcript: dict | None) -> dict:
+    """트림된 몽타주 창을 단어 경계로 스냅 — 말이 중간에 잘린 채 시작/끝나는 것 방지.
+
+    트림 안 된 클립(창=클립 전체)은 그대로. 스냅이 클립 경계(clip_start/clip_end)
+    밖으로 나가면 경계로 클램프하고, 그 결과가 뒤집히거나 지나치게 짧아지면
+    스냅을 포기한다.
+    """
+    cs = seg.get("clip_start", seg["start"])
+    ce = seg.get("clip_end", seg["end"])
+    if seg["end"] - seg["start"] >= ce - cs:
+        return seg
+    snapped = snap_to_word_bounds(seg, transcript)
+    start = max(cs, snapped["start"])
+    end = min(ce, snapped["end"])
+    if end - start < 0.8:
+        return seg
+    return {**seg, "start": round(start, 3), "end": round(end, 3)}
+
+
+def _trim_montage(args, segments: list, transcript: dict | None) -> list:
+    """몽타주 클립별 트림 — 기본은 숏츠 예산 역산(auto), --montage-seconds 명시 시 고정.
+
+    auto: 총량 ≤ shorts_ideal_seconds면 전체 유지. 초과 시 예산 분배 창을
+    LLM peak 중심(무발화)·모션 폴백으로 배치하고, 발화가 있으면 단어 경계 스냅.
+    0이면 무트림, 양수면 구버전(모션·고정 길이) 재현 — A/B 비교용.
+    """
+    msec = getattr(args, "montage_seconds", None)
+    auto = msec is None or float(msec) < 0
+    if not auto and float(msec) == 0:
+        return segments
+    if auto:
+        lengths = plan_montage_lengths(
+            segments, args.shorts_ideal_seconds, args.shorts_max_seconds)
+        if lengths is None:
+            print(f"  전체 유지: 총 {total_duration(segments):.1f}초 ≤ "
+                  f"예산 {args.shorts_ideal_seconds:.0f}초 — 트림 없음")
+            return segments
+    else:
+        lengths = float(msec)
+    trimmed = trim_montage_segments(
+        segments, frame_motion_scores(args.input), lengths, use_peak=auto)
+    if transcript:
+        trimmed = [_snap_trim_to_words(s, transcript) for s in trimmed]
+    n_peak = sum(1 for s in trimmed if isinstance(s.get("peak"), (int, float))) if auto else 0
+    n_whole = sum(1 for s in trimmed if s.get("keep") == "whole") if auto else 0
+    print(f"  클립별 트림: {len(trimmed)}개 → 총 {total_duration(trimmed):.1f}초 "
+          f"(LLM 핵심 {n_peak} · 통유지 {n_whole} · 모션 {len(trimmed) - n_peak})")
+    return trimmed
+
+
 def pick_intro_clips(
     segments: list, intro_sec: float, transcript: dict | None = None, max_clips: int = 3,
     beats: list | None = None,
@@ -374,7 +425,8 @@ def _load_beats(outdir: Path) -> list:
     return []
 
 
-def _scene_captions_safe(args, segments: list, outdir: Path | None = None) -> list:
+def _scene_captions_safe(args, segments: list, outdir: Path | None = None,
+                         frames_per_clip: int = 1) -> list:
     """무발화(scene/vision) 구간의 AI 화면 자막 — 끄거나 키가 없거나 실패하면 빈 자막.
 
     성공 시 captions를 채우고 hook/score를 segments에 병합해 숏츠 배너·인트로
@@ -390,7 +442,8 @@ def _scene_captions_safe(args, segments: list, outdir: Path | None = None) -> li
         return ["" for _ in segments]
     try:
         print(f"[장면 자막] {args.llm_model} 비전으로 {len(segments)}개 장면 자막 생성…")
-        captions, mood = generate_scene_captions(args.input, segments, args.llm_model)
+        captions, mood = generate_scene_captions(args.input, segments, args.llm_model,
+                                                 frames_per_clip=frames_per_clip)
         if mood and outdir is not None:
             (outdir / "mood.json").write_text(json.dumps({"mood": mood}))
             print(f"  BGM 무드: {mood}")
@@ -431,14 +484,9 @@ def analyze(args, outdir: Path) -> tuple:
               "— 컷 선택 생략, 전체 유지(몽타주)")
         scenes = detect_scene_changes(args.input, args.scene_threshold)
         segments = full_coverage_segments(scenes, duration)
-        # 클립별 트림 — 각 클립에서 움직임이 가장 큰 montage_seconds초만 남긴다.
-        # 0이면 전체 유지. 5초짜리 6개 → 2초씩 6컷 릴 같은 템포를 만든다.
-        msec = float(getattr(args, "montage_seconds", 2.0) or 0)
-        if msec > 0:
-            segments = trim_montage_segments(segments, frame_motion_scores(args.input), msec)
-            kept = sum(s["end"] - s["start"] for s in segments)
-            print(f"  클립별 트림: {len(segments)}개 × ~{msec:.1f}초 (총 {kept:.1f}초)")
         _load_or_detect_beats(args, outdir)  # 펀치인·인트로·비트싱크가 캐시를 읽는다
+
+        transcript = None
         if args.mode == "speech":
             # 자막용 트랜스크립트는 그대로 뽑되, 품질 미달이어도 몽타주는 진행
             transcript_path = args.input.with_suffix(".transcript.json")
@@ -450,10 +498,18 @@ def analyze(args, outdir: Path) -> tuple:
             try:
                 validate_transcript_quality(transcript)
             except ValueError:
-                return segments, _scene_captions_safe(args, segments, outdir), None
+                transcript = None  # 무발화 몽타주로 진행 (비전 캡션 경로)
+
+        captions = None
+        if transcript is None:
+            # 비전 콜은 트림 전에 — 클립 전체(초·중·후반 3프레임)를 보고
+            # 핵심 순간(peak)·통유지(keep)를 정한다. 트림은 구간 수·순서를
+            # 보존하므로 captions 1:1 정렬이 유지된다.
+            captions = _scene_captions_safe(args, segments, outdir, frames_per_clip=3)
+        segments = _trim_montage(args, segments, transcript)
+        if transcript is not None:
             captions = [caption_for_segment(s, transcript["segments"]) for s in segments]
-            return segments, captions, transcript
-        return segments, _scene_captions_safe(args, segments, outdir), None
+        return segments, captions, transcript
 
     if args.mode == "scene":
         print(f"[분석] scene 모드 (threshold={args.scene_threshold})")

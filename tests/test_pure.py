@@ -816,3 +816,33 @@ def test_plan_min_clip_floor():
     segs = [{"start": i * 2.0, "end": i * 2.0 + 2.0} for i in range(20)]  # 총 40초
     lengths = plan_montage_lengths(segs, 25.0, 45.0)
     assert lengths == [1.5] * 20
+
+
+# ---------- 몽타주 트림 창 단어 스냅 (_snap_trim_to_words) ----------
+
+
+def test_snap_trim_to_words_expands_to_word_bounds():
+    from pipeline import _snap_trim_to_words
+    transcript = {"segments": [{"words": [
+        {"word": "안녕", "start": 1.8, "end": 2.4},
+        {"word": "하세요", "start": 2.4, "end": 3.1},
+    ]}]}
+    seg = {"start": 2.0, "end": 3.0, "clip_start": 0.0, "clip_end": 5.0}
+    out = _snap_trim_to_words(seg, transcript)
+    assert out["start"] == 1.8 and out["end"] == 3.1  # 단어 경계로 확장, 말 안 끊김
+
+
+def test_snap_trim_to_words_clamps_to_clip_bounds():
+    from pipeline import _snap_trim_to_words
+    transcript = {"segments": [{"words": [
+        {"word": "넘어감", "start": 4.7, "end": 5.4},  # 클립 끝(5.0) 밖으로 스냅 시도
+    ]}]}
+    seg = {"start": 3.0, "end": 5.0, "clip_start": 0.0, "clip_end": 5.0}
+    out = _snap_trim_to_words(seg, transcript)
+    assert out["end"] <= 5.0  # 클립 경계 밖으로 못 나감
+
+
+def test_snap_trim_to_words_noop_for_untrimmed():
+    from pipeline import _snap_trim_to_words
+    seg = {"start": 0.0, "end": 5.0, "clip_start": 0.0, "clip_end": 5.0}
+    assert _snap_trim_to_words(seg, {"segments": []}) == seg
