@@ -670,7 +670,7 @@ def test_trim_picks_high_motion_window():
     seg = [{"start": 0.0, "end": 6.0, "reason": "montage(전체 유지)"}]
     # 4~6초 구간에 움직임 집중
     motion = [(t / 10, 0.9 if t >= 40 else 0.01) for t in range(60)]
-    out = trim_montage_segments(seg, motion, max_len=2.0)
+    out = trim_montage_segments(seg, motion, 2.0)
     assert len(out) == 1
     assert out[0]["end"] - out[0]["start"] == pytest.approx(2.0, abs=0.01)
     assert out[0]["start"] >= 3.5  # 고모션 창 쪽으로 이동
@@ -678,16 +678,50 @@ def test_trim_picks_high_motion_window():
 
 def test_trim_keeps_short_segments():
     seg = [{"start": 0.0, "end": 1.5, "reason": "montage(전체 유지)"}]
-    out = trim_montage_segments(seg, [], max_len=2.0)
+    out = trim_montage_segments(seg, [], 2.0)
     assert (out[0]["start"], out[0]["end"]) == (0.0, 1.5)          # 구간은 그대로
     assert (out[0]["clip_start"], out[0]["clip_end"]) == (0.0, 1.5)  # 편집기 트림 바용 경계
 
 
 def test_trim_fallback_center_biased_without_motion():
     seg = [{"start": 10.0, "end": 15.0, "reason": "montage(전체 유지)"}]
-    out = trim_montage_segments(seg, [], max_len=2.0)
+    out = trim_montage_segments(seg, [], 2.0)
     assert out[0]["start"] == 11.2  # 10 + (5-2)*0.4
     assert out[0]["end"] == 13.2
+
+
+def test_trim_uses_llm_peak_center():
+    seg = [{"start": 0.0, "end": 6.0, "peak": 0.75}]
+    out = trim_montage_segments(seg, [], 2.0)
+    assert out[0]["start"] == pytest.approx(3.5)  # 중심 4.5 - 1.0
+    assert out[0]["end"] == pytest.approx(5.5)
+
+
+def test_trim_peak_clamped_to_clip_bounds():
+    seg = [{"start": 0.0, "end": 6.0, "peak": 1.0}]
+    out = trim_montage_segments(seg, [], 2.0)
+    assert (out[0]["start"], out[0]["end"]) == (4.0, 6.0)
+
+
+def test_trim_ignores_peak_when_disabled():
+    # --montage-seconds 명시(A/B) → 구버전 모션 동작 재현
+    seg = [{"start": 10.0, "end": 15.0, "peak": 0.9}]
+    out = trim_montage_segments(seg, [], 2.0, use_peak=False)
+    assert out[0]["start"] == 11.2  # 40% 지점 폴백
+
+
+def test_trim_per_clip_lengths():
+    segs = [{"start": 0.0, "end": 6.0, "keep": "whole"}, {"start": 6.0, "end": 12.0}]
+    out = trim_montage_segments(segs, [], [6.0, 2.0])
+    assert (out[0]["start"], out[0]["end"]) == (0.0, 6.0)  # whole — 통 유지
+    assert out[1]["end"] - out[1]["start"] == pytest.approx(2.0)
+
+
+def test_trim_invalid_peak_falls_back_to_motion():
+    seg = [{"start": 0.0, "end": 6.0, "peak": 1.7}]  # 범위 밖 — 무시
+    motion = [(t / 10, 0.9 if t >= 40 else 0.01) for t in range(60)]
+    out = trim_montage_segments(seg, motion, 2.0)
+    assert out[0]["start"] >= 3.5
 
 
 # ---------- 몽타주 산출 통합 (is_montage / montage_sfx_events) ----------

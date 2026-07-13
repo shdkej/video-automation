@@ -244,33 +244,44 @@ def frame_motion_scores(video_path: Path) -> list:
     return parse_scene_metadata(result.stderr)
 
 
-def trim_montage_segments(segments: list, motion: list, max_len: float) -> list:
-    """몽타주 구간을 각각 '가장 움직임이 큰 max_len초 창'으로 다듬는다.
+def trim_montage_segments(
+    segments: list, motion: list, lengths: list | float, use_peak: bool = True,
+) -> list:
+    """몽타주 구간을 클립별 목표 길이 창으로 다듬는다.
 
-    max_len 이하 구간은 그대로. 모션 데이터가 없으면 중앙 창(시작 40% 지점) —
-    촬영 시작·끝의 흔들림을 피하는 보수적 폴백.
+    창 배치 우선순위: ①LLM peak(핵심 순간의 0~1 상대 위치) 중심 ②모션 최대 창
+    ③시작 40% 지점(촬영 시작·끝 흔들림을 피하는 보수 폴백).
+    lengths가 float면 전 클립 공통, use_peak=False면 peak를 무시하고
+    구버전(모션) 동작을 재현한다 — --montage-seconds 명시 A/B용.
     """
+    if isinstance(lengths, (int, float)):
+        lengths = [float(lengths)] * len(segments)
     trimmed = []
-    for seg in segments:
+    for seg, max_len in zip(segments, lengths):
         s, e = seg["start"], seg["end"]
         seg = {**seg, "clip_start": s, "clip_end": e}  # 원본 클립 경계 — 편집기 트림 바용
         if e - s <= max_len:
             trimmed.append(seg)
             continue
-        # 구간 시작 직후 0.3초는 제외 — 씬 컷 자체의 점수 스파이크가
-        # '움직임'으로 잡혀 모든 창이 시작점으로 쏠린다
-        pts = [(t, sc) for t, sc in motion if s + 0.3 <= t <= e]
-        if pts:
-            best_t, best_sum = s, -1.0
-            t0 = s
-            while t0 <= e - max_len + 1e-9:
-                w = sum(sc for t, sc in pts if t0 <= t <= t0 + max_len)
-                if w > best_sum:
-                    best_sum, best_t = w, t0
-                t0 += 0.1
-            start = best_t
+        peak = seg.get("peak") if use_peak else None
+        if isinstance(peak, (int, float)) and 0.0 <= float(peak) <= 1.0:
+            center = s + (e - s) * float(peak)
+            start = min(max(s, center - max_len / 2), e - max_len)
         else:
-            start = s + (e - s - max_len) * 0.4
+            # 구간 시작 직후 0.3초는 제외 — 씬 컷 자체의 점수 스파이크가
+            # '움직임'으로 잡혀 모든 창이 시작점으로 쏠린다
+            pts = [(t, sc) for t, sc in motion if s + 0.3 <= t <= e]
+            if pts:
+                best_t, best_sum = s, -1.0
+                t0 = s
+                while t0 <= e - max_len + 1e-9:
+                    w = sum(sc for t, sc in pts if t0 <= t <= t0 + max_len)
+                    if w > best_sum:
+                        best_sum, best_t = w, t0
+                    t0 += 0.1
+                start = best_t
+            else:
+                start = s + (e - s - max_len) * 0.4
         trimmed.append({**seg, "start": round(start, 3), "end": round(start + max_len, 3)})
     return trimmed
 
