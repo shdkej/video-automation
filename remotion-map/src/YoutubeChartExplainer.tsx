@@ -1,52 +1,60 @@
-import { AbsoluteFill, Easing, interpolate, spring, useCurrentFrame, useVideoConfig } from 'remotion';
+import { AbsoluteFill, interpolate, spring, useCurrentFrame, useVideoConfig } from 'remotion';
+import type { ReactNode } from 'react';
 
-const clamp = { extrapolateLeft: 'clamp' as const, extrapolateRight: 'clamp' as const };
+const clamp = (value: number) => Math.min(1, Math.max(0, value));
+
+const Reveal: React.FC<{ delay: number; children: ReactNode; y?: number }> = ({ delay, children, y = 14 }) => {
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  const progress = spring({ frame: frame - delay, fps, config: { damping: 19, stiffness: 135, mass: 0.72 } });
+  const settled = clamp(progress);
+  return <div style={{ opacity: interpolate(settled, [0, 0.25, 1], [0, 1, 1]), transform: `translateY(${(1 - settled) * y}px) scale(${0.96 + settled * 0.04})` }}>{children}</div>;
+};
+
+const Chart = () => {
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  const line = interpolate(frame, [fps * 1.05, fps * 1.72], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+  const node = interpolate(frame, [fps * 1.62, fps * 1.88], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+  const path = 'M36 216 C88 214 108 194 144 196 C190 198 206 158 244 160 C290 162 304 96 352 74';
+  return <svg width="354" height="260" viewBox="0 0 390 270" fill="none" aria-hidden="true">
+    <path d="M36 40V226H362" stroke="#F8FAF8" strokeWidth="3" opacity="0.85" />
+    <path d={path} stroke="#F8FAF8" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" pathLength="1" strokeDasharray="1" strokeDashoffset={1 - line} />
+    <circle cx="352" cy="74" r={10 * node} fill="#F8FAF8" />
+  </svg>;
+};
 
 export const YoutubeChartExplainer: React.FC = () => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
-  const headline = interpolate(frame, [2, 13], [0, 1], clamp);
-  const chartReveal = interpolate(frame, [15, 54], [0, 1], {
-    ...clamp,
-    easing: Easing.out(Easing.cubic),
-  });
-  const markerProgress = spring({ frame: frame - 49, fps, config: { damping: 18, stiffness: 150, mass: 0.55 } });
-  const closing = interpolate(frame, [67, 79], [0, 1], clamp);
-  const chartPath = 'M 118 718 C 214 690, 262 625, 354 613 S 492 546, 590 518 S 731 387, 844 308';
-  const dashLength = 1050;
+  const connector = interpolate(frame, [fps * 0.65, fps * 1.05], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+  const takeaway = clamp(spring({ frame: frame - 54, fps, config: { damping: 19, stiffness: 135, mass: 0.72 } }));
 
-  return (
-    <AbsoluteFill style={{ backgroundColor: '#151515', color: '#F6F0E6', fontFamily: 'Pretendard, Arial, sans-serif', overflow: 'hidden' }}>
-      <div style={{ position: 'absolute', inset: 0, opacity: 0.22, backgroundImage: 'linear-gradient(rgba(246,240,230,.13) 1px, transparent 1px), linear-gradient(90deg, rgba(246,240,230,.13) 1px, transparent 1px)', backgroundSize: '72px 72px' }} />
-      <div style={{ position: 'absolute', top: 142, left: 84, right: 84, opacity: headline, transform: `translateY(${(1 - headline) * 26}px)` }}>
-        <div style={{ color: '#B8FF6C', fontSize: 26, fontWeight: 800, letterSpacing: '0.08em' }}>SMALL ACTIONS / 30 DAYS</div>
-        <div style={{ marginTop: 28, fontSize: 82, fontWeight: 800, lineHeight: 1.08, letterSpacing: '-0.075em' }}>작은 실행은<br />쌓여서 방향이 된다</div>
+  return <AbsoluteFill style={{ background: '#F8FAF8', color: '#161616', fontFamily: 'Pretendard, Arial, sans-serif', overflow: 'hidden' }}>
+    <AbsoluteFill style={{ opacity: 0.62, backgroundImage: 'linear-gradient(#DCE4DE 1px, transparent 1px), linear-gradient(90deg, #DCE4DE 1px, transparent 1px)', backgroundSize: '48px 48px' }} />
+    <Reveal delay={2} y={16}>
+      <div style={{ position: 'absolute', top: 158, width: '100%', textAlign: 'center', fontSize: 55, lineHeight: 1.18, fontWeight: 800, letterSpacing: '-4px' }}>작은 실행은, 쌓일수록 방향이 된다</div>
+    </Reveal>
+
+    <Reveal delay={10}>
+      <div style={{ position: 'absolute', left: 88, top: 610, width: 302, height: 302, border: '4px solid #161616', borderRadius: 32, background: 'rgba(255,255,255,.8)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 20 }}>
+        <div style={{ width: 80, height: 80, border: '4px solid #161616', borderRadius: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 48, fontWeight: 800 }}>+</div>
+        <div style={{ fontSize: 42, fontWeight: 800, letterSpacing: '-3px' }}>작은 실행</div>
       </div>
-      <div style={{ position: 'absolute', top: 535, left: 84, right: 84, height: 750, borderTop: '1px solid rgba(246,240,230,.42)', borderBottom: '1px solid rgba(246,240,230,.42)' }}>
-        {[184, 368, 552].map((top) => <div key={top} style={{ position: 'absolute', top, left: 0, right: 0, borderTop: '1px solid rgba(246,240,230,.16)' }} />)}
-        <div style={{ position: 'absolute', top: 16, left: 0, color: 'rgba(246,240,230,.62)', fontSize: 24, fontWeight: 700 }}>실행 밀도</div>
-        <svg viewBox="0 0 928 750" width="928" height="750" style={{ position: 'absolute', inset: 0, overflow: 'visible' }}>
-          <path d={chartPath} fill="none" stroke="#B8FF6C" strokeWidth="11" strokeLinecap="round" strokeDasharray={dashLength} strokeDashoffset={dashLength * (1 - chartReveal)} />
-          <path d="M 118 718 C 214 690, 262 625, 354 613 S 492 546, 590 518 S 731 387, 844 308 L 844 750 L 118 750 Z" fill="rgba(184,255,108,.09)" opacity={chartReveal} />
-          {[
-            { cx: 354, cy: 613 },
-            { cx: 590, cy: 518 },
-            { cx: 844, cy: 308 },
-          ].map(({ cx, cy }, index) => {
-            const delay = index * 7;
-            const show = Math.max(0, Math.min(1, markerProgress - delay / 18));
-            return <circle key={cx} cx={cx} cy={cy} r={18 * show} fill="#151515" stroke="#F6F0E6" strokeWidth="7" />;
-          })}
-        </svg>
-        <div style={{ position: 'absolute', bottom: 24, left: 30, fontSize: 25, fontWeight: 700, color: 'rgba(246,240,230,.72)' }}>1일</div>
-        <div style={{ position: 'absolute', bottom: 24, left: 270, fontSize: 25, fontWeight: 700, color: 'rgba(246,240,230,.72)' }}>7일</div>
-        <div style={{ position: 'absolute', bottom: 24, left: 520, fontSize: 25, fontWeight: 700, color: 'rgba(246,240,230,.72)' }}>14일</div>
-        <div style={{ position: 'absolute', bottom: 24, right: 22, fontSize: 25, fontWeight: 700, color: 'rgba(246,240,230,.72)' }}>30일</div>
+    </Reveal>
+
+    <div style={{ position: 'absolute', left: 406, top: 758, width: 270, height: 4, background: '#161616', transformOrigin: 'left', transform: `scaleX(${connector})` }} />
+    <Reveal delay={25} y={0}>
+      <div style={{ position: 'absolute', left: 456, top: 696, width: 170, height: 66, border: '3px solid #161616', borderRadius: 34, background: '#F8FAF8', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 30, fontWeight: 800, letterSpacing: '-2px' }}>반복</div>
+    </Reveal>
+
+    <Reveal delay={31}>
+      <div style={{ position: 'absolute', left: 688, top: 520, width: 306, height: 480, borderRadius: 34, background: '#161616', color: '#F8FAF8', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
+        <Chart />
+        <div style={{ fontSize: 42, lineHeight: 1.18, textAlign: 'center', fontWeight: 800, letterSpacing: '-3px' }}>쌓이는<br />변화</div>
       </div>
-      <div style={{ position: 'absolute', left: 84, right: 84, bottom: 172, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', opacity: closing, transform: `translateY(${(1 - closing) * 18}px)` }}>
-        <div style={{ fontSize: 48, fontWeight: 800, letterSpacing: '-0.055em' }}>한 번보다,<br />다음 한 번</div>
-        <div style={{ width: 132, height: 132, border: '2px solid #B8FF6C', borderRadius: 999, display: 'grid', placeItems: 'center', color: '#B8FF6C', fontSize: 27, fontWeight: 800 }}>NEXT</div>
-      </div>
-    </AbsoluteFill>
-  );
+    </Reveal>
+
+    <div style={{ position: 'absolute', bottom: 180, width: '100%', textAlign: 'center', fontSize: 45, fontWeight: 800, letterSpacing: '-3px', opacity: takeaway, transform: `translateY(${(1 - takeaway) * 10}px)` }}><span style={{ borderBottom: '5px solid #161616', paddingBottom: 12 }}>쌓이면, 궤적이 된다</span></div>
+  </AbsoluteFill>;
 };

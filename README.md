@@ -158,6 +158,17 @@ brew install ffmpeg
 cd remotion-map && npm install && cd ..
 ```
 
+### 유튜브 설명컷 차트
+
+`remotion-map`에는 세로형(1080×1920) 3초 설명컷 `YoutubeChartExplainer`가 있습니다. 기존 설명컷의 **출발 객체 → 관계 → 결과 객체 → 하단 결론** 구성을 유지하며, 결과 객체 안에서 차트 선을 그립니다.
+
+```bash
+cd remotion-map
+npm run render:youtube-chart-explainer
+```
+
+출력 파일은 `remotion-map/out/youtube-chart-explainer-v2.mp4`입니다.
+
 ## 사용
 
 API 키는 `.env` 파일에 두거나(`cp .env.example .env`) 환경 변수로 export.
