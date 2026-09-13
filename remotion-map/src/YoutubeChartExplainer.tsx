@@ -1,60 +1,44 @@
 import { AbsoluteFill, interpolate, spring, useCurrentFrame, useVideoConfig } from 'remotion';
-import type { ReactNode } from 'react';
 
-const clamp = (value: number) => Math.min(1, Math.max(0, value));
-
-const Reveal: React.FC<{ delay: number; children: ReactNode; y?: number }> = ({ delay, children, y = 14 }) => {
-  const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
-  const progress = spring({ frame: frame - delay, fps, config: { damping: 19, stiffness: 135, mass: 0.72 } });
-  const settled = clamp(progress);
-  return <div style={{ opacity: interpolate(settled, [0, 0.25, 1], [0, 1, 1]), transform: `translateY(${(1 - settled) * y}px) scale(${0.96 + settled * 0.04})` }}>{children}</div>;
-};
-
-const Chart = () => {
-  const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
-  const line = interpolate(frame, [fps * 1.05, fps * 1.72], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
-  const node = interpolate(frame, [fps * 1.62, fps * 1.88], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
-  const path = 'M36 216 C88 214 108 194 144 196 C190 198 206 158 244 160 C290 162 304 96 352 74';
-  return <svg width="354" height="260" viewBox="0 0 390 270" fill="none" aria-hidden="true">
-    <path d="M36 40V226H362" stroke="#F8FAF8" strokeWidth="3" opacity="0.85" />
-    <path d={path} stroke="#F8FAF8" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" pathLength="1" strokeDasharray="1" strokeDashoffset={1 - line} />
-    <circle cx="352" cy="74" r={10 * node} fill="#F8FAF8" />
-  </svg>;
-};
+const clamp = { extrapolateLeft: 'clamp' as const, extrapolateRight: 'clamp' as const };
+const values = [5, 7, 8, 8, 2, 6, 6];
+const labels = ['9.07', '9.08', '9.09', '9.10', '9.11', '9.12', '9.13'];
+const points = values.map((value, index) => ({ x: 136 + index * 135, y: 1270 - value * 76, value }));
+const line = points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ');
 
 export const YoutubeChartExplainer: React.FC = () => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
-  const connector = interpolate(frame, [fps * 0.65, fps * 1.05], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
-  const takeaway = clamp(spring({ frame: frame - 54, fps, config: { damping: 19, stiffness: 135, mass: 0.72 } }));
+  const heading = interpolate(frame, [0, fps * 0.3], [0, 1], clamp);
+  const draw = interpolate(frame, [fps * 0.28, fps * 1.85], [0, 1], clamp);
 
-  return <AbsoluteFill style={{ background: '#F8FAF8', color: '#161616', fontFamily: 'Pretendard, Arial, sans-serif', overflow: 'hidden' }}>
-    <AbsoluteFill style={{ opacity: 0.62, backgroundImage: 'linear-gradient(#DCE4DE 1px, transparent 1px), linear-gradient(90deg, #DCE4DE 1px, transparent 1px)', backgroundSize: '48px 48px' }} />
-    <Reveal delay={2} y={16}>
-      <div style={{ position: 'absolute', top: 158, width: '100%', textAlign: 'center', fontSize: 55, lineHeight: 1.18, fontWeight: 800, letterSpacing: '-4px' }}>작은 실행은, 쌓일수록 방향이 된다</div>
-    </Reveal>
-
-    <Reveal delay={10}>
-      <div style={{ position: 'absolute', left: 88, top: 610, width: 302, height: 302, border: '4px solid #161616', borderRadius: 32, background: 'rgba(255,255,255,.8)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 20 }}>
-        <div style={{ width: 80, height: 80, border: '4px solid #161616', borderRadius: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 48, fontWeight: 800 }}>+</div>
-        <div style={{ fontSize: 42, fontWeight: 800, letterSpacing: '-3px' }}>작은 실행</div>
+  return <AbsoluteFill style={{ background: '#F7F7F3', color: '#161616', fontFamily: 'Pretendard, Arial, sans-serif', overflow: 'hidden' }}>
+    <AbsoluteFill style={{ opacity: 0.45, backgroundImage: 'linear-gradient(#DBDDD7 1px, transparent 1px), linear-gradient(90deg, #DBDDD7 1px, transparent 1px)', backgroundSize: '48px 48px' }} />
+    <div style={{ position: 'absolute', top: 176, left: 104, right: 104, opacity: heading, transform: `translateY(${(1 - heading) * 14}px)` }}>
+      <div style={{ fontSize: 26, fontWeight: 700, letterSpacing: '2px', color: '#59615D' }}>OPENCLAW · WEEKLY CHAT</div>
+      <div style={{ marginTop: 22, display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+        <div style={{ fontSize: 84, fontWeight: 800, letterSpacing: '-6px' }}>42<span style={{ fontSize: 42, marginLeft: 8, letterSpacing: '-3px' }}>회</span></div>
+        <div style={{ fontSize: 29, fontWeight: 700, letterSpacing: '-1px', color: '#59615D' }}>9.07 — 9.13</div>
       </div>
-    </Reveal>
-
-    <div style={{ position: 'absolute', left: 406, top: 758, width: 270, height: 4, background: '#161616', transformOrigin: 'left', transform: `scaleX(${connector})` }} />
-    <Reveal delay={25} y={0}>
-      <div style={{ position: 'absolute', left: 456, top: 696, width: 170, height: 66, border: '3px solid #161616', borderRadius: 34, background: '#F8FAF8', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 30, fontWeight: 800, letterSpacing: '-2px' }}>반복</div>
-    </Reveal>
-
-    <Reveal delay={31}>
-      <div style={{ position: 'absolute', left: 688, top: 520, width: 306, height: 480, borderRadius: 34, background: '#161616', color: '#F8FAF8', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
-        <Chart />
-        <div style={{ fontSize: 42, lineHeight: 1.18, textAlign: 'center', fontWeight: 800, letterSpacing: '-3px' }}>쌓이는<br />변화</div>
-      </div>
-    </Reveal>
-
-    <div style={{ position: 'absolute', bottom: 180, width: '100%', textAlign: 'center', fontSize: 45, fontWeight: 800, letterSpacing: '-3px', opacity: takeaway, transform: `translateY(${(1 - takeaway) * 10}px)` }}><span style={{ borderBottom: '5px solid #161616', paddingBottom: 12 }}>쌓이면, 궤적이 된다</span></div>
+    </div>
+    <svg width="1080" height="1920" viewBox="0 0 1080 1920" fill="none" aria-hidden="true">
+      {[0, 4, 8].map((value) => {
+        const y = 1270 - value * 76;
+        return <g key={value}><path d={`M104 ${y}H976`} stroke="#161616" strokeWidth="2" opacity={value === 0 ? 0.48 : 0.14} /><text x="76" y={y + 9} textAnchor="end" fill="#59615D" fontSize="25" fontWeight="700">{value}</text></g>;
+      })}
+      <path d={line} stroke="#161616" strokeWidth="7" strokeLinecap="round" strokeLinejoin="round" pathLength="1" strokeDasharray="1" strokeDashoffset={1 - draw} />
+      {points.map((point, index) => {
+        const visible = spring({ frame: frame - (fps * 1.42 + index * 2.7), fps, config: { damping: 20, stiffness: 150, mass: 0.55 } });
+        const scale = Math.min(1, Math.max(0, visible));
+        return <g key={labels[index]} opacity={scale} transform={`translate(${point.x} ${point.y}) scale(${scale}) translate(${-point.x} ${-point.y})`}>
+          <circle cx={point.x} cy={point.y} r="11" fill="#F7F7F3" stroke="#161616" strokeWidth="5" />
+          <text x={point.x} y={point.y - 31} textAnchor="middle" fill="#161616" fontSize="32" fontWeight="800">{point.value}</text>
+          <text x={point.x} y="1333" textAnchor="middle" fill="#59615D" fontSize="24" fontWeight="700">{labels[index]}</text>
+        </g>;
+      })}
+    </svg>
+    <div style={{ position: 'absolute', left: 104, right: 104, bottom: 222, display: 'flex', justifyContent: 'space-between', borderTop: '2px solid rgba(22,22,22,.55)', paddingTop: 24, fontSize: 28, fontWeight: 700, letterSpacing: '-1px' }}>
+      <span>하루 평균 6회</span><span>최고 8회 · 9.09–10</span>
+    </div>
   </AbsoluteFill>;
 };
