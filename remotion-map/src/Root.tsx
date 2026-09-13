@@ -4,6 +4,7 @@ import { MapFlyStatic } from './MapFlyStatic';
 import { SubtitleOverlay, SubtitleProps } from './SubtitleOverlay';
 import { NoteOverlay, NoteOverlayProps } from './NoteOverlay';
 import { BRollOverlay, BRollOverlayProps } from './BRollOverlay';
+import { YoutubeChartExplainer } from './YoutubeChartExplainer';
 import data from './data.json';
 import flyMeta from './data-fly.json';
 
@@ -33,6 +34,14 @@ const NOTE_DEMO: NoteOverlayProps = {
 export const RemotionRoot: React.FC = () => {
   return (
     <>
+      <Composition
+        id="YoutubeChartExplainer"
+        component={YoutubeChartExplainer}
+        durationInFrames={90}
+        fps={30}
+        width={1080}
+        height={1920}
+      />
       <Composition
         id="MapRoute"
         component={MapRoute}
