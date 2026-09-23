@@ -20,8 +20,8 @@
 
 웹에서 구성과 순서를 확인할 때는 [`index.html`](./index.html)을 사용합니다. 이 HTML과 `.pen`은 같은 6장 구조·문구를 기준으로 함께 수정합니다.
 
-## 확정 훅 — B안
+## A안 훅
 
-`좋은 디자인은 / 왜 말을 아낄까?`를 기준 훅으로 확정했습니다. Tizio의 구조 → TS 502의 열림/닫힘 → ThinkPad의 결론이 이 질문을 회수합니다. 이전 A안은 [`variant-a/`](./variant-a/)에 보존했고, 한 장씩 비교할 수 있는 [`compare.html`](./compare.html)도 함께 제공합니다.
+`디자인은 왜 / 조용해야 할까?`는 사퍼의 작업 방식을 차분하게 여는 기준안입니다. 대비용 B안은 [`variant-b/`](./variant-b/)에 있습니다.
 
 사실 근거는 Infinity 원격 `research-richard-sapper-deadline-20260917`의 최종 브리프(MoMA, IBM, Alessi, Richard Sapper Design)입니다. 공개 게시나 계정 업로드는 하지 않았습니다.
