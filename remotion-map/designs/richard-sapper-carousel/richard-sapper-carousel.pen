@@ -1,8 +1,573 @@
-{"version":"2.11","children":[
-{"type":"frame","id":"r1","name":"01 Tizio 이미지컷","x":0,"y":0,"width":1080,"height":1920,"fill":{"type":"color","color":"#000000"},"children":[{"type":"text","id":"r1t","x":0,"y":370,"width":1080,"content":"리처드 사퍼","textAlign":"center","fill":"#FFFFFF","fontFamily":"Pretendard","fontSize":76,"fontWeight":"700"},{"type":"frame","id":"r1i","x":0,"y":557,"width":1080,"height":806,"fill":{"type":"image","url":"tizio.jpg","mode":"cover"}},{"type":"text","id":"r1caption","x":105,"y":1268,"width":870,"content":"Tizio · 빛, 전력, 균형을 한 구조로 만든 조명","textAlign":"center","fill":"#FFFFFF","fontFamily":"Pretendard","fontSize":28,"fontWeight":"700"},{"type":"text","id":"r1b","x":0,"y":1510,"width":1080,"content":"미니멀 모으기 1/100","textAlign":"center","fill":"#FFFFFF","fontFamily":"Pretendard","fontSize":62,"fontWeight":"700"}]},
-{"type":"frame","id":"r2","name":"02 Tizio 설명컷","x":1160,"y":0,"width":1080,"height":1920,"fill":{"type":"color","color":"#000000"},"children":[{"type":"text","id":"r2t","x":0,"y":370,"width":1080,"content":"리처드 사퍼","textAlign":"center","fill":"#FFFFFF","fontFamily":"Pretendard","fontSize":76,"fontWeight":"700"},{"type":"frame","id":"r2g","x":0,"y":557,"width":1080,"height":806,"fill":{"type":"image","url":"explainer-grid.svg","mode":"fill"},"children":[{"type":"frame","id":"r2light","x":318,"y":250,"width":120,"height":120,"cornerRadius":60,"fill":{"type":"color","color":"#F7F7F3"},"stroke":{"color":"#151515","thickness":3}},{"type":"text","id":"r2lightlabel","x":318,"y":289,"width":120,"content":"빛","textAlign":"center","fill":"#151515","fontFamily":"Pretendard","fontSize":24,"fontWeight":"700"},{"type":"text","id":"r2arrow","x":465,"y":278,"width":100,"content":"→","textAlign":"center","fill":"#151515","fontFamily":"Pretendard","fontSize":52,"fontWeight":"500"},{"type":"frame","id":"r2weight","x":606,"y":278,"width":64,"height":64,"cornerRadius":32,"fill":{"type":"color","color":"#151515"}},{"type":"text","id":"r2weightlabel","x":606,"y":296,"width":64,"content":"추","textAlign":"center","fill":"#F7F7F3","fontFamily":"Pretendard","fontSize":19,"fontWeight":"700"},{"type":"text","id":"r2copy","x":160,"y":435,"width":760,"content":"전선도, 균형도\n구조가 된다.","textAlign":"center","fill":"#151515","fontFamily":"Pretendard","fontSize":42,"fontWeight":"700"}]},{"type":"text","id":"r2b","x":0,"y":1510,"width":1080,"content":"미니멀 모으기 1/100","textAlign":"center","fill":"#FFFFFF","fontFamily":"Pretendard","fontSize":62,"fontWeight":"700"}]},
-{"type":"frame","id":"r3","name":"03 TS 502 이미지컷","x":2320,"y":0,"width":1080,"height":1920,"fill":{"type":"color","color":"#000000"},"children":[{"type":"text","id":"r3t","x":0,"y":370,"width":1080,"content":"리처드 사퍼","textAlign":"center","fill":"#FFFFFF","fontFamily":"Pretendard","fontSize":76,"fontWeight":"700"},{"type":"frame","id":"r3i","x":0,"y":557,"width":1080,"height":806,"fill":{"type":"image","url":"ts502-dark.png","mode":"cover"}},{"type":"text","id":"r3caption","x":105,"y":592,"width":870,"content":"TS 502 · 닫히면 큐브, 열리면 라디오","textAlign":"center","fill":"#FFFFFF","fontFamily":"Pretendard","fontSize":28,"fontWeight":"700"},{"type":"text","id":"r3b","x":0,"y":1510,"width":1080,"content":"미니멀 모으기 1/100","textAlign":"center","fill":"#FFFFFF","fontFamily":"Pretendard","fontSize":62,"fontWeight":"700"}]},
-{"type":"frame","id":"r4","name":"04 TS 502 설명컷","x":3480,"y":0,"width":1080,"height":1920,"fill":{"type":"color","color":"#000000"},"children":[{"type":"text","id":"r4t","x":0,"y":370,"width":1080,"content":"리처드 사퍼","textAlign":"center","fill":"#FFFFFF","fontFamily":"Pretendard","fontSize":76,"fontWeight":"700"},{"type":"frame","id":"r4g","x":0,"y":557,"width":1080,"height":806,"fill":{"type":"image","url":"explainer-grid.svg","mode":"fill"},"children":[{"type":"frame","id":"r4closed","x":280,"y":250,"width":120,"height":120,"cornerRadius":16,"fill":{"type":"color","color":"#F7F7F3"},"stroke":{"color":"#151515","thickness":3}},{"type":"text","id":"r4closedlabel","x":280,"y":289,"width":120,"content":"닫힘","textAlign":"center","fill":"#151515","fontFamily":"Pretendard","fontSize":24,"fontWeight":"700"},{"type":"text","id":"r4arrow","x":425,"y":278,"width":100,"content":"→","textAlign":"center","fill":"#151515","fontFamily":"Pretendard","fontSize":52,"fontWeight":"500"},{"type":"frame","id":"r4open","x":550,"y":250,"width":180,"height":120,"cornerRadius":16,"fill":{"type":"color","color":"#F7F7F3"},"stroke":{"color":"#151515","thickness":3},"children":[{"type":"frame","id":"r4screen","x":38,"y":29,"width":90,"height":62,"cornerRadius":6,"fill":{"type":"color","color":"#151515"}},{"type":"frame","id":"r4flap","x":160,"y":43,"width":38,"height":48,"cornerRadius":4,"fill":{"type":"color","color":"#F7F7F3"},"stroke":{"color":"#151515","thickness":3}}]},{"type":"text","id":"r4copy","x":160,"y":435,"width":760,"content":"기능은\n필요할 때만 열린다.","textAlign":"center","fill":"#151515","fontFamily":"Pretendard","fontSize":42,"fontWeight":"700"}]},{"type":"text","id":"r4b","x":0,"y":1510,"width":1080,"content":"미니멀 모으기 1/100","textAlign":"center","fill":"#FFFFFF","fontFamily":"Pretendard","fontSize":62,"fontWeight":"700"}]},
-{"type":"frame","id":"r5","name":"05 ThinkPad 이미지컷","x":4640,"y":0,"width":1080,"height":1920,"fill":{"type":"color","color":"#000000"},"children":[{"type":"text","id":"r5t","x":0,"y":370,"width":1080,"content":"리처드 사퍼","textAlign":"center","fill":"#FFFFFF","fontFamily":"Pretendard","fontSize":76,"fontWeight":"700"},{"type":"frame","id":"r5i","x":0,"y":557,"width":1080,"height":806,"fill":{"type":"image","url":"sapper-still-life.png","mode":"cover"}},{"type":"text","id":"r5caption","x":105,"y":1268,"width":870,"content":"ThinkPad · 미학과 공학을 함께 설계한 결과","textAlign":"center","fill":"#FFFFFF","fontFamily":"Pretendard","fontSize":28,"fontWeight":"700"},{"type":"text","id":"r5b","x":0,"y":1510,"width":1080,"content":"미니멀 모으기 1/100","textAlign":"center","fill":"#FFFFFF","fontFamily":"Pretendard","fontSize":62,"fontWeight":"700"}]},
-{"type":"frame","id":"r6","name":"06 제보·문의 CTA","x":5800,"y":0,"width":1080,"height":1920,"fill":{"type":"color","color":"#000000"},"children":[{"type":"text","id":"r6t","x":0,"y":370,"width":1080,"content":"리처드 사퍼","textAlign":"center","fill":"#FFFFFF","fontFamily":"Pretendard","fontSize":76,"fontWeight":"700"},{"type":"frame","id":"r6g","x":0,"y":557,"width":1080,"height":806,"fill":{"type":"image","url":"canvas-cta.png","mode":"cover"},"children":[{"type":"text","id":"r6eyebrow","x":72,"y":52,"width":500,"content":"MINIMAL TIP-OFF","fill":"#C9FF31","fontFamily":"Pretendard","fontSize":20,"fontWeight":"700","letterSpacing":2.8},{"type":"text","id":"r6h","x":72,"y":150,"width":780,"content":"미니멀한\n발견을\n제보해 주세요.","fill":"#FFFFFF","fontFamily":"Pretendard","fontSize":82,"fontWeight":"700"},{"type":"text","id":"r6note","x":72,"y":620,"width":730,"content":"좋은 제품 · 사람 · 장면\nDM으로 제보·문의 받습니다.","fill":"#FFFFFF","fontFamily":"Pretendard","fontSize":30,"fontWeight":"700"},{"type":"text","id":"r6arrow","x":895,"y":626,"width":80,"content":"↗","textAlign":"center","fill":"#C9FF31","fontFamily":"Pretendard","fontSize":60,"fontWeight":"700"}]},{"type":"text","id":"r6b","x":0,"y":1510,"width":1080,"content":"미니멀 모으기 1/100","textAlign":"center","fill":"#FFFFFF","fontFamily":"Pretendard","fontSize":62,"fontWeight":"700"}]}
-]}
+{
+  "version": "2.11",
+  "children": [
+    {
+      "type": "frame",
+      "id": "r1",
+      "name": "01 Tizio 이미지컷",
+      "x": 0,
+      "y": 0,
+      "width": 1080,
+      "height": 1920,
+      "fill": {
+        "type": "color",
+        "color": "#000000"
+      },
+      "children": [
+        {
+          "type": "text",
+          "id": "r1t",
+          "x": 0,
+          "y": 300,
+          "width": 1080,
+          "content": "리처드\n사퍼",
+          "textAlign": "center",
+          "fill": "#FFFFFF",
+          "fontFamily": "Pretendard",
+          "fontSize": 70,
+          "fontWeight": "700"
+        },
+        {
+          "type": "frame",
+          "id": "r1i",
+          "x": 0,
+          "y": 557,
+          "width": 1080,
+          "height": 806,
+          "fill": {
+            "type": "image",
+            "url": "tizio.jpg",
+            "mode": "cover"
+          }
+        },
+        {
+          "type": "text",
+          "id": "r1caption",
+          "x": 105,
+          "y": 1268,
+          "width": 870,
+          "content": "Tizio · 빛, 전력, 균형을 한 구조로 만든 조명",
+          "textAlign": "center",
+          "fill": "#FFFFFF",
+          "fontFamily": "Pretendard",
+          "fontSize": 28,
+          "fontWeight": "700"
+        },
+        {
+          "type": "text",
+          "id": "r1b",
+          "x": 0,
+          "y": 1510,
+          "width": 1080,
+          "content": "미니멀 모으기 1/100",
+          "textAlign": "center",
+          "fill": "#FFFFFF",
+          "fontFamily": "Pretendard",
+          "fontSize": 62,
+          "fontWeight": "700"
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "r2",
+      "name": "02 Tizio 설명컷",
+      "x": 1160,
+      "y": 0,
+      "width": 1080,
+      "height": 1920,
+      "fill": {
+        "type": "color",
+        "color": "#000000"
+      },
+      "children": [
+        {
+          "type": "text",
+          "id": "r2t",
+          "x": 0,
+          "y": 300,
+          "width": 1080,
+          "content": "리처드\n사퍼",
+          "textAlign": "center",
+          "fill": "#FFFFFF",
+          "fontFamily": "Pretendard",
+          "fontSize": 70,
+          "fontWeight": "700"
+        },
+        {
+          "type": "frame",
+          "id": "r2g",
+          "x": 0,
+          "y": 557,
+          "width": 1080,
+          "height": 806,
+          "fill": {
+            "type": "image",
+            "url": "explainer-grid.svg",
+            "mode": "fill"
+          },
+          "children": [
+            {
+              "type": "frame",
+              "id": "r2light",
+              "x": 318,
+              "y": 250,
+              "width": 120,
+              "height": 120,
+              "cornerRadius": 60,
+              "fill": {
+                "type": "color",
+                "color": "#F7F7F3"
+              },
+              "stroke": {
+                "color": "#151515",
+                "thickness": 3
+              }
+            },
+            {
+              "type": "text",
+              "id": "r2lightlabel",
+              "x": 318,
+              "y": 289,
+              "width": 120,
+              "content": "빛",
+              "textAlign": "center",
+              "fill": "#151515",
+              "fontFamily": "Pretendard",
+              "fontSize": 24,
+              "fontWeight": "700"
+            },
+            {
+              "type": "text",
+              "id": "r2arrow",
+              "x": 465,
+              "y": 278,
+              "width": 100,
+              "content": "→",
+              "textAlign": "center",
+              "fill": "#151515",
+              "fontFamily": "Pretendard",
+              "fontSize": 52,
+              "fontWeight": "500"
+            },
+            {
+              "type": "frame",
+              "id": "r2weight",
+              "x": 606,
+              "y": 278,
+              "width": 64,
+              "height": 64,
+              "cornerRadius": 32,
+              "fill": {
+                "type": "color",
+                "color": "#151515"
+              }
+            },
+            {
+              "type": "text",
+              "id": "r2weightlabel",
+              "x": 606,
+              "y": 296,
+              "width": 64,
+              "content": "추",
+              "textAlign": "center",
+              "fill": "#F7F7F3",
+              "fontFamily": "Pretendard",
+              "fontSize": 19,
+              "fontWeight": "700"
+            },
+            {
+              "type": "text",
+              "id": "r2copy",
+              "x": 160,
+              "y": 435,
+              "width": 760,
+              "content": "전선도, 균형도\n구조가 된다.",
+              "textAlign": "center",
+              "fill": "#151515",
+              "fontFamily": "Pretendard",
+              "fontSize": 42,
+              "fontWeight": "700"
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "id": "r2b",
+          "x": 0,
+          "y": 1510,
+          "width": 1080,
+          "content": "미니멀 모으기 1/100",
+          "textAlign": "center",
+          "fill": "#FFFFFF",
+          "fontFamily": "Pretendard",
+          "fontSize": 62,
+          "fontWeight": "700"
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "r3",
+      "name": "03 TS 502 이미지컷",
+      "x": 2320,
+      "y": 0,
+      "width": 1080,
+      "height": 1920,
+      "fill": {
+        "type": "color",
+        "color": "#000000"
+      },
+      "children": [
+        {
+          "type": "text",
+          "id": "r3t",
+          "x": 0,
+          "y": 300,
+          "width": 1080,
+          "content": "리처드\n사퍼",
+          "textAlign": "center",
+          "fill": "#FFFFFF",
+          "fontFamily": "Pretendard",
+          "fontSize": 70,
+          "fontWeight": "700"
+        },
+        {
+          "type": "frame",
+          "id": "r3i",
+          "x": 0,
+          "y": 557,
+          "width": 1080,
+          "height": 806,
+          "fill": {
+            "type": "image",
+            "url": "ts502-dark.png",
+            "mode": "cover"
+          }
+        },
+        {
+          "type": "text",
+          "id": "r3caption",
+          "x": 105,
+          "y": 592,
+          "width": 870,
+          "content": "TS 502 · 닫히면 큐브, 열리면 라디오",
+          "textAlign": "center",
+          "fill": "#FFFFFF",
+          "fontFamily": "Pretendard",
+          "fontSize": 28,
+          "fontWeight": "700"
+        },
+        {
+          "type": "text",
+          "id": "r3b",
+          "x": 0,
+          "y": 1510,
+          "width": 1080,
+          "content": "미니멀 모으기 1/100",
+          "textAlign": "center",
+          "fill": "#FFFFFF",
+          "fontFamily": "Pretendard",
+          "fontSize": 62,
+          "fontWeight": "700"
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "r4",
+      "name": "04 TS 502 설명컷",
+      "x": 3480,
+      "y": 0,
+      "width": 1080,
+      "height": 1920,
+      "fill": {
+        "type": "color",
+        "color": "#000000"
+      },
+      "children": [
+        {
+          "type": "text",
+          "id": "r4t",
+          "x": 0,
+          "y": 300,
+          "width": 1080,
+          "content": "리처드\n사퍼",
+          "textAlign": "center",
+          "fill": "#FFFFFF",
+          "fontFamily": "Pretendard",
+          "fontSize": 70,
+          "fontWeight": "700"
+        },
+        {
+          "type": "frame",
+          "id": "r4g",
+          "x": 0,
+          "y": 557,
+          "width": 1080,
+          "height": 806,
+          "fill": {
+            "type": "image",
+            "url": "explainer-grid.svg",
+            "mode": "fill"
+          },
+          "children": [
+            {
+              "type": "frame",
+              "id": "r4closed",
+              "x": 280,
+              "y": 250,
+              "width": 120,
+              "height": 120,
+              "cornerRadius": 16,
+              "fill": {
+                "type": "color",
+                "color": "#F7F7F3"
+              },
+              "stroke": {
+                "color": "#151515",
+                "thickness": 3
+              }
+            },
+            {
+              "type": "text",
+              "id": "r4closedlabel",
+              "x": 280,
+              "y": 289,
+              "width": 120,
+              "content": "닫힘",
+              "textAlign": "center",
+              "fill": "#151515",
+              "fontFamily": "Pretendard",
+              "fontSize": 24,
+              "fontWeight": "700"
+            },
+            {
+              "type": "text",
+              "id": "r4arrow",
+              "x": 425,
+              "y": 278,
+              "width": 100,
+              "content": "→",
+              "textAlign": "center",
+              "fill": "#151515",
+              "fontFamily": "Pretendard",
+              "fontSize": 52,
+              "fontWeight": "500"
+            },
+            {
+              "type": "frame",
+              "id": "r4open",
+              "x": 550,
+              "y": 250,
+              "width": 180,
+              "height": 120,
+              "cornerRadius": 16,
+              "fill": {
+                "type": "color",
+                "color": "#F7F7F3"
+              },
+              "stroke": {
+                "color": "#151515",
+                "thickness": 3
+              },
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "r4screen",
+                  "x": 38,
+                  "y": 29,
+                  "width": 90,
+                  "height": 62,
+                  "cornerRadius": 6,
+                  "fill": {
+                    "type": "color",
+                    "color": "#151515"
+                  }
+                },
+                {
+                  "type": "frame",
+                  "id": "r4flap",
+                  "x": 160,
+                  "y": 43,
+                  "width": 38,
+                  "height": 48,
+                  "cornerRadius": 4,
+                  "fill": {
+                    "type": "color",
+                    "color": "#F7F7F3"
+                  },
+                  "stroke": {
+                    "color": "#151515",
+                    "thickness": 3
+                  }
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "id": "r4copy",
+              "x": 160,
+              "y": 435,
+              "width": 760,
+              "content": "기능은\n필요할 때만 열린다.",
+              "textAlign": "center",
+              "fill": "#151515",
+              "fontFamily": "Pretendard",
+              "fontSize": 42,
+              "fontWeight": "700"
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "id": "r4b",
+          "x": 0,
+          "y": 1510,
+          "width": 1080,
+          "content": "미니멀 모으기 1/100",
+          "textAlign": "center",
+          "fill": "#FFFFFF",
+          "fontFamily": "Pretendard",
+          "fontSize": 62,
+          "fontWeight": "700"
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "r5",
+      "name": "05 ThinkPad 이미지컷",
+      "x": 4640,
+      "y": 0,
+      "width": 1080,
+      "height": 1920,
+      "fill": {
+        "type": "color",
+        "color": "#000000"
+      },
+      "children": [
+        {
+          "type": "text",
+          "id": "r5t",
+          "x": 0,
+          "y": 300,
+          "width": 1080,
+          "content": "리처드\n사퍼",
+          "textAlign": "center",
+          "fill": "#FFFFFF",
+          "fontFamily": "Pretendard",
+          "fontSize": 70,
+          "fontWeight": "700"
+        },
+        {
+          "type": "frame",
+          "id": "r5i",
+          "x": 0,
+          "y": 557,
+          "width": 1080,
+          "height": 806,
+          "fill": {
+            "type": "image",
+            "url": "sapper-still-life.png",
+            "mode": "cover"
+          }
+        },
+        {
+          "type": "text",
+          "id": "r5caption",
+          "x": 105,
+          "y": 1268,
+          "width": 870,
+          "content": "ThinkPad · 미학과 공학을 함께 설계한 결과",
+          "textAlign": "center",
+          "fill": "#FFFFFF",
+          "fontFamily": "Pretendard",
+          "fontSize": 28,
+          "fontWeight": "700"
+        },
+        {
+          "type": "text",
+          "id": "r5b",
+          "x": 0,
+          "y": 1510,
+          "width": 1080,
+          "content": "미니멀 모으기 1/100",
+          "textAlign": "center",
+          "fill": "#FFFFFF",
+          "fontFamily": "Pretendard",
+          "fontSize": 62,
+          "fontWeight": "700"
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "r6",
+      "name": "06 제보 CTA",
+      "x": 5800,
+      "y": 0,
+      "width": 1080,
+      "height": 1920,
+      "fill": {
+        "type": "color",
+        "color": "#000000"
+      },
+      "children": [
+        {
+          "type": "text",
+          "id": "r6t",
+          "x": 0,
+          "y": 300,
+          "width": 1080,
+          "content": "리처드\n사퍼",
+          "textAlign": "center",
+          "fill": "#FFFFFF",
+          "fontFamily": "Pretendard",
+          "fontSize": 70,
+          "fontWeight": "700"
+        },
+        {
+          "type": "frame",
+          "id": "r6g",
+          "x": 0,
+          "y": 557,
+          "width": 1080,
+          "height": 806,
+          "fill": {
+            "type": "color",
+            "color": "#111111"
+          },
+          "children": [
+            {
+              "type": "text",
+              "id": "r6h",
+              "x": 90,
+              "y": 335,
+              "width": 900,
+              "content": "미니멀한 발견을\n제보해주세요",
+              "textAlign": "center",
+              "fill": "#FFFFFF",
+              "fontFamily": "Pretendard",
+              "fontSize": 66,
+              "fontWeight": "700"
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "id": "r6b",
+          "x": 0,
+          "y": 1510,
+          "width": 1080,
+          "content": "미니멀 모으기 1/100",
+          "textAlign": "center",
+          "fill": "#FFFFFF",
+          "fontFamily": "Pretendard",
+          "fontSize": 62,
+          "fontWeight": "700"
+        }
+      ]
+    }
+  ]
+}
