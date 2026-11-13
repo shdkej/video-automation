@@ -70,3 +70,5 @@ type RenderJob = {id:string;status:'queued'|'running'|'done'|'error';progress:nu
 운영 계정의 모델 목록과 [OpenAI Image API](https://developers.openai.com/api/reference/resources/images/methods/generate)를 대조해 기존 기본값 gpt-image-1이 2026-10-23 종료된 것을 확인했다. 기본값을 지원 중인 gpt-image-1.5로 수정했다. 1024×1536·low·복수 후보 계약은 동일하다. 기본 모델 회귀 검증 RED→GREEN을 확인한다. 운영 manifest에도 VIDAUTO_STUDIO_IMAGE_MODEL을 명시해 배포 이미지의 기본값에 의존하지 않는다.
 
 운영 Secret의 인증과 모델 목록 조회는 통과했지만 텍스트·이미지·음성 생성은 상류 429로 실패했다. 이 계정 한도/빈도 문제는 모델 기본값 수정과 구분하며 성공으로 기록하지 않는다.
+
+첫 운영 이미지의 무료 참고 검색 검증에서 `ModuleNotFoundError: httpx`를 확인했다. 로컬에는 httpx 0.28.1/OpenAI 2.44.0이 있었지만 최신 OpenAI 3.50.0은 httpx를 자동 설치하지 않았다. 직접 의존성을 requirements-web.txt에 명시하고 OpenAI SDK를 검증한 2.44.0으로 고정했다. Docker 빌드에서 Studio 세 모듈을 실제 import해 의존성 누락이 운영까지 넘어가지 않도록 했다. 이후 유료 검증은 사용자 요청으로 보류하며 무료 검색·수동 제작·영구 저장을 계속 검증한다.

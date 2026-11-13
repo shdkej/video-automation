@@ -24,6 +24,9 @@ RUN cd web/ui && npm ci --no-audit --no-fund
 
 COPY . .
 
+# Fail the image build if a Studio runtime dependency is absent.
+RUN python -c "from web import studio, studio_ai, studio_render; studio_ai.capabilities()"
+
 # Remotion 웹팩 번들을 미리 생성 — 렌더마다 반복되던 번들링(수십 초/회) 제거
 RUN cd remotion-map && npx remotion bundle
 
