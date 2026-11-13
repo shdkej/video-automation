@@ -129,6 +129,7 @@ def test_images_request_count_decode_real_bytes_and_report_partial_failure(ai, p
         assert picture.format == 'PNG' and picture.size == (32, 48)
     assert result['images'][0]['prompt'] == '바닷가에서 걷는 장면'
     assert client.images.generate.call_args.kwargs['n'] == 3
+    assert client.images.generate.call_args.kwargs['model'] == 'gpt-image-1.5'
     assert ai.OpenAI.call_args.kwargs['max_retries'] == 0
     assert len(list(tmp_path.iterdir())) == 1
 

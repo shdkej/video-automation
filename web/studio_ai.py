@@ -1,7 +1,7 @@
 """Studio provider boundary. No synthetic fallback, project mutation, or arbitrary URLs.
 
 Model settings: VIDAUTO_STUDIO_TEXT_MODEL (gpt-4o-mini),
-VIDAUTO_STUDIO_IMAGE_MODEL (gpt-image-1), VIDAUTO_STUDIO_TTS_MODEL (gpt-4o-mini-tts).
+VIDAUTO_STUDIO_IMAGE_MODEL (gpt-image-1.5), VIDAUTO_STUDIO_TTS_MODEL (gpt-4o-mini-tts).
 OPENAI_API_KEY enables paid features; YOUTUBE_API_KEY optionally adds video links.
 Commons searches are public and require no key. Callers validate saved media again.
 """
@@ -192,7 +192,7 @@ def generate_images(project: dict, prompt: str, count: int, output_dir: Path) ->
                       + json.dumps({'visual_request': prompt, 'context': context}, ensure_ascii=False))
     client = _client(180.0)  # No automatic paid generation retry after a timeout.
     try:
-        response = client.images.generate(model=os.environ.get('VIDAUTO_STUDIO_IMAGE_MODEL', 'gpt-image-1'),
+        response = client.images.generate(model=os.environ.get('VIDAUTO_STUDIO_IMAGE_MODEL', 'gpt-image-1.5'),
                                           prompt=request_prompt, n=count, size='1024x1536',
                                           quality='low', output_format='png')
     except Exception as error:

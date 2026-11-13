@@ -31,7 +31,7 @@ npm --prefix web/ui run build
 | `VIDAUTO_STUDIO_DIR` | 영구 프로젝트·업로드·출력 저장 위치. 기본 `web/studio-data/`, Git 제외 |
 | `OPENAI_API_KEY` | 키워드/후킹·이미지·AI 음성. 서버 `.env` 또는 런타임 비밀로만 설정 |
 | `VIDAUTO_STUDIO_TEXT_MODEL` | 기본 `gpt-4o-mini` |
-| `VIDAUTO_STUDIO_IMAGE_MODEL` | 기본 `gpt-image-1`, low 품질·1024×1536 후보 |
+| `VIDAUTO_STUDIO_IMAGE_MODEL` | 기본 `gpt-image-1.5`, low 품질·1024×1536 후보 |
 | `VIDAUTO_STUDIO_TTS_MODEL` | 기본 `gpt-4o-mini-tts`, 입력 원문 MP3 |
 | `YOUTUBE_API_KEY` | 선택. 실제 YouTube 참고영상 검색 링크 추가 |
 

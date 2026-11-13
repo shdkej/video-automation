@@ -64,3 +64,9 @@ type RenderJob = {id:string;status:'queued'|'running'|'done'|'error';progress:nu
 - 최종 Python 테스트: 186 passed, 49 warnings. UI TypeScript/Vite 빌드와 대상 oxlint, diff 검증 통과. 업로드 일괄 실패 복구, 영상 스트림 길이, 추천의 미확인 수치, 이모지 경계, 참고 자료 50개 한도에서 저장 유지도 검증했다.
 - 실제 브라우저: 직접 작성 대본 → 이미지 2개 → 녹음 6초 → 장면 2개 → 실제 1080×1920 H.264/AAC MP4 → 저장/재열기. 375/768/1440px에서 가로 넘침·페이지 오류 없음. 테스트 소재·음성은 합성 fixture이며 실제 사용자 또는 AI 생성물로 표시하지 않았다.
 - 실제 무료 Commons 검색으로 이미지·영상 결과 10개를 확인했다. 유료 이미지·추천·AI 내레이션은 공급자 모의 응답으로 검증했으며 실제 호출·품질 검증은 아직 하지 않았다. 실행 증거 정본은 Infinity `reel-room-studio-20261113`이다.
+
+## 운영 검증에서 확인한 수정 (2026-11-13)
+
+운영 계정의 모델 목록과 [OpenAI Image API](https://developers.openai.com/api/reference/resources/images/methods/generate)를 대조해 기존 기본값 gpt-image-1이 2026-10-23 종료된 것을 확인했다. 기본값을 지원 중인 gpt-image-1.5로 수정했다. 1024×1536·low·복수 후보 계약은 동일하다. 기본 모델 회귀 검증 RED→GREEN을 확인한다. 운영 manifest에도 VIDAUTO_STUDIO_IMAGE_MODEL을 명시해 배포 이미지의 기본값에 의존하지 않는다.
+
+운영 Secret의 인증과 모델 목록 조회는 통과했지만 텍스트·이미지·음성 생성은 상류 429로 실패했다. 이 계정 한도/빈도 문제는 모델 기본값 수정과 구분하며 성공으로 기록하지 않는다.
