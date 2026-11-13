@@ -61,7 +61,7 @@ type RenderJob = {id:string;status:'queued'|'running'|'done'|'error';progress:nu
 
 - Context Pack: product route `/tmp/reel-studio-context.json` (2026-11-13). content route는 삭제된 `insights/title-selection-pressure.mdx`를 가리켜 실패했으며, product 필수 문서와 실제 keyword-title 정본을 사용했다.
 - Planner/Developer/Marketer/Operator 검토를 수행했다. Planner 지적에 따라 음성 길이 검증, 원문/선택값 보존, 추천과 마지막 출력의 서버 복구를 추가했다.
-- 운영 반영은 아직 수행하지 않았다. 코드 push는 이미지 빌드까지만 실행되며, Space 배포 변경과 운영 재시작은 별도 승인 범위다.
+- 초기 구현 이후 사용자 승인을 받아 운영에 반영했다. 코드 push는 이미지 빌드이며 운영 반영은 별도로 Space manifest를 게시·적용·검증한다. 현재 배포 기록은 Space `apps/reel-room/README.md`를 따른다.
 - 최종 Python 테스트: 186 passed, 49 warnings. UI TypeScript/Vite 빌드와 대상 oxlint, diff 검증 통과. 업로드 일괄 실패 복구, 영상 스트림 길이, 추천의 미확인 수치, 이모지 경계, 참고 자료 50개 한도에서 저장 유지도 검증했다.
 - 실제 브라우저: 직접 작성 대본 → 이미지 2개 → 녹음 6초 → 장면 2개 → 실제 1080×1920 H.264/AAC MP4 → 저장/재열기. 375/768/1440px에서 가로 넘침·페이지 오류 없음. 테스트 소재·음성은 합성 fixture이며 실제 사용자 또는 AI 생성물로 표시하지 않았다.
 - 실제 무료 Commons 검색으로 이미지·영상 결과 10개를 확인했다. 유료 이미지·추천·AI 내레이션은 공급자 모의 응답으로 검증했으며 실제 호출·품질 검증은 아직 하지 않았다. 실행 증거 정본은 Infinity `reel-room-studio-20261113`이다.
