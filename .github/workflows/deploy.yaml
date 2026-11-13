@@ -1,6 +1,6 @@
 # master push마다 arm64 이미지를 빌드해 ghcr에 올린다.
-# 배포 반영은 클러스터에서 `kubectl rollout restart deploy/reel-room`
-# (deployment는 :latest + imagePullPolicy: Always).
+# 운영은 Space apps/reel-room/deployment.yaml의 image SHA를 갱신해 반영한다.
+# 이미지 push나 기존 Pod 재시작만으로 새 버전이 배포되지는 않는다. Space 운영 README 참조.
 name: Build & Push Image
 
 on:
