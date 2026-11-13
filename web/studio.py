@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
-from fastapi import APIRouter, Body, File, HTTPException, UploadFile, Request
+from fastapi import APIRouter, Body, File, HTTPException, UploadFile, Request, Query
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse
 from fastapi.routing import APIRoute
@@ -268,8 +268,15 @@ def create_router(root: Path, work_limiter: threading.Semaphore) -> APIRouter:
             keyword_limiter.release()
 
     @router.post('/projects/{pid}/assets')
-    def upload(pid: str,files: list[UploadFile] = File(...)):
-        store.read(pid)
+    def upload(pid: str,files: list[UploadFile] = File(...), reference_id: str | None = Query(default=None, max_length=200)):
+        project = store.read(pid)
+        reference = None
+        if reference_id is not None:
+            reference = next((r for r in project['references'] if r.get('id') == reference_id), None)
+            if reference is None:
+                raise HTTPException(404, '보관한 참고 자료를 찾을 수 없습니다. 프로젝트를 다시 열어 주세요.')
+            if len(files) != 1:
+                raise HTTPException(422, '참고 자료에는 파일을 하나씩 연결해 주세요.')
         if len(files)>20:
             raise HTTPException(422,'한 번에 20개까지 첨부할 수 있습니다.')
         uploaded=[]
@@ -288,7 +295,14 @@ def create_router(root: Path, work_limiter: threading.Semaphore) -> APIRouter:
                         if count>200*1024**2 or total>500*1024**2:
                             raise HTTPException(413,'파일은 200MB, 한 번의 첨부는 500MB까지 가능합니다.')
                         handle.write(chunk)
-                uploaded.append(store.add(pid,path,name,'upload'))
+                metadata = {'reference_id': reference_id, 'source_url': str(reference.get('source_url', ''))[:2000]} if reference else {}
+                asset = store.add(pid,path,name,'upload',**metadata)
+                uploaded.append(asset)
+                if reference:
+                    if asset['kind'] != reference.get('kind') or asset['kind'] not in ('image', 'video'):
+                        raise ValueError('참고영상에는 영상 파일을, 참고이미지에는 이미지 파일을 연결해 주세요.')
+                    if asset['kind'] == 'video' and asset.get('duration', 0) < 1:
+                        raise ValueError('장면에 사용할 영상은 1초 이상이어야 합니다.')
             return {'assets':uploaded}
         except Exception as exc:
             # A failed batch must not leave hidden partial uploads behind.

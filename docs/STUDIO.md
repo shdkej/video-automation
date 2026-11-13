@@ -15,6 +15,7 @@
 - `POST /projects` body `{title?:string}` → Project.
 - `GET /projects/{id}` → Project.
 - `PUT /projects/{id}` body Project editable fields → Project. 서버 소유 assets/id/timestamps는 덮어쓰지 않는다.
+- `POST /projects/{id}/assets?reference_id=<saved-reference-id>`는 참고 자료에 파일 1개를 연결한다. 실제 파일 종류를 확인하고 자산의 서버 소유 `reference_id`/`source_url`에 저장한다. 영상은 1초 이상이며 잘못된 종류는 파일과 메타데이터를 롤백한다. 기존 `/assets` 다중 첨부는 유지한다.
 - `POST /projects/{id}/assets` multipart `files` (여러 image/video/audio) → `{assets:Asset[]}` 새 자산만. 업로드는 200MB/파일, 500MB/요청, 프로젝트 100개 제한. ffprobe/PIL 검증.
 - `GET /projects/{id}/assets/{asset_id}` → 미디어 inline.
 - `POST /projects/{id}/keywords/search` body `{query:string}` → `{provider,seeds,queried_at,total_found,items,notices}`. 쉼표/줄바꿈으로 1~5개, 중복 제거·공백 정규화, 입력어 우선 및 검색량순 최대 45개. 서버 소유 `keyword_research`에 저장하고 PUT으로 위조/삭제하지 않음. 항목 `{keyword,is_seed,pc,mobile,monthly_total:number|null,monthly_label,competition}`. 비공개/누락 수치는 범위/미확인으로 보존.
@@ -81,3 +82,9 @@ type RenderJob = {id:string;status:'queued'|'running'|'done'|'error';progress:nu
 AI POST 3종(suggestions/images/narration)은 선택적 `X-OpenAI-API-Key` 헤더를 받는다. 현재 탭 메모리에서만 유지하고 요청마다 SDK에 직접 전달한다. 서버 환경·프로젝트 파일을 수정하지 않으며 다른 사용자/요청으로 전달하지 않는다. 브라우저 키가 없으면 서버 키를 사용한다. 서버와 브라우저 모두 키 형식을 검증하되 실제 인증/한도 확인은 생성 요청에서 수행한다. 키가 있는 capability는 연결 가능 여부이며 생성 성공 보장이 아니다. 생성 API 실호출 검증은 사용자 지시로 계속 보류한다.
 
 검증: 전체 Python 212개 통과(기존 경고 49개), 실제 Naver SearchAd(세계여행/신혼여행 후보 872개 중 45개), YouTube 한국어 검색 6개, Commons 이미지 8개 반환. 375/768/1440px 브라우저에서 첫 검색어·선택 저장/복원, 브라우저 키의 AI 요청 헤더 한정 전달·저장소 미보관·새로고침 삭제를 확인했다. AI 키 전달은 모의 SDK/브라우저 가로채기로 검증했고 유료 호출은 0회다. 배포 결과는 Space와 KL 운영 문서를 따른다.
+
+## 참고 링크의 장면 소재 연결
+
+YouTube를 보관해도 4번에서 선택할 수 없다는 사용자 피드백에 따라, 3·4번에 보관한 참고 자료와 파일 연결 상태를 표시한다. 4번의 소재 선택에는 미연결 참고 자료도 표시하되 선택하면 파일 연결을 요청한다. 업로드한 실제 파일만 asset_id로 지정하며 같은 장면의 대본/자막을 유지하고 원본 길이를 넘지 않도록 duration/trim을 조정한다. 연결 메타데이터는 서버 자산 소유이므로 오래된 PUT도 연결을 지우지 않는다.
+
+직접 YouTube 가져오기는 메타데이터 조회 시 로그인/봇 확인으로 거부됐으며, 이를 우회하지 않았다. 영상 원본 파일 연결을 지원하며 YouTube 링크 자체를 출력 가능한 자산으로 표시하지 않는다. 시험용 yt-dlp는 제품 의존성에 포함하지 않는다.

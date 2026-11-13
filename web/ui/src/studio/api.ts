@@ -1,7 +1,7 @@
 export type Asset = {
   id: string; name: string; kind: 'image' | 'video' | 'audio'; url: string;
   source: 'upload' | 'ai' | 'reference'; duration?: number;
-  credit?: string; source_url?: string; license?: string; prompt?: string;
+  reference_id?: string; credit?: string; source_url?: string; license?: string; prompt?: string;
 };
 export type Reference = {
   id: string; title: string; kind: 'image' | 'video'; url: string; thumbnail: string;
@@ -76,10 +76,10 @@ export const studioApi = {
   create: (title: string) => request<Project>('/projects', json('POST', {title})),
   get: (id: string) => request<Project>(projectPath(id)),
   save: (project: Project) => request<Project>(projectPath(project.id), json('PUT', editableProject(project))),
-  upload: (id: string, files: File[]) => {
+  upload: (id: string, files: File[], referenceId?: string) => {
     const body = new FormData();
     files.forEach((file) => body.append('files', file));
-    return request<{assets: Asset[]}>(`${projectPath(id)}/assets`, {method: 'POST', body});
+    return request<{assets: Asset[]}>(`${projectPath(id)}/assets${referenceId ? `?reference_id=${encodeURIComponent(referenceId)}` : ''}`, {method: 'POST', body});
   },
   keywords: (id: string, query: string) => request<KeywordResearch>(`${projectPath(id)}/keywords/search`, json('POST', {query})),
   suggest: (id: string) => request<Suggestions>(`${projectPath(id)}/suggestions`, aiJson({})),
@@ -91,3 +91,7 @@ export const studioApi = {
   renderStatus: (id: string, renderId: string) => request<RenderJob>(`${projectPath(id)}/renders/${encodeURIComponent(renderId)}`),
   renderProject: (id: string, renderId: string) => request<Project>(`${projectPath(id)}/renders/${encodeURIComponent(renderId)}/project.json`),
 };
+
+export function referenceAsset(assets: Asset[], reference: Reference) {
+  return assets.find((asset) => asset.kind === reference.kind && (asset.reference_id === reference.id || (!!reference.source_url && asset.source_url === reference.source_url)));
+}

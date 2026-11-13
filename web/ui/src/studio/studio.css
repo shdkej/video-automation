@@ -445,3 +445,15 @@
   .studio-key-panel { position: fixed; left: 16px; right: 16px; top: 112px; max-height: calc(100dvh - 140px); overflow-y: auto; }
   .studio-reference-dialog { padding: 16px; }
 }
+.studio-reference-materials { border: 1px solid var(--studio-line); border-radius: 8px; padding: 18px; margin-bottom: 28px; }
+.studio-reference-material-list { display: grid; gap: 14px; margin-top: 18px; }
+.studio-reference-material { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; border-top: 1px solid var(--studio-line); padding-top: 14px; }
+.studio-reference-material-thumb { width: 90px; height: 64px; background: var(--studio-soft); border-radius: 4px; overflow: hidden; display: grid; place-items: center; flex-shrink: 0; }
+.studio-reference-material-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.studio-reference-material-info { min-width: 0; flex: 1 1 160px; overflow-wrap: anywhere; }
+.studio-reference-material-info h3 { line-height: 1.5; }
+@media (max-width: 640px) {
+  .studio-reference-materials { padding: 14px; }
+  .studio-reference-material > .studio-button { width: 100%; }
+  .studio-reference-material-thumb { width: 72px; height: 56px; }
+}

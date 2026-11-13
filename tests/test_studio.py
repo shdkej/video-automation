@@ -152,3 +152,41 @@ def test_rejects_invalid_unicode_without_breaking_saved_project(studio):
     response=client.put(base,content=b'{"script":"\\ud83d"}',headers={'Content-Type':'application/json'})
     assert response.status_code==422
     assert client.get(base).json()['script']=='내 원문 😀'
+
+
+def test_reference_file_upload_creates_selectable_asset_and_survives_reopen(studio):
+    client, _ = studio
+    ref = {'id': 'saved-reference', 'title': '참고 이미지', 'kind': 'image', 'source_url': 'https://example.com/photo'}
+    p = client.post('/api/studio/projects', json={'script': '내 대본', 'references': [ref]}).json()
+    base = '/api/studio/projects/' + p['id']
+    response = client.post(base + '/assets?reference_id=saved-reference', files={'files': ('photo.png', image_bytes(), 'image/png')})
+    assert response.status_code == 200, response.text
+    asset = response.json()['assets'][0]
+    assert asset['reference_id'] == ref['id']
+    assert asset['source_url'] == ref['source_url']
+    client.put(base, json={'references': [ref], 'assets': [], 'scenes': [{'id': 's', 'text': '내 대본', 'asset_id': asset['id'], 'duration': 1}]})
+    saved = client.get(base).json()
+    assert saved['scenes'][0]['asset_id'] == saved['assets'][0]['id']
+    assert saved['assets'][0]['reference_id'] == ref['id']
+    assert saved['script'] == '내 대본'
+
+
+def test_reference_upload_rejects_wrong_kind_and_rolls_back(studio):
+    client, root = studio
+    p = client.post('/api/studio/projects', json={'references': [{'id': 'youtube-one', 'kind': 'video'}]}).json()
+    base = '/api/studio/projects/' + p['id']
+    response = client.post(base + '/assets?reference_id=youtube-one', files={'files': ('wrong.png', image_bytes(), 'image/png')})
+    assert response.status_code == 422
+    assert client.get(base).json()['assets'] == []
+    assert not list((root / p['id'] / 'assets').glob('*'))
+    assert client.post(base + '/assets?reference_id=missing', files={'files': ('photo.png', image_bytes(), 'image/png')}).status_code == 404
+    assert client.get(base).json()['assets'] == []
+
+
+def test_reference_upload_is_one_file_at_a_time(studio):
+    client, _ = studio
+    p = client.post('/api/studio/projects', json={'references': [{'id': 'ref', 'kind': 'image'}]}).json()
+    base = '/api/studio/projects/' + p['id']
+    response = client.post(base + '/assets?reference_id=ref', files=[('files', ('one.png', image_bytes(), 'image/png')), ('files', ('two.png', image_bytes(), 'image/png'))])
+    assert response.status_code == 422
+    assert client.get(base).json()['assets'] == []
