@@ -1,0 +1,80 @@
+export type Asset = {
+  id: string; name: string; kind: 'image' | 'video' | 'audio'; url: string;
+  source: 'upload' | 'ai' | 'reference'; duration?: number;
+  credit?: string; source_url?: string; license?: string; prompt?: string;
+};
+export type Reference = {
+  id: string; title: string; kind: 'image' | 'video'; url: string; thumbnail: string;
+  source_url: string; provider: string; credit: string; license: string; reason: string; importable: boolean;
+};
+export type Suggestions = {
+  keywords: {text: string; angle: string; reason: string; evidence: string}[];
+  hooks: {text: string; type: string; keyword: string; reason: string}[];
+  search_queries: string[]; image_prompts: string[]; caption: string; source: string; notices: string[];
+};
+export type Scene = {id: string; text: string; asset_id: string; duration: number; trim_start: number};
+export type Project = {
+  id: string; title: string; script: string; topic: string; audience: string; goal: string; language: string;
+  keywords: string[]; hook: string; caption: string; cta: string;
+  style: 'photo' | 'shade' | 'editorial'; font: 'pretendard' | 'blackhansans' | 'dohyeon';
+  position: 'top' | 'center' | 'bottom'; scenes: Scene[]; audio_asset_id: string | null;
+  assets: Asset[]; references: Reference[]; created_at: string; updated_at: string;
+  suggestions?: Suggestions; last_render?: RenderJob | null;
+};
+export type Capabilities = {ai_text: boolean; ai_images: boolean; ai_narration: boolean; reference_search: boolean};
+export type RenderJob = {
+  id: string; status: 'queued' | 'running' | 'done' | 'error'; progress: number; stage: string; error?: string;
+  outputs?: {video: string; cover: string; subtitles: string; project: string};
+};
+
+export function emptyProject(): Project {
+  return {id: '', title: '', script: '', topic: '', audience: '', goal: '', language: 'ko', keywords: [], hook: '',
+    caption: '', cta: '', style: 'photo', font: 'pretendard', position: 'top', scenes: [], audio_asset_id: null,
+    assets: [], references: [], created_at: '', updated_at: ''};
+}
+
+export function editableProject(project: Project) {
+  // Assets and timestamps belong to the server. A draft can never replace an upload.
+  const {title, script, topic, audience, goal, language, keywords, hook, caption, cta, style, font, position, scenes, audio_asset_id, references} = project;
+  return {title, script, topic, audience, goal, language, keywords, hook, caption, cta, style, font, position, scenes, audio_asset_id, references};
+}
+
+async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const response = await fetch(`/api/studio${path}`, options);
+  if (!response.ok) {
+    let detail = `요청을 처리하지 못했어요 (${response.status}). 다시 시도해 주세요.`;
+    try {
+      const data = await response.json();
+      if (typeof data.detail === 'string') detail = data.detail;
+      else if (Array.isArray(data.detail)) detail = data.detail.map((item: {msg?: string}) => item.msg).filter(Boolean).join(' · ') || detail;
+    } catch { /* Keep the useful HTTP status for non-JSON server errors. */ }
+    throw new Error(detail);
+  }
+  return response.json() as Promise<T>;
+}
+
+function json(method: string, body: unknown): RequestInit {
+  return {method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)};
+}
+const projectPath = (id: string) => `/projects/${encodeURIComponent(id)}`;
+
+export const studioApi = {
+  capabilities: () => request<Capabilities>('/capabilities'),
+  list: () => request<{projects: Project[]}>('/projects'),
+  create: (title: string) => request<Project>('/projects', json('POST', {title})),
+  get: (id: string) => request<Project>(projectPath(id)),
+  save: (project: Project) => request<Project>(projectPath(project.id), json('PUT', editableProject(project))),
+  upload: (id: string, files: File[]) => {
+    const body = new FormData();
+    files.forEach((file) => body.append('files', file));
+    return request<{assets: Asset[]}>(`${projectPath(id)}/assets`, {method: 'POST', body});
+  },
+  suggest: (id: string) => request<Suggestions>(`${projectPath(id)}/suggestions`, json('POST', {})),
+  images: (id: string, prompt: string, count: number) => request<{assets: Asset[]; errors: string[]}>(`${projectPath(id)}/images`, json('POST', {prompt, count})),
+  narration: (id: string, voice: string) => request<{assets: Asset[]}>(`${projectPath(id)}/narration`, json('POST', {voice})),
+  references: (id: string, query: string, kind: 'all' | 'image' | 'video') => request<{items: Reference[]; notices: string[]}>(`${projectPath(id)}/references/search`, json('POST', {query, kind})),
+  importReference: (id: string, reference: Reference) => request<{assets: Asset[]}>(`${projectPath(id)}/references/import`, json('POST', reference)),
+  render: (id: string) => request<RenderJob>(`${projectPath(id)}/render`, json('POST', {})),
+  renderStatus: (id: string, renderId: string) => request<RenderJob>(`${projectPath(id)}/renders/${encodeURIComponent(renderId)}`),
+  renderProject: (id: string, renderId: string) => request<Project>(`${projectPath(id)}/renders/${encodeURIComponent(renderId)}/project.json`),
+};

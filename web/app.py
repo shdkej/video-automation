@@ -1175,6 +1175,11 @@ async def get_file(job_id: str, name: str):
 
 
 # 동봉 폰트 — 편집기의 썸네일 타이틀 폰트 미리보기용 (@font-face)
+from web.studio import create_router as create_studio_router  # noqa: E402
+app.include_router(create_studio_router(
+    Path(os.environ.get("VIDAUTO_STUDIO_DIR", str(BASE / "studio-data"))), _RUNNING,
+))
+
 app.mount("/fonts", StaticFiles(directory=str(ROOT / "assets" / "fonts")), name="fonts")
 
 # 정적 파일 — 마지막에 마운트(루트 "/").

@@ -4,6 +4,7 @@ import { UploadScreen } from '@/screens/UploadScreen';
 import { JobScreen } from '@/screens/JobScreen';
 import { fetchJob } from '@/lib/api';
 import { useRecentJobs } from '@/hooks/useRecentJobs';
+import { Studio } from '@/studio/Studio';
 
 // ?job=<id> 딥링크 — 레거시와 동일 파라미터 유지
 function useJobParam(): [string | null, (id: string | null) => void] {
@@ -25,7 +26,7 @@ function useJobParam(): [string | null, (id: string | null) => void] {
   return [jobId, setJobId];
 }
 
-export default function App() {
+function CutApp() {
   const [jobId, setJobId] = useJobParam();
   const { jobs } = useRecentJobs();
   // 첫 로드에 진행 중 잡이 있으면 자동 복귀 — 새로고침해도 진행 화면 유지 (autoResume)
@@ -48,4 +49,10 @@ export default function App() {
       <Toaster position="top-center" />
     </>
   );
+}
+
+export default function App() {
+  const params = new URLSearchParams(location.search);
+  // Existing job deep links stay valid; the default entry is the script studio.
+  return params.get('mode') === 'cut' || params.has('job') ? <CutApp /> : <Studio />;
 }

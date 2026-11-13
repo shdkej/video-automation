@@ -1,4 +1,69 @@
-# video-automation
+# Reel Room Studio · video-automation
+
+사람이 쓴 대본에 키워드·후킹·사진·영상·목소리를 조합해 릴스를 만드는 개인 제작 도구입니다. Reel Room의 MP4 제작과 Instagram Maker의 타이틀·스타일 편집을 한 프로젝트에 통합했습니다.
+
+## 통합 스튜디오
+
+1. **대본** — 직접 쓴 원문과 주제·대상·목적을 저장합니다. AI 추천은 원문을 바꾸지 않습니다.
+2. **키워드·후킹** — `keyword-title` 기준으로 여러 각도의 키워드와 후킹을 추천합니다. 선택·직접 수정이 가능하며 검색량을 조회하지 않은 후보는 `검색량 미확인`으로 표시합니다.
+3. **소재** — 이미지·영상·음성을 여러 개 첨부하거나, 실제 Commons 참고 자료를 찾아 가져옵니다. YouTube/Instagram 참고 링크도 보관합니다. AI 이미지는 2~6개 후보를 만들어 선택하며 기존 장면을 자동 교체하지 않습니다.
+4. **조합·출력** — 장면별 소재·순서·자막·길이·영상 시작점을 편집합니다. Photo Hook / Soft Shade / Editorial, 글꼴·후킹 위치·마지막 문구를 선택합니다. 직접 녹음 또는 AI 내레이션을 골라 실제 MP4를 확인하고 커버 JPG·SRT·프로젝트 JSON을 내려받습니다.
+
+프로젝트는 서버에 저장되며 추천과 최근 출력도 다시 열 수 있습니다. 브라우저의 저장 버튼과 생성/업로드 전 저장이 동작합니다. 저장 전 변경은 이탈 경고로 보호합니다. 기존 자동 하이라이트 편집은 **자동 컷 편집** (`?mode=cut`)에서 이어집니다.
+
+### 실행·개발
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt -r requirements-web.txt
+# 시스템에 ffmpeg/ffprobe 필요
+npm --prefix web/ui ci
+npm --prefix web/ui run build
+.venv/bin/python -m uvicorn web.app:app --host 127.0.0.1 --port 8765
+```
+
+개발 중에는 서버와 함께 `npm --prefix web/ui run dev`를 실행합니다. Vite는 API·폰트 요청을 8765번 서버로 전달합니다. 애니메이션 자막을 사용하는 기존 자동 컷은 아래 Remotion 설치도 필요하지만, 스튜디오 합성은 Pillow/ffmpeg로 실행합니다.
+
+### 데이터·외부 연결
+
+| 설정 | 용도 |
+| --- | --- |
+| `VIDAUTO_STUDIO_DIR` | 영구 프로젝트·업로드·출력 저장 위치. 기본 `web/studio-data/`, Git 제외 |
+| `OPENAI_API_KEY` | 키워드/후킹·이미지·AI 음성. 서버 `.env` 또는 런타임 비밀로만 설정 |
+| `VIDAUTO_STUDIO_TEXT_MODEL` | 기본 `gpt-4o-mini` |
+| `VIDAUTO_STUDIO_IMAGE_MODEL` | 기본 `gpt-image-1`, low 품질·1024×1536 후보 |
+| `VIDAUTO_STUDIO_TTS_MODEL` | 기본 `gpt-4o-mini-tts`, 입력 원문 MP3 |
+| `YOUTUBE_API_KEY` | 선택. 실제 YouTube 참고영상 검색 링크 추가 |
+
+AI 생성 버튼을 누르면 대본·제작 설정이 OpenAI에 전달되고 API 사용 비용이 발생합니다. 직접 첨부한 이미지·영상은 텍스트/이미지 생성 API에 자동 업로드하지 않습니다. Commons 검색·소재 가져오기는 API 키 없이 가능하며 출처·라이선스를 함께 저장합니다. YouTube/Instagram 링크는 참고용이며 외부 영상을 자동 다운로드하지 않습니다. API 키가 없으면 AI 버튼을 비활성화하고 수동 제작은 계속 사용할 수 있습니다.
+
+### 검증·배포·복구
+
+```bash
+.venv/bin/python -m pytest -q
+npm --prefix web/ui run build
+git diff --check
+```
+
+`tests/test_studio.py`는 원문·소재 보존, 오류 입력, 오디오 길이, 실제 1080×1920 합성과 MP4/JPG/SRT를 검증합니다. `tests/test_studio_ai.py`는 모의 provider 응답으로 추천·이미지 후보·음성·출처/다운로드 경계를 검증합니다. 모의 응답 통과는 유료 서비스의 실제 품질·계정 권한을 검증한 것이 아닙니다.
+
+기본 브랜치는 **master**입니다. push 시 GitHub Actions가 `ghcr.io/shdkej/video-automation:<commit SHA>` 이미지를 빌드합니다. 운영 변경 정본은 Space `apps/reel-room/README.md`이며 승인 후 이미지 SHA와 영구 저장 볼륨을 반영합니다. `:latest` 이미지 빌드 성공만으로 운영 배포 완료로 간주하지 않습니다. 복구는 이전 이미지 SHA로 되돌리며 스튜디오 저장 경로를 삭제하지 않습니다.
+
+### 알려진 한계
+
+- 개인 단일 사용자용입니다. 운영은 기존 Basic Auth 뒤에서 실행하며 다중 사용자 인가/계정 분리는 제공하지 않습니다.
+- 최대 30장면·180초, 장면당 1~30초. 업로드 200MB/파일·500MB/요청·100개/프로젝트. 참고 자료 가져오기는 50MB 이하입니다.
+- 음성보다 짧은 영상은 출력하지 않습니다. `음성 길이에 맞추기`와 장면 길이 조정으로 맞춥니다. 자막은 장면 단위이며 자동 발화 정렬·단어별 카라오케는 지원하지 않습니다.
+- 선택한 내레이션만 사용하며 원본 영상의 소리는 제외합니다. AI 음성은 대본 4,000자 이내입니다.
+- 편집 화면의 자막 위치는 근사 미리보기입니다. 최종 줄바꿈·폰트·합성은 출력 MP4로 확인합니다.
+- 프로젝트는 자동 삭제하지 않습니다. 운영 영구 볼륨의 용량·백업은 운영자가 관리해야 합니다. 서버 재시작 시 진행 중 렌더는 재시도하고 저장한 대본·소재·완료 출력은 재사용합니다.
+- 실측 검색량·인기도와 자동 Instagram 발행은 포함하지 않습니다. AI의 의미상 사실성·생성 이미지·음성 품질은 사용자가 선택 전에 확인합니다.
+
+상세 API·구현 결정: [docs/STUDIO.md](docs/STUDIO.md). 기존 자동 컷 기능은 아래를 참고하세요.
+
+---
+
+## 기존 영상 자동 컷
 
 > **영상 1개 → 롱폼 · 숏츠 · 썸네일 · 인트로 4종.**
 > 클라우드에 올리지 않고, 내 컴퓨터 안에서. `scene` 모드는 API 키 없이 무료.

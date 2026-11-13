@@ -42,6 +42,7 @@ __pycache__/
 
 # 웹 UI 잡 작업물
 web/jobs/
+web/studio-data/
 
 # Playwright 작업물
 .playwright-mcp/
