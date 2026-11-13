@@ -5,8 +5,8 @@
 ## 통합 스튜디오
 
 1. **대본** — 직접 쓴 원문과 주제·대상·목적을 저장합니다. AI 추천은 원문을 바꾸지 않습니다.
-2. **키워드·후킹** — `keyword-title` 기준으로 여러 각도의 키워드와 후킹을 추천합니다. 선택·직접 수정이 가능하며 검색량을 조회하지 않은 후보는 `검색량 미확인`으로 표시합니다.
-3. **소재** — 이미지·영상·음성을 여러 개 첨부하거나, 실제 Commons 참고 자료를 찾아 가져옵니다. YouTube/Instagram 참고 링크도 보관합니다. AI 이미지는 2~6개 후보를 만들어 선택하며 기존 장면을 자동 교체하지 않습니다.
+2. **키워드·후킹** — 시작 단어를 최대 5개 넣으면 `keyword-title` 스킬과 같은 네이버 검색광고 API에서 연관어·PC/모바일 월간 검색량을 직접 조회합니다. AI 없이 후보를 선택·저장할 수 있고, AI 표현·후킹 추천은 별도입니다. 미측정 AI 후보는 검색량 미확인으로 구분합니다.
+3. **소재** — 이미지·영상·음성을 여러 개 첨부하거나, 내 키워드를 눌러 Commons 이미지/영상 또는 YouTube 참고영상을 검색합니다. 앱 안에서 미리 본 뒤 Commons 소재는 가져오고 YouTube는 링크로 보관합니다. 외부 이미지 검색·Pexels 바로가기도 제공합니다. YouTube/Instagram 참고 링크도 보관합니다. AI 이미지는 2~6개 후보를 만들어 선택하며 기존 장면을 자동 교체하지 않습니다.
 4. **조합·출력** — 장면별 소재·순서·자막·길이·영상 시작점을 편집합니다. Photo Hook / Soft Shade / Editorial, 글꼴·후킹 위치·마지막 문구를 선택합니다. 직접 녹음 또는 AI 내레이션을 골라 실제 MP4를 확인하고 커버 JPG·SRT·프로젝트 JSON을 내려받습니다.
 
 프로젝트는 서버에 저장되며 추천과 최근 출력도 다시 열 수 있습니다. 브라우저의 저장 버튼과 생성/업로드 전 저장이 동작합니다. 저장 전 변경은 이탈 경고로 보호합니다. 기존 자동 하이라이트 편집은 **자동 컷 편집** (`?mode=cut`)에서 이어집니다.
@@ -29,11 +29,16 @@ npm --prefix web/ui run build
 | 설정 | 용도 |
 | --- | --- |
 | `VIDAUTO_STUDIO_DIR` | 영구 프로젝트·업로드·출력 저장 위치. 기본 `web/studio-data/`, Git 제외 |
-| `OPENAI_API_KEY` | 키워드/후킹·이미지·AI 음성. 서버 `.env` 또는 런타임 비밀로만 설정 |
+| `NAVER_SEARCH_ACCESS_LICENSE` / `NAVER_SEARCH_SECRET_KEY` / `NAVER_SEARCH_CUSTOMER_ID` | `keyword-title` 스킬과 동일한 검색광고 계정의 3개 자격증명. AI 없는 연관어·월 검색량 조회 |
+| `OPENAI_API_KEY` | AI 표현/후킹·이미지·AI 음성. 서버 `.env` 또는 런타임 비밀로만 설정 |
 | `VIDAUTO_STUDIO_TEXT_MODEL` | 기본 `gpt-4o-mini` |
 | `VIDAUTO_STUDIO_IMAGE_MODEL` | 기본 `gpt-image-1.5`, low 품질·1024×1536 후보 |
 | `VIDAUTO_STUDIO_TTS_MODEL` | 기본 `gpt-4o-mini-tts`, 입력 원문 MP3 |
-| `YOUTUBE_API_KEY` | 선택. 실제 YouTube 참고영상 검색 링크 추가 |
+| `YOUTUBE_API_KEY` 또는 `GOG_YOUTUBE_API_KEY` | 선택. 후자는 keyword-title 스킬과 같은 이름. 실제 YouTube 참고영상 검색 링크 추가 |
+
+상단 **AI 키 입력**에서 개인 OpenAI 키를 넣으면 현재 탭에서 서버 기본 키보다 우선 사용합니다. 키는 탭 메모리에만 보관하며 새로고침하면 지워집니다. localStorage/sessionStorage·프로젝트·서버 환경에는 저장하지 않습니다. AI 생성 요청에만 같은 출처의 서버로 전달하고 서버가 공식 OpenAI API를 호출합니다. 키 입력 자체는 인증/사용 한도 확인이나 유료 API 호출을 하지 않습니다. **내 키 지우기**로 서버 기본 키로 돌아갑니다.
+
+네이버 검색량과 광고 경쟁도는 네이버 검색광고 지표이며 Instagram/YouTube 검색량이나 콘텐츠 경쟁도가 아닙니다. `10 미만`은 정확한 숫자로 환산하지 않으며, 조회 출처·시각·선택 결과는 프로젝트에 남습니다. YouTube 검색은 Data API 할당량을 사용하며 OpenAI를 호출하지 않습니다.
 
 AI 생성 버튼을 누르면 대본·제작 설정이 OpenAI에 전달되고 API 사용 비용이 발생합니다. 직접 첨부한 이미지·영상은 텍스트/이미지 생성 API에 자동 업로드하지 않습니다. Commons 검색·소재 가져오기는 API 키 없이 가능하며 출처·라이선스를 함께 저장합니다. YouTube/Instagram 링크는 참고용이며 외부 영상을 자동 다운로드하지 않습니다. API 키가 없으면 AI 버튼을 비활성화하고 수동 제작은 계속 사용할 수 있습니다.
 
@@ -45,7 +50,7 @@ npm --prefix web/ui run build
 git diff --check
 ```
 
-`tests/test_studio.py`는 원문·소재 보존, 오류 입력, 오디오 길이, 실제 1080×1920 합성과 MP4/JPG/SRT를 검증합니다. `tests/test_studio_ai.py`는 모의 provider 응답으로 추천·이미지 후보·음성·출처/다운로드 경계를 검증합니다. 모의 응답 통과는 유료 서비스의 실제 품질·계정 권한을 검증한 것이 아닙니다.
+`tests/test_studio.py`는 원문·소재 보존, 오류 입력, 오디오 길이, 실제 1080×1920 합성과 MP4/JPG/SRT를 검증합니다. `tests/test_studio_keywords.py`는 AI 없는 실측 조회·범위값·오류·저장 보존을, `tests/test_studio_client_key.py`는 요청별 키 전달·기본 키 복귀·비저장을 검증합니다. `tests/test_studio_ai.py`는 모의 provider 응답으로 추천·이미지 후보·음성·출처/다운로드 경계를 검증합니다. 모의 응답 통과는 유료 서비스의 실제 품질·계정 권한을 검증한 것이 아닙니다.
 
 기본 브랜치는 **master**입니다. push 시 GitHub Actions가 `ghcr.io/shdkej/video-automation:<commit SHA>` 이미지를 빌드합니다. 운영 변경 정본은 Space `apps/reel-room/README.md`이며 승인 후 이미지 SHA와 영구 저장 볼륨을 반영합니다. `:latest` 이미지 빌드 성공만으로 운영 배포 완료로 간주하지 않습니다. 복구는 이전 이미지 SHA로 되돌리며 스튜디오 저장 경로를 삭제하지 않습니다.
 

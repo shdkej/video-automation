@@ -25,6 +25,7 @@ def ai(monkeypatch):
     module = ai_module()
     monkeypatch.setenv('OPENAI_API_KEY', 'test-only-never-a-real-key')
     monkeypatch.delenv('YOUTUBE_API_KEY', raising=False)
+    monkeypatch.delenv('GOG_YOUTUBE_API_KEY', raising=False)
     monkeypatch.setattr(module, 'OpenAI', Mock(side_effect=AssertionError('Unmocked paid API call')))
     return module
 
@@ -374,3 +375,22 @@ def test_unmeasured_metrics_cannot_leak_through_reasons(ai, project, field, clai
     fake_text_client(ai,payload)
     with pytest.raises(ValueError):
         ai.suggest(project)
+
+
+def test_youtube_only_search_uses_skill_key_and_skips_commons(ai, monkeypatch, project):
+    monkeypatch.setenv('GOG_YOUTUBE_API_KEY', 'skill-youtube-placeholder')
+    def handler(request):
+        assert request.url.host == 'www.googleapis.com'
+        assert request.url.params['key'] == 'skill-youtube-placeholder'
+        assert request.url.params['q'] == '다합 여행'
+        return httpx.Response(200, json={'items': [{'id': {'videoId': 'abcdefghijk'}, 'snippet': {
+            'title': '다합 여행', 'channelTitle': '여행 기록', 'thumbnails': {}}}]})
+    http_mock(ai, monkeypatch, handler)
+    result = ai.search_references(project, '다합 여행', 'video', provider='youtube')
+    assert result['items'][0]['title'] == '다합 여행'
+    assert result['items'][0]['importable'] is False
+
+
+def test_youtube_source_cannot_silently_return_images(ai, project):
+    with pytest.raises(ValueError):
+        ai.search_references(project, '다합', 'image', provider='youtube')

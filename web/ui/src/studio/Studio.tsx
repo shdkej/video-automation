@@ -1,8 +1,11 @@
 import {useRef, useState} from 'react';
-import {ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Check, Download, Film, ImagePlus, LoaderCircle, Music2, Plus, Save, Search, Sparkles, Trash2, Upload, X} from 'lucide-react';
+import {ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Check, Download, Film, ImagePlus, LoaderCircle, Music2, Plus, Save, Sparkles, Trash2, Upload, X} from 'lucide-react';
 import type {Asset, Project, Reference, Scene} from './api';
 import {studioApi} from './api';
 import {Preview} from './Preview';
+import {KeywordResearch} from './KeywordResearch';
+import {AiKeySettings} from './AiKeySettings';
+import {ReferenceSearch} from './ReferenceSearch';
 import {useStudio} from './useStudio';
 import './studio.css';
 
@@ -31,11 +34,11 @@ export function Studio() {
   const [step, setStep] = useState(0);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [keyword, setKeyword] = useState('');
+  const [keywordQuery, setKeywordQuery] = useState('');
   const [materialTab, setMaterialTab] = useState<'library' | 'search' | 'generate'>('library');
-  const [query, setQuery] = useState('');
-  const [searchKind, setSearchKind] = useState<'all' | 'image' | 'video'>('all');
   const [references, setReferences] = useState<Reference[]>([]);
   const [searched, setSearched] = useState(false);
+  const [referenceSummary, setReferenceSummary] = useState('');
   const [referenceNotices, setReferenceNotices] = useState<string[]>([]);
   const [referenceUrl, setReferenceUrl] = useState('');
   const [referenceTitle, setReferenceTitle] = useState('');
@@ -60,8 +63,9 @@ export function Studio() {
   const renderIssue = !project.scenes.length ? '장면을 추가해 주세요.' : incompleteScenes ? `소재가 없는 장면 ${incompleteScenes}개를 채워 주세요.` : invalidTrim ? '영상의 시작과 길이를 원본 길이 안으로 조정해 주세요.' : totalDuration > 180.001 ? '전체 길이를 180초 이내로 줄여 주세요.' : audioTooLong ? '음성이 모두 들어가도록 장면 길이를 늘려 주세요.' : '';
   const nextSceneNumber = project.scenes.findIndex((scene) => !scene.asset_id) >= 0 ? project.scenes.findIndex((scene) => !scene.asset_id) + 1 : project.scenes.length + 1;
   const clearWorkspaceTools = () => {
-    setStep(0); setActiveSceneId(''); setReferences([]); setSearched(false); setReferenceNotices([]);
-    setQuery(''); setPrompt(''); setKeyword(''); setLibraryOpen(false); setMaterialTab('library');
+    setKeywordQuery(state.current.current.keyword_research?.seeds.join(', ') || state.current.current.topic || '');
+    setStep(0); setActiveSceneId(''); setReferences([]); setSearched(false); setReferenceSummary(''); setReferenceNotices([]);
+    setPrompt(''); setKeyword(''); setLibraryOpen(false); setMaterialTab('library');
     setReferenceUrl(''); setReferenceTitle(''); setReferenceNote('');
   };
   const chooseStep = (next: number) => { setStep(next); window.scrollTo({top: 0, behavior: 'smooth'}); };
@@ -168,6 +172,7 @@ export function Studio() {
     <header className="studio-header">
       <a className="studio-brand" href="/" aria-label="Reel Room 스튜디오"><span className="studio-brand-mark"><Film size={20} aria-hidden="true" /></span>REEL ROOM<span className="studio-brand-note">STUDIO</span></a>
       <div className="studio-header-actions">
+        <AiKeySettings active={state.hasBrowserKey} disabled={!!busy} onChange={state.setApiKey} />
         <a href="?mode=cut" className="studio-text-button studio-cut-link">자동 컷 편집 <ArrowRight size={14} /></a>
         <button className="studio-text-button" onClick={() => setLibraryOpen(!libraryOpen)} aria-expanded={libraryOpen} aria-controls="studio-projects">내 프로젝트<span className="studio-counter">{state.projects.length}</span></button>
         <button className="studio-button studio-button-small" disabled={!!busy || state.loading} onClick={() => void state.save()}><Save size={15} /><span>저장</span></button>
@@ -208,10 +213,16 @@ export function Studio() {
         </section>}
 
         {step === 1 && <section>
-          <div className="studio-section-heading"><div><p className="studio-eyebrow">02 / 키워드·후킹</p><h1>첫 문장의 각도를 골라요.</h1><p className="studio-lead">추천은 선택지예요. 마음에 드는 표현을 고치거나 직접 써도 좋아요.</p></div><button className="studio-button studio-button-primary" disabled={!project.script.trim() || !capabilities?.ai_text} onClick={() => void run('키워드·후킹 추천 중', async () => {const saved = await saveCurrent(); state.setSuggestions(await studioApi.suggest(saved.id));})}><Sparkles size={17} />{state.suggestions ? '다른 후보 받기' : 'AI 추천 받기'}</button></div>
+          <div className="studio-section-heading"><div><p className="studio-eyebrow">02 / 키워드·후킹</p><h1>첫 문장의 각도를 골라요.</h1><p className="studio-lead">실제 검색어를 고르고 첫 문장을 다듬어요. AI 표현 추천도 받을 수 있어요.</p></div><button className="studio-button studio-button-primary" disabled={!project.script.trim() || !capabilities?.ai_text} onClick={() => void run('키워드·후킹 추천 중', async () => {const saved = await saveCurrent(); state.setSuggestions(await studioApi.suggest(saved.id));})}><Sparkles size={17} />{state.suggestions ? 'AI 후보 다시 받기' : 'AI 표현 추천 받기'}</button></div>
           {!project.script.trim() ? <p className="studio-inline-help">대본 단계에서 원문을 먼저 넣으면 추천을 받을 수 있어요.</p> : !capabilities?.ai_text && <p className="studio-inline-help">AI 추천이 연결되지 않았어요. 아래에서 키워드와 후킹을 직접 입력할 수 있어요.</p>}
           <div className="studio-choice-layout"><div className="studio-choice-main">
-            <div className="studio-subheading"><h2>이야기를 발견할 키워드</h2>{state.suggestions && <span>{state.suggestions.keywords.length}개 후보</span>}</div>
+            <KeywordResearch project={project} query={keywordQuery} setQuery={setKeywordQuery} enabled={!!capabilities?.keyword_search} onSearch={(query) => void run('네이버 키워드 조회 중', async () => {
+              const saved = await saveCurrent();
+              const research = await studioApi.keywords(saved.id, query);
+              state.replace({...state.current.current, keyword_research: research});
+              state.setNotice(`네이버에서 키워드 ${research.items.length}개를 가져왔어요.`);
+            })} onPick={(text) => project.keywords.includes(text) ? update({keywords: project.keywords.filter((item) => item !== text)}) : addKeyword(text)} />
+            <div className="studio-subheading"><h2>대본에서 확장한 AI 키워드</h2>{state.suggestions && <span>{state.suggestions.keywords.length}개 후보</span>}</div>
             {state.suggestions ? <div className="studio-keyword-candidates">{state.suggestions.keywords.map((item, index) => <button className={`studio-keyword-candidate ${project.keywords.includes(item.text) ? 'is-selected' : ''}`} key={`${item.text}-${index}`} aria-pressed={project.keywords.includes(item.text)} onClick={() => project.keywords.includes(item.text) ? update({keywords: project.keywords.filter((value) => value !== item.text)}) : addKeyword(item.text)}><span className="studio-candidate-angle">{item.angle}</span><strong>{item.text}{project.keywords.includes(item.text) && <Check size={16} />}</strong><span>{item.reason}</span>{item.evidence && <small>{item.evidence}</small>}</button>)}</div> : <div className="studio-empty-inline">대본을 바탕으로 서로 다른 각도의 후보를 받아보세요.<br />직접 떠오른 단어부터 골라도 좋아요.</div>}
             <div className="studio-subheading studio-spaced"><h2>처음 시선을 잡는 문장</h2></div>
             {state.suggestions ? <div className="studio-hook-candidates">{state.suggestions.hooks.map((item, index) => <button key={`${item.text}-${index}`} className={`studio-hook-candidate ${project.hook === item.text ? 'is-selected' : ''}`} aria-pressed={project.hook === item.text} onClick={() => update({hook: item.text.slice(0, 180)})}><span className="studio-candidate-angle">{item.type}{item.keyword ? ` · ${item.keyword}` : ''}</span><strong>{item.text}</strong><span>{item.reason}</span>{project.hook === item.text && <Check size={18} />}</button>)}</div> : <p className="studio-muted">AI 추천을 받으면 표현 방식이 다른 후킹 문장이 여기에 나와요.</p>}
@@ -230,13 +241,11 @@ export function Studio() {
             <details className="studio-details"><summary>YouTube·Instagram 참고 링크 보관</summary><div className="studio-reference-form"><label className="studio-field"><span>참고 URL</span><input type="url" value={referenceUrl} maxLength={2000} placeholder="https://www.youtube.com/…" onChange={(event) => setReferenceUrl(event.target.value)} /></label><label className="studio-field"><span>이름 <small>선택</small></span><input value={referenceTitle} maxLength={200} placeholder="다시 찾기 쉬운 이름" onChange={(event) => setReferenceTitle(event.target.value)} /></label><label className="studio-field"><span>참고할 점 <small>선택</small></span><textarea rows={2} value={referenceNote} maxLength={500} placeholder="예: 첫 장면의 구도와 자막 리듬" onChange={(event) => setReferenceNote(event.target.value)} /></label><div className="studio-row"><p className="studio-metadata">링크는 참고용으로 보관해요. 조합할 사진·영상 파일은 따로 올려 주세요.</p><button className="studio-button" disabled={!referenceUrl.trim()} onClick={saveReferenceLink}><Plus size={15} />링크 보관</button></div></div></details>
             {project.references.length > 0 && <details className="studio-details"><summary>보관한 참고 링크 <span>{project.references.length}</span></summary><div className="studio-reference-links">{project.references.map((item) => <div className="studio-reference-item" key={item.id}><a href={item.source_url} target="_blank" rel="noreferrer">{item.title}<span>{item.provider} ↗</span>{item.reason && <small>{item.reason}</small>}</a><button className="studio-icon-button" aria-label={`${item.title} 참고 링크 제거`} onClick={() => update({references: project.references.filter((reference) => reference.id !== item.id)})}><X size={15} /></button></div>)}</div></details>}
           </>}
-          {materialTab === 'search' && <div>
-            <form className="studio-search-form" onSubmit={(event) => {event.preventDefault(); void run('참고 자료 찾는 중', async () => {const saved = await saveCurrent(); const result = await studioApi.references(saved.id, query.trim(), searchKind); setReferences(result.items); setReferenceNotices(result.notices); setSearched(true);});}}><label className="studio-field"><span>찾고 싶은 장면</span><input value={query} maxLength={200} placeholder="예: 창가에서 노트에 글을 쓰는 손" onChange={(event) => setQuery(event.target.value)} /></label><label className="studio-field studio-kind-select"><span>자료 종류</span><select value={searchKind} onChange={(event) => setSearchKind(event.target.value as typeof searchKind)}><option value="all">사진과 영상</option><option value="image">사진</option><option value="video">영상</option></select></label><button className="studio-button studio-button-primary" disabled={!query.trim() || !capabilities?.reference_search} type="submit"><Search size={16} />찾기</button></form>
-            {!capabilities?.reference_search && <p className="studio-inline-help">참고 검색이 연결되지 않았어요. 가지고 있는 사진이나 영상을 올려 주세요.</p>}
-            {!!state.suggestions?.search_queries?.length && <div className="studio-suggestions-inline"><span>AI가 제안한 검색어</span>{state.suggestions.search_queries.map((item) => <button key={item} onClick={() => setQuery(item)}>{item}</button>)}</div>}
-            {referenceNotices.map((item, index) => <p className="studio-inline-help" key={index}>{item}</p>)}
-            {references.length ? <div className="studio-asset-grid">{references.map((item) => <article className="studio-asset" key={item.id}><a className="studio-reference-image" href={item.source_url} target="_blank" rel="noreferrer">{item.thumbnail ? <img src={item.thumbnail} alt={item.title} loading="lazy" referrerPolicy="no-referrer" /> : <Film size={28} />}<span>{item.kind === 'video' ? '영상' : '사진'} · {item.provider} ↗</span></a><div className="studio-asset-body"><h3>{item.title}</h3><p className="studio-metadata">{item.credit} · {item.license}</p>{item.reason && <p className="studio-reference-reason">{item.reason}</p>}<button className="studio-button studio-button-full" disabled={project.references.some((reference) => reference.id === item.id)} onClick={() => importReference(item)}>{project.references.some((reference) => reference.id === item.id) ? <><Check size={15} />보관됨</> : item.importable ? <><Plus size={15} />내 소재로 가져오기</> : '참고 링크 보관'}</button></div></article>)}</div> : <div className="studio-empty-inline">{searched ? '찾은 자료가 없어요. 장면이나 사물을 더 구체적으로 적어 보세요.' : '검색하면 실제 출처와 사용 조건을 함께 보여드려요.'}</div>}
-          </div>}
+          {materialTab === 'search' && <ReferenceSearch project={project} suggestions={state.suggestions} enabled={!!capabilities?.reference_search} youtube={!!capabilities?.youtube_search} busy={!!busy} items={references} resultSummary={referenceSummary} notices={referenceNotices} searched={searched} onImport={importReference} onSearch={(query, kind, provider) => void run('참고 자료 찾는 중', async () => {
+            const saved = await saveCurrent();
+            const result = await studioApi.references(saved.id, query, kind, provider);
+            setReferences(result.items); setReferenceNotices(result.notices); setSearched(true); setReferenceSummary(`${query.trim()} · ${provider === 'youtube' ? 'YouTube' : provider === 'commons' ? 'Commons' : '모든 출처'}`);
+          })} />}
           {materialTab === 'generate' && <div className="studio-generation"><div><label className="studio-field"><span>어떤 이미지가 필요하세요?</span><textarea rows={5} value={prompt} maxLength={3000} placeholder="장소, 피사체, 빛, 분위기를 적어 주세요. 예: 오후 햇빛이 드는 작은 작업실, 나무 책상과 펼친 노트. 글자 없이 세로 사진." onChange={(event) => setPrompt(event.target.value)} /></label>{!!state.suggestions?.image_prompts?.length && <details className="studio-details"><summary>대본을 바탕으로 추천한 이미지 방향</summary><div className="studio-prompt-options">{state.suggestions.image_prompts.map((item, index) => <button key={index} onClick={() => setPrompt(item)}>{item}<Plus size={16} /></button>)}</div></details>}
             <div className="studio-generation-controls"><label className="studio-field"><span>비교할 후보 수</span><select value={imageCount} onChange={(event) => setImageCount(Number(event.target.value))}>{[2, 3, 4, 5, 6].map((count) => <option key={count} value={count}>{count}장</option>)}</select></label><button className="studio-button studio-button-primary" disabled={!prompt.trim() || !capabilities?.ai_images} onClick={() => void run(`AI 이미지 ${imageCount}장 만드는 중`, async () => {const saved = await saveCurrent(); const result = await studioApi.images(saved.id, prompt.trim(), imageCount); appendAssets(result.assets); if (result.errors.length) state.setError(result.errors.join(' · ')); state.setNotice(`${result.assets.length}장의 이미지를 만들었어요. 장면에 쓸 후보를 골라 주세요.`); if (result.assets.length) setMaterialTab('library');})}><Sparkles size={16} />이미지 {imageCount}장 생성</button></div>
             <p className="studio-metadata">연결한 AI API의 사용량에 따라 비용이 발생해요. 만든 이미지는 내 소재에 남아요.</p>{!capabilities?.ai_images && <p className="studio-inline-help">AI 이미지 생성이 연결되지 않았어요. 내 소재에서 사진을 올려 사용할 수 있어요.</p>}

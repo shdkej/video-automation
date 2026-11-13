@@ -12,6 +12,10 @@ export type Suggestions = {
   hooks: {text: string; type: string; keyword: string; reason: string}[];
   search_queries: string[]; image_prompts: string[]; caption: string; source: string; notices: string[];
 };
+export type KeywordResearch = {
+  provider: string; seeds: string[]; queried_at: string; total_found: number; notices: string[];
+  items: {keyword: string; is_seed: boolean; pc: string; mobile: string; monthly_total: number | null; monthly_label: string; competition: string}[];
+};
 export type Scene = {id: string; text: string; asset_id: string; duration: number; trim_start: number};
 export type Project = {
   id: string; title: string; script: string; topic: string; audience: string; goal: string; language: string;
@@ -19,9 +23,9 @@ export type Project = {
   style: 'photo' | 'shade' | 'editorial'; font: 'pretendard' | 'blackhansans' | 'dohyeon';
   position: 'top' | 'center' | 'bottom'; scenes: Scene[]; audio_asset_id: string | null;
   assets: Asset[]; references: Reference[]; created_at: string; updated_at: string;
-  suggestions?: Suggestions; last_render?: RenderJob | null;
+  keyword_research?: KeywordResearch; suggestions?: Suggestions; last_render?: RenderJob | null;
 };
-export type Capabilities = {ai_text: boolean; ai_images: boolean; ai_narration: boolean; reference_search: boolean};
+export type Capabilities = {ai_text: boolean; ai_images: boolean; ai_narration: boolean; reference_search: boolean; keyword_search: boolean; youtube_search: boolean};
 export type RenderJob = {
   id: string; status: 'queued' | 'running' | 'done' | 'error'; progress: number; stage: string; error?: string;
   outputs?: {video: string; cover: string; subtitles: string; project: string};
@@ -37,6 +41,14 @@ export function editableProject(project: Project) {
   // Assets and timestamps belong to the server. A draft can never replace an upload.
   const {title, script, topic, audience, goal, language, keywords, hook, caption, cta, style, font, position, scenes, audio_asset_id, references} = project;
   return {title, script, topic, audience, goal, language, keywords, hook, caption, cta, style, font, position, scenes, audio_asset_id, references};
+}
+
+let browserApiKey = '';
+export function setBrowserApiKey(value: string) { browserApiKey = value; }
+function aiJson(body: unknown): RequestInit {
+  const options = json('POST', body);
+  if (browserApiKey) options.headers = {...options.headers, 'X-OpenAI-API-Key': browserApiKey};
+  return options;
 }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -69,10 +81,11 @@ export const studioApi = {
     files.forEach((file) => body.append('files', file));
     return request<{assets: Asset[]}>(`${projectPath(id)}/assets`, {method: 'POST', body});
   },
-  suggest: (id: string) => request<Suggestions>(`${projectPath(id)}/suggestions`, json('POST', {})),
-  images: (id: string, prompt: string, count: number) => request<{assets: Asset[]; errors: string[]}>(`${projectPath(id)}/images`, json('POST', {prompt, count})),
-  narration: (id: string, voice: string) => request<{assets: Asset[]}>(`${projectPath(id)}/narration`, json('POST', {voice})),
-  references: (id: string, query: string, kind: 'all' | 'image' | 'video') => request<{items: Reference[]; notices: string[]}>(`${projectPath(id)}/references/search`, json('POST', {query, kind})),
+  keywords: (id: string, query: string) => request<KeywordResearch>(`${projectPath(id)}/keywords/search`, json('POST', {query})),
+  suggest: (id: string) => request<Suggestions>(`${projectPath(id)}/suggestions`, aiJson({})),
+  images: (id: string, prompt: string, count: number) => request<{assets: Asset[]; errors: string[]}>(`${projectPath(id)}/images`, aiJson({prompt, count})),
+  narration: (id: string, voice: string) => request<{assets: Asset[]}>(`${projectPath(id)}/narration`, aiJson({voice})),
+  references: (id: string, query: string, kind: 'all' | 'image' | 'video', provider: 'all' | 'commons' | 'youtube' = 'all') => request<{items: Reference[]; notices: string[]}>(`${projectPath(id)}/references/search`, json('POST', {query, kind, provider})),
   importReference: (id: string, reference: Reference) => request<{assets: Asset[]}>(`${projectPath(id)}/references/import`, json('POST', reference)),
   render: (id: string) => request<RenderJob>(`${projectPath(id)}/render`, json('POST', {})),
   renderStatus: (id: string, renderId: string) => request<RenderJob>(`${projectPath(id)}/renders/${encodeURIComponent(renderId)}`),

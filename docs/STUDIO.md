@@ -10,17 +10,18 @@
 
 모든 API는 `/api/studio` 아래. 오류는 `{detail:string}`. JSON 저장은 원자적이며 로컬 데이터는 Git 제외. base 디렉터리는 `VIDAUTO_STUDIO_DIR`, 기본 `web/studio-data`다. 기존 영상 처리 세마포어를 공유한다.
 
-- `GET /capabilities` → `{ai_text:boolean,ai_images:boolean,reference_search:boolean,ai_narration:boolean}`.
+- `GET /capabilities` → `{ai_text:boolean,ai_images:boolean,reference_search:boolean,ai_narration:boolean,keyword_search:boolean,youtube_search:boolean}`.
 - `GET /projects` → `{projects:Project[]}` (최신순).
 - `POST /projects` body `{title?:string}` → Project.
 - `GET /projects/{id}` → Project.
 - `PUT /projects/{id}` body Project editable fields → Project. 서버 소유 assets/id/timestamps는 덮어쓰지 않는다.
 - `POST /projects/{id}/assets` multipart `files` (여러 image/video/audio) → `{assets:Asset[]}` 새 자산만. 업로드는 200MB/파일, 500MB/요청, 프로젝트 100개 제한. ffprobe/PIL 검증.
 - `GET /projects/{id}/assets/{asset_id}` → 미디어 inline.
+- `POST /projects/{id}/keywords/search` body `{query:string}` → `{provider,seeds,queried_at,total_found,items,notices}`. 쉼표/줄바꿈으로 1~5개, 중복 제거·공백 정규화, 입력어 우선 및 검색량순 최대 45개. 서버 소유 `keyword_research`에 저장하고 PUT으로 위조/삭제하지 않음. 항목 `{keyword,is_seed,pc,mobile,monthly_total:number|null,monthly_label,competition}`. 비공개/누락 수치는 범위/미확인으로 보존.
 - `POST /projects/{id}/suggestions` body `{}` → Suggestions. 저장한 script/topic/audience/goal/language 사용. 원문 변형 금지.
 - `POST /projects/{id}/images` body `{prompt:string,count:2|3|4|5|6}` → `{assets:Asset[],errors:string[]}`. 후보는 저장, 선택은 사용자. 서버 모델 설정, 비밀은 서버에만.
 - `POST /projects/{id}/narration` body `{voice:"alloy"|"nova"|"onyx"|"shimmer"|"echo"|"fable"}` → `{assets:Asset[]}`. 원문 그대로 읽는 AI 음성, 4000자 제한.
-- `POST /projects/{id}/references/search` body `{query:string,kind:'all'|'image'|'video'}` → `{items:Reference[],notices:string[]}`. 실제 제공자의 검색 결과만 출력, 생성된 링크 금지.
+- `POST /projects/{id}/references/search` body `{query:string,kind:'all'|'image'|'video',provider?:'all'|'commons'|'youtube'}` → `{items:Reference[],notices:string[]}`. 실제 제공자의 검색 결과만 출력, 생성된 링크 금지.
 - `POST /projects/{id}/references/import` body Reference → `{assets:Asset[]}`. 허용 공급자 미디어만 제한 다운로드. YouTube는 참고 링크만 저장하고 직접 다운로드하지 않음.
 - `POST /projects/{id}/render` body `{}` → RenderJob.
 - `GET /projects/{id}/renders/{render_id}` → RenderJob.
@@ -72,3 +73,11 @@ type RenderJob = {id:string;status:'queued'|'running'|'done'|'error';progress:nu
 운영 Secret의 인증과 모델 목록 조회는 통과했지만 텍스트·이미지·음성 생성은 상류 429로 실패했다. 이 계정 한도/빈도 문제는 모델 기본값 수정과 구분하며 성공으로 기록하지 않는다.
 
 첫 운영 이미지의 무료 참고 검색 검증에서 `ModuleNotFoundError: httpx`를 확인했다. 로컬에는 httpx 0.28.1/OpenAI 2.44.0이 있었지만 최신 OpenAI 3.50.0은 httpx를 자동 설치하지 않았다. 직접 의존성을 requirements-web.txt에 명시하고 OpenAI SDK를 검증한 2.44.0으로 고정했다. Docker 빌드에서 Studio 세 모듈을 실제 import해 의존성 누락이 운영까지 넘어가지 않도록 했다. 이후 유료 검증은 사용자 요청으로 보류하며 무료 검색·수동 제작·영구 저장을 계속 검증한다.
+
+## 2026-11-13 후속: 검색 API와 브라우저 입력 키
+
+사용자는 AI 없이 keyword-title 스킬 API 직접 조회, 쉽게 찾는 참고영상/이미지, 화면의 AI 키 입력을 요청했다. Naver SearchAd는 `web/studio_keywords.py`의 독립 모듈·세마포어·capability로 실행하고 LLM 대체값을 만들지 않는다. YouTube는 기존 GOG_YOUTUBE_API_KEY를 별칭으로 지원하며 출처 선택 시 해당 API만 호출한다. 검색 chips·이미지/영상 분리·출처 필터·모달 미리보기·원본/외부 검색·보관/가져오기를 제공한다. YouTube 임베드는 업로더나 브라우저 정책에 따라 재생이 제한될 수 있어 원본 링크를 함께 제공한다.
+
+AI POST 3종(suggestions/images/narration)은 선택적 `X-OpenAI-API-Key` 헤더를 받는다. 현재 탭 메모리에서만 유지하고 요청마다 SDK에 직접 전달한다. 서버 환경·프로젝트 파일을 수정하지 않으며 다른 사용자/요청으로 전달하지 않는다. 브라우저 키가 없으면 서버 키를 사용한다. 서버와 브라우저 모두 키 형식을 검증하되 실제 인증/한도 확인은 생성 요청에서 수행한다. 키가 있는 capability는 연결 가능 여부이며 생성 성공 보장이 아니다. 생성 API 실호출 검증은 사용자 지시로 계속 보류한다.
+
+검증: 전체 Python 212개 통과(기존 경고 49개), 실제 Naver SearchAd(세계여행/신혼여행 후보 872개 중 45개), YouTube 한국어 검색 6개, Commons 이미지 8개 반환. 375/768/1440px 브라우저에서 첫 검색어·선택 저장/복원, 브라우저 키의 AI 요청 헤더 한정 전달·저장소 미보관·새로고침 삭제를 확인했다. AI 키 전달은 모의 SDK/브라우저 가로채기로 검증했고 유료 호출은 0회다. 배포 결과는 Space와 KL 운영 문서를 따른다.

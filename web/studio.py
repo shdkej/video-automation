@@ -11,14 +11,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
-from fastapi import APIRouter, Body, File, HTTPException, UploadFile
+from fastapi import APIRouter, Body, File, HTTPException, UploadFile, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse
 from fastapi.routing import APIRoute
 from PIL import Image, ImageOps, UnidentifiedImageError
 from pydantic import BaseModel, Field
 
-from web import studio_render
+from web import studio_render, studio_keywords
 
 
 class StudioRoute(APIRoute):
@@ -80,6 +80,11 @@ class ImageRequest(BaseModel):
 class ReferenceSearch(BaseModel):
     query: str = Field(min_length=1,max_length=200)
     kind: Literal['all','image','video'] = 'all'
+    provider: Literal['all','commons','youtube'] = 'all'
+
+
+class KeywordSearch(BaseModel):
+    query: str = Field(min_length=1, max_length=500)
 
 
 class NarrationRequest(BaseModel):
@@ -183,14 +188,21 @@ def create_router(root: Path, work_limiter: threading.Semaphore) -> APIRouter:
     store = StudioStore(root)
     router = APIRouter(prefix='/api/studio', route_class=StudioRoute)
     ai_limiter = threading.BoundedSemaphore(1)
+    keyword_limiter = threading.BoundedSemaphore(1)
     render_lock = threading.Lock()
     active: set[str] = set()
 
-    def provider_call(fn,*args):
+    def client_key(request: Request):
+        key = request.headers.get('X-OpenAI-API-Key')
+        if key is not None and not re.fullmatch(r'[!-~]{1,512}', key):
+            raise HTTPException(422, '입력한 API 키의 형식을 확인해 주세요.')
+        return key
+
+    def provider_call(fn,*args,**kwargs):
         if not ai_limiter.acquire(blocking=False):
             raise HTTPException(429,'앞선 AI 요청이 끝난 뒤 다시 시도해 주세요.')
         try:
-            return fn(*args)
+            return fn(*args, **{k:v for k,v in kwargs.items() if v is not None})
         except ValueError as exc:
             raise HTTPException(422,str(exc)) from exc
         except Exception as exc:
@@ -201,7 +213,7 @@ def create_router(root: Path, work_limiter: threading.Semaphore) -> APIRouter:
     @router.get('/capabilities')
     def capabilities():
         from web import studio_ai
-        return studio_ai.capabilities()
+        return {**studio_ai.capabilities(), 'keyword_search': studio_keywords.available(), 'youtube_search': studio_ai.youtube_available()}
 
     @router.get('/projects')
     def projects():
@@ -237,6 +249,23 @@ def create_router(root: Path, work_limiter: threading.Semaphore) -> APIRouter:
             project.update(changes)
             store.save(project)
             return store.public(project)
+
+    @router.post('/projects/{pid}/keywords/search')
+    def keyword_search(pid: str, payload: KeywordSearch):
+        store.read(pid)
+        if not keyword_limiter.acquire(blocking=False):
+            raise HTTPException(429, '앞선 키워드 조회가 끝난 뒤 다시 시도해 주세요.')
+        try:
+            result = studio_keywords.search(payload.query)
+            with store.lock:
+                project = store.read(pid)
+                project['keyword_research'] = result
+                store.save(project)
+            return result
+        except studio_keywords.KeywordError as exc:
+            raise HTTPException(exc.status, str(exc)) from exc
+        finally:
+            keyword_limiter.release()
 
     @router.post('/projects/{pid}/assets')
     def upload(pid: str,files: list[UploadFile] = File(...)):
@@ -284,9 +313,9 @@ def create_router(root: Path, work_limiter: threading.Semaphore) -> APIRouter:
         return FileResponse(path)
 
     @router.post('/projects/{pid}/suggestions')
-    def suggestions(pid: str):
+    def suggestions(pid: str, request: Request):
         from web import studio_ai
-        result = provider_call(studio_ai.suggest,store.public(store.read(pid)))
+        result = provider_call(studio_ai.suggest,store.public(store.read(pid)),api_key=client_key(request))
         with store.lock:
             project = store.read(pid)
             project['suggestions'] = result
@@ -294,7 +323,7 @@ def create_router(root: Path, work_limiter: threading.Semaphore) -> APIRouter:
         return result
 
     @router.post('/projects/{pid}/images')
-    def images(pid: str,payload: ImageRequest):
+    def images(pid: str,payload: ImageRequest,request: Request):
         from web import studio_ai
         project = store.read(pid)
         if len(project['assets'])+payload.count>100:
@@ -302,7 +331,7 @@ def create_router(root: Path, work_limiter: threading.Semaphore) -> APIRouter:
         temp=store.directory(pid)/('generation-'+ident())
         temp.mkdir()
         try:
-            result=provider_call(studio_ai.generate_images,store.public(project),payload.prompt,payload.count,temp)
+            result=provider_call(studio_ai.generate_images,store.public(project),payload.prompt,payload.count,temp,api_key=client_key(request))
             assets=[]
             errors=list(result.get('errors',[]))
             for item in result.get('images',[]):
@@ -312,13 +341,13 @@ def create_router(root: Path, work_limiter: threading.Semaphore) -> APIRouter:
         finally: shutil.rmtree(temp,ignore_errors=True)
 
     @router.post('/projects/{pid}/narration')
-    def narration(pid: str,payload: NarrationRequest):
+    def narration(pid: str,payload: NarrationRequest,request: Request):
         from web import studio_ai
         project=store.read(pid)
         temp=store.directory(pid)/('narration-'+ident())
         temp.mkdir()
         try:
-            item=provider_call(studio_ai.generate_narration,store.public(project),payload.voice,temp)
+            item=provider_call(studio_ai.generate_narration,store.public(project),payload.voice,temp,api_key=client_key(request))
             try: asset=store.add(pid,Path(item['path']),item['name'],'ai')
             except ValueError as exc: raise HTTPException(422,str(exc)) from exc
             return {'assets':[asset]}
@@ -327,7 +356,7 @@ def create_router(root: Path, work_limiter: threading.Semaphore) -> APIRouter:
     @router.post('/projects/{pid}/references/search')
     def references(pid: str,payload: ReferenceSearch):
         from web import studio_ai
-        return provider_call(studio_ai.search_references,store.public(store.read(pid)),payload.query,payload.kind)
+        return provider_call(studio_ai.search_references,store.public(store.read(pid)),payload.query,payload.kind,provider=payload.provider)
 
     @router.post('/projects/{pid}/references/import')
     def import_reference(pid: str,payload: dict = Body(...)):

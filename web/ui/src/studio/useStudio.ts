@@ -1,5 +1,5 @@
 import {useCallback, useEffect, useRef, useState} from 'react';
-import {editableProject, emptyProject, studioApi} from './api';
+import {editableProject, emptyProject, studioApi, setBrowserApiKey} from './api';
 import type {Asset, Capabilities, Project, RenderJob, Suggestions} from './api';
 
 const message = (error: unknown) => error instanceof Error ? error.message : '연결을 확인한 뒤 다시 시도해 주세요.';
@@ -13,6 +13,7 @@ export function useStudio() {
   const [capabilities, setCapabilities] = useState<Capabilities | null>(null);
   const [suggestions, setSuggestions] = useState<Suggestions | null>(null);
   const [busy, setBusy] = useState('');
+  const [hasBrowserKey, setHasBrowserKey] = useState(false);
   const locked = useRef(false);
   const [dirty, setDirty] = useState(false);
   const dirtyRef = useRef(false);
@@ -116,7 +117,11 @@ export function useStudio() {
   }, [project.id, renderId, renderStatus, pollRetry]);
 
   return {
-    project, current, projects, capabilities, suggestions, setSuggestions, busy, dirty, error, setError,
+    hasBrowserKey,
+    setApiKey: (key: string) => {setBrowserApiKey(key); setHasBrowserKey(!!key);},
+    project, current, projects,
+    capabilities: capabilities ? {...capabilities, ai_text: capabilities.ai_text || hasBrowserKey, ai_images: capabilities.ai_images || hasBrowserKey, ai_narration: capabilities.ai_narration || hasBrowserKey} : null,
+    suggestions, setSuggestions, busy, dirty, error, setError,
     notice, setNotice, loading, render, pollError, reload, update, replace, run, saveCurrent, appendAssets,
     staleOutput: !!render && renderSignature !== JSON.stringify(editableProject(project)),
     retryPoll: () => { setPollError(''); setPollRetry((value) => value + 1); },
