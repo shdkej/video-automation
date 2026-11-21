@@ -272,3 +272,24 @@ def test_vision_template_provider_layers_and_saved_outputs(studio, monkeypatch):
     assert client.post(endpoint,json={**data,'mode':'precision'},headers=headers).status_code==502
     assert calls[-1][0].endswith('/gemini-3.8-flash:generateContent')
     assert not any(b'test-gemini-only' in p.read_bytes() for p in (root/'vision-cache').iterdir())
+
+
+def test_gemini_precision_timeout_is_reported_without_retry(monkeypatch):
+    import httpx
+    from fastapi import HTTPException
+    from web.studio_templates import gemini_layout, VISION_MODELS
+    calls = []
+    def timeout(url, **kwargs):
+        calls.append(kwargs)
+        raise httpx.ReadTimeout('mock timeout')
+    monkeypatch.setattr(httpx,'post',timeout)
+    for mode in ('precision','fast'):
+        with pytest.raises(HTTPException) as error:
+            gemini_layout(image_bytes(),VISION_MODELS[mode],'fixture')
+        assert error.value.status_code == 504
+    assert len(calls) == 2
+    assert calls[0]['timeout'].read == 240
+    config = calls[0]['json']['generationConfig']
+    assert config['thinkingConfig']['thinkingLevel'] == 'MEDIUM'
+    assert config['maxOutputTokens'] == 8192
+    assert calls[1]['timeout'].read == 75
