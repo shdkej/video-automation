@@ -17,7 +17,9 @@ export type KeywordResearch = {
   items: {keyword: string; is_seed: boolean; pc: string; mobile: string; monthly_total: number | null; monthly_label: string; competition: string}[];
 };
 export type Scene = {id: string; text: string; asset_id: string; duration: number; trim_start: number};
-export type Design = {key:string; name:string; align:"left"|"center"|"right"; wash:string; ink:string; strength:number; title_y:number; body_y:number};
+export type TextRegion = {role:'title'|'body'|'label'|'cta'; text:string; x:number;y:number;width:number;size:number;rotation:number;color:string;outline:string|null;align:'left'|'center'|'right';bold:boolean};
+export type Vision = {name:string;composition:string;palette:string[];wash:string;strength:number;regions:TextRegion[]};
+export type Design = {vision?: Vision|null; key:string; name:string; align:"left"|"center"|"right"; wash:string; ink:string; strength:number; title_y:number; body_y:number};
 export type ArchivePage = {images:{key:string;url:string}[];cursor:string|null};
 export type Project = {
   design?: Design | null;
@@ -75,6 +77,7 @@ const projectPath = (id: string) => `/projects/${encodeURIComponent(id)}`;
 
 export const studioApi = {
   archive: (cursor: string) => request<ArchivePage>('/archive/images?cursor='+encodeURIComponent(cursor)),
+  vision: (key:string) => request<Design>('/archive/design/vision',aiJson({key})),
   analyze: (key: string) => request<Design>('/archive/design', json('POST', {key})),
   templates: () => request<Design[]>('/templates'),
   saveTemplate: (design: Design) => request<Design>('/templates', json('POST', design)),

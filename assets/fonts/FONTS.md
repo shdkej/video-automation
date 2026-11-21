@@ -2,7 +2,7 @@
 
 | 파일 | 이름 | 라이선스 | 출처 |
 |------|------|----------|------|
-| Pretendard-Bold.otf / Pretendard-ExtraBold.otf | Pretendard | SIL OFL 1.1 | https://github.com/orioncactus/pretendard |
+| Pretendard-Regular.otf / Pretendard-Bold.otf / Pretendard-ExtraBold.otf | Pretendard | SIL OFL 1.1 | https://github.com/orioncactus/pretendard |
 | BlackHanSans-Regular.ttf | Black Han Sans | SIL OFL 1.1 | https://github.com/google/fonts/tree/main/ofl/blackhansans |
 | DoHyeon-Regular.ttf | Do Hyeon | SIL OFL 1.1 | https://github.com/google/fonts/tree/main/ofl/dohyeon |
 | Jua-Regular.ttf | Jua | SIL OFL 1.1 | https://github.com/google/fonts/tree/main/ofl/jua |

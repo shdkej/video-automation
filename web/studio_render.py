@@ -111,6 +111,10 @@ def overlay(project: dict, scene: dict, index: int, path: Path) -> None:
     elif project['style'] == 'editorial':
         draw.rounded_rectangle((58,78,WIDTH-58,HEIGHT-156), radius=12, fill=(27,29,23,180))
         draw.rectangle((86,118,93,238), fill='#f9df55')
+    if design and design.get("vision"):
+        draw_regions(image, project, scene, index)
+        image.save(path)
+        return
     if index == 0:
         hook_y = int(HEIGHT*{'top':.22, 'center':.42, 'bottom':.65}[project['position']])
         # A bottom hook and subtitles cannot share the same vertical region.
@@ -210,3 +214,47 @@ def cards(project: dict, resolve_asset, directory: Path) -> Path:
             card.convert('RGB').save(path, quality=94)
             archive.write(path, f'card-{index+1:02d}.jpg')
     return target
+
+
+def draw_regions(image, project, scene, index):
+    from PIL import ImageColor
+    design = project['design']
+    regions = list(design['vision']['regions'])
+    roles = {r['role'] for r in regions}
+    for role, y, size in [('title',design['title_y'],8),('body',design['body_y'],5),('cta',90,4)]:
+        if role not in roles:
+            regions.append(dict(role=role,text='',x=50,y=y,width=84,size=size,rotation=0,
+                                color=design['ink'],outline='#242424',align=design['align'],bold=True))
+    for region in regions:
+        role = region['role']
+        if role == 'title' and index != 0:
+            continue
+        if role == 'cta' and index != len(project['scenes'])-1:
+            continue
+        bound = {'title':project['hook'], 'body':scene['text'], 'cta':project['cta']}.get(role, '')
+        text = bound or region['text']
+        if not text:
+            continue
+        face = FONTS[project['font']] if region['bold'] else 'Pretendard-Regular.otf'
+        font_path = ROOT/'assets'/'fonts'/face
+        size = max(1, round(WIDTH*region['size']/100))
+        width = round(WIDTH*region['width']/100)
+        for fitted in range(size, 0, -max(1,size//20)):
+            font = ImageFont.truetype(str(font_path), fitted)
+            lines = _lines(text, font, width)
+            if len(lines)*fitted*1.25 <= HEIGHT:
+                break
+        step = round(fitted*1.25)
+        pad = max(4, fitted//8)
+        tile = Image.new('RGBA',(width+2*pad, len(lines)*step+2*pad))
+        draw = ImageDraw.Draw(tile)
+        align = region['align']
+        x, anchor = {'left':(pad,'lt'), 'center':(tile.width/2,'mt'), 'right':(width+pad,'rt')}[align]
+        for i,line in enumerate(lines):
+            draw.text((x,pad+i*step),line,anchor=anchor,font=font,
+                      fill=ImageColor.getrgb(region['color']),stroke_width=max(1,fitted//24) if region['outline'] else 0,
+                      stroke_fill=region['outline'])
+        if region['rotation']:
+            tile = tile.rotate(-region['rotation'],resample=Image.Resampling.BICUBIC,expand=True)
+        image.alpha_composite(tile,(round(WIDTH*region['x']/100-tile.width/2),
+                                    round(HEIGHT*region['y']/100-tile.height/2)))

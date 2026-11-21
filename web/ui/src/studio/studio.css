@@ -1,3 +1,4 @@
+@font-face { font-family: 'Studio Pretendard'; src: url('/fonts/Pretendard-Regular.otf') format('opentype'); font-weight:400; font-display:swap }
 @font-face { font-family: 'Studio Pretendard'; src: url('/fonts/Pretendard-Bold.otf') format('opentype'); font-weight: 700; font-display: swap; }
 @font-face { font-family: 'Studio Black Han'; src: url('/fonts/BlackHanSans-Regular.ttf') format('truetype'); font-display: swap; }
 @font-face { font-family: 'Studio Do Hyeon'; src: url('/fonts/DoHyeon-Regular.ttf') format('truetype'); font-display: swap; }
@@ -468,3 +469,7 @@
 .archive-comparison figure>img { width:100%; height:auto; max-height:360px; object-fit:contain }
 .archive-controls label { display:grid; gap:4px }
 .archive-controls input { max-width:100% }
+
+.vision-palette { display:flex; gap:.4rem; margin:.75rem 0 }
+.vision-palette button { width:2rem;height:2rem;border-radius:100%;border:1px solid #999 }
+.vision-layers textarea { width:100% }

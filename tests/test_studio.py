@@ -215,3 +215,46 @@ def test_archive_template_preserves_style_independently_of_media(studio):
         with Image.open(io.BytesIO(cards.read('card-01.jpg'))) as preview:
             assert preview.size == (1080,1920)
             assert preview.getpixel((5,5))[0] < 100
+
+
+def test_vision_template_provider_layers_and_saved_outputs(studio, monkeypatch):
+    import json
+    from types import SimpleNamespace
+    from zipfile import ZipFile
+    from web import studio_ai, studio_render
+    client, root = studio
+    sample = dict(role='label', text='IN PHONE', x=30,y=32,width=50,size=6,rotation=18,
+                  color='#ffee22', outline='#202020', align='left', bold=False)
+    layout = dict(name='주방',composition='대각선 휴대폰과 하단 자막',palette=['#693824'],
+                  wash='#513726', strength=20, regions=[sample,dict(sample,role='body',text='본문',y=78)])
+    calls = []
+    def create(**kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps(layout)))])
+    monkeypatch.setattr(studio_ai,'_client', lambda timeout,api_key: SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create)), close=lambda:None))
+    response = client.post('/api/studio/archive/design/vision',json={'key':'original/2026/demo.webp'},
+                           headers={'X-OpenAI-API-Key':'test-session-only'})
+    assert response.status_code == 200
+    design = response.json()
+    assert design['vision']['regions'][0]['rotation'] == 18
+    assert calls[0]['messages'][-1]['content'][0]['image_url']['url'].endswith('/original/2026/demo.webp')
+    pid=client.post('/api/studio/projects',json={}).json()['id']
+    base='/api/studio/projects/'+pid
+    aid=client.post(base+'/assets',files={'files':('p.png',image_bytes(),'image/png')}).json()['assets'][0]['id']
+    client.put(base,json={'design':design,'hook':'새 제목','script':'대본',
+                          'scenes':[dict(id='1',text='교체 문구',asset_id=aid,duration=1)]})
+    project=client.get(base).json()
+    assert project['design']==design
+    assert client.post('/api/studio/templates',json=design).status_code==200
+    card=client.post(base+'/cards')
+    assert card.status_code==200
+    with ZipFile(io.BytesIO(card.content)) as archive:
+        assert Image.open(io.BytesIO(archive.read('card-01.jpg'))).size == (1080,1920)
+    # The shared final composition keeps user title even if vision only detects label/body.
+    surface=root/'layer.png'
+    studio_render.overlay(project,project['scenes'][0],0,surface)
+    with Image.open(surface) as image:
+        assert image.crop((50,330,1030,530)).getchannel('A').getextrema()[1] == 255
+    layout['regions'][0]['x']=200
+    assert client.post('/api/studio/archive/design/vision',json={'key':'original/2026/demo.webp'}).status_code==422

@@ -224,6 +224,10 @@ def create_router(root: Path, work_limiter: threading.Semaphore) -> APIRouter:
     def archive_design(reference: studio_templates.ReferenceKey):
         return studio_templates.analyze(reference.key)
 
+    @router.post('/archive/design/vision')
+    def vision_design(reference: studio_templates.ReferenceKey, request: Request):
+        return provider_call(studio_templates.analyze_vision, reference.key, api_key=client_key(request))
+
     @router.get('/templates')
     def templates():
         return [json.loads(path.read_text()) for path in sorted((root/'templates').glob('*.json'))]
