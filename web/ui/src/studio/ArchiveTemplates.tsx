@@ -3,11 +3,14 @@ import {studioApi, type ArchivePage, type Design, type Project} from './api';
 import {VisionLayers} from './VisionLayers';
 import {Preview} from './Preview';
 
+let tabGeminiKey = '';
+
 export function ArchiveTemplates({project,update}:{project:Project;update:(values:Partial<Project>)=>void}) {
   const [open,setOpen] = useState(false);
   const [page,setPage] = useState<ArchivePage>({images:[],cursor:null});
   const [saved,setSaved] = useState<Design[]>([]);
   const [busy,setBusy] = useState(false);
+  const [geminiKey,setGeminiKey] = useState(tabGeminiKey);
   const [message,setMessage] = useState('');
   const mounted = useRef(true);
   useEffect(()=>{mounted.current=true;return ()=>{mounted.current=false;};},[]);
@@ -44,11 +47,12 @@ export function ArchiveTemplates({project,update}:{project:Project;update:(value
         <figure><img src={'https://img.shdkej.com/'+design.key} alt="선택한 레퍼런스" /><figcaption>레퍼런스</figcaption></figure>
         <figure><Preview project={{...project,hook:design.vision?project.hook:project.hook||'제목 미리보기'}} scene={sample} index={0}/><figcaption>현재 디자인</figcaption></figure>
       </div><label>템플릿 이름 <input value={design.name} maxLength={100} onChange={e=>edit({name:e.target.value})}/></label>
-      <button type="button" onClick={()=>void act(async()=>{
-        const analyzed=await studioApi.vision(design.key);
-        if(mounted.current) update({design:analyzed});
-      })}>{design.vision?'AI로 다시 분석':'AI로 레퍼런스 분석'}</button>
-      <p className="studio-metadata">{design.vision?'AI 분석 결과 · 글자 영역을 편집할 수 있어요.':'현재는 사진의 명암으로 계산한 기본 배치입니다.'} AI 분석 시 선택한 사진을 OpenAI에 보내며 연결한 계정의 API 사용료가 발생합니다.</p>
+      <label className="studio-field">Gemini API 키 · 선택<input type="password" autoComplete="off" spellCheck={false} maxLength={512} value={geminiKey} onChange={e=>{tabGeminiKey=e.target.value.trim();setGeminiKey(tabGeminiKey);}} placeholder="서버 키 사용"/></label>
+      <div className="studio-row">{(['fast','precision'] as const).map(mode=><button key={mode} type="button" onClick={()=>void act(async()=>{
+        const result=await studioApi.vision(design.key,mode,geminiKey);
+        if(mounted.current){update({design:result.design});setMessage(result.cached?'저장된 분석을 적용했어요.':result.model+' 분석을 적용했어요.');}
+      })}>{mode==='fast'?'Gemini 기본 분석':'Gemini 정밀 분석'}</button>)}</div>
+      <p className="studio-metadata">{design.vision?'AI 분석 결과 · 글자 영역을 편집할 수 있어요.':'현재는 사진의 명암으로 계산한 기본 배치입니다.'} 같은 사진과 모델의 분석 결과는 재사용합니다. 새 분석은 사진을 Gemini에 보내며 계정 요금이 적용됩니다.</p>
       {design.vision && <VisionLayers design={design} onChange={next=>update({design:next})}/>}
       {!design.vision && <label>글자 정렬 <select value={design.align} onChange={e=>edit({align:e.target.value as Design['align']})}><option value="left">왼쪽</option><option value="center">가운데</option><option value="right">오른쪽</option></select></label>}
       <div className="archive-controls">{([['ink','글자색'],['wash','배경 색조']] as const).filter(([key])=>!design.vision||key==='wash').map(([key,label])=><label key={key}>{label}<input type="color" value={design[key]} onChange={e=>edit({[key]:e.target.value})}/></label>)}

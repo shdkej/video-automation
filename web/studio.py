@@ -225,8 +225,11 @@ def create_router(root: Path, work_limiter: threading.Semaphore) -> APIRouter:
         return studio_templates.analyze(reference.key)
 
     @router.post('/archive/design/vision')
-    def vision_design(reference: studio_templates.ReferenceKey, request: Request):
-        return provider_call(studio_templates.analyze_vision, reference.key, api_key=client_key(request))
+    def vision_design(reference: studio_templates.VisionRequest, request: Request):
+        key = request.headers.get('X-Gemini-API-Key')
+        if key is not None and not re.fullmatch(r'[!-~]{1,512}', key):
+            raise HTTPException(422, 'Gemini API 키의 형식을 확인해 주세요.')
+        return studio_templates.analyze_vision(reference, root/'vision-cache', key)
 
     @router.get('/templates')
     def templates():

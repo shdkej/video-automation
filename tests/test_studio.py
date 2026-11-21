@@ -219,26 +219,38 @@ def test_archive_template_preserves_style_independently_of_media(studio):
 
 def test_vision_template_provider_layers_and_saved_outputs(studio, monkeypatch):
     import json
-    from types import SimpleNamespace
+    import httpx
+    import base64
     from zipfile import ZipFile
-    from web import studio_ai, studio_render
+    from concurrent.futures import ThreadPoolExecutor
+    from web import studio_templates, studio_render
     client, root = studio
     sample = dict(role='label', text='IN PHONE', x=30,y=32,width=50,size=6,rotation=18,
                   color='#ffee22', outline='#202020', align='left', bold=False)
     layout = dict(name='주방',composition='대각선 휴대폰과 하단 자막',palette=['#693824'],
                   wash='#513726', strength=20, regions=[sample,dict(sample,role='body',text='본문',y=78)])
     calls = []
-    def create(**kwargs):
-        calls.append(kwargs)
-        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps(layout)))])
-    monkeypatch.setattr(studio_ai,'_client', lambda timeout,api_key: SimpleNamespace(
-        chat=SimpleNamespace(completions=SimpleNamespace(create=create)), close=lambda:None))
-    response = client.post('/api/studio/archive/design/vision',json={'key':'original/2026/demo.webp'},
-                           headers={'X-OpenAI-API-Key':'test-session-only'})
-    assert response.status_code == 200
-    design = response.json()
+    endpoint = '/api/studio/archive/design/vision'
+    data = {'key':'original/2026/demo.webp'}
+    def generate(url, **kwargs):
+        calls.append((url,kwargs))
+        return httpx.Response(200,request=httpx.Request('POST',url),json={
+            'candidates':[{'content':{'parts':[{'text':json.dumps(layout)}]}}]})
+    monkeypatch.setattr(studio_templates,'reference_bytes',lambda key:image_bytes())
+    monkeypatch.setattr(httpx,'post', generate)
+    monkeypatch.delenv('GEMINI_API_KEY', raising=False)
+    assert client.post(endpoint,json=data,headers={'X-OpenAI-API-Key':'openai-only'}).status_code==422
+    headers = {'X-Gemini-API-Key':'test-gemini-only'}
+    with ThreadPoolExecutor(2) as pool:
+        responses=list(pool.map(lambda _:client.post(endpoint,json=data,headers=headers),range(2)))
+    assert sorted(r.json()['cached'] for r in responses)==[False,True]
+    design = responses[0].json()['design']
     assert design['vision']['regions'][0]['rotation'] == 18
-    assert calls[0]['messages'][-1]['content'][0]['image_url']['url'].endswith('/original/2026/demo.webp')
+    assert len(calls)==1 and calls[0][0].endswith('/gemini-3.1-flash-lite:generateContent')
+    assert calls[0][1]['headers']=={'x-goog-api-key':'test-gemini-only'}
+    inline=calls[0][1]['json']['contents'][0]['parts'][0]['inlineData']
+    assert Image.open(io.BytesIO(base64.b64decode(inline['data']))).size==(320,480)
+    assert client.post(endpoint,json=data).json()['cached'] is True
     pid=client.post('/api/studio/projects',json={}).json()['id']
     base='/api/studio/projects/'+pid
     aid=client.post(base+'/assets',files={'files':('p.png',image_bytes(),'image/png')}).json()['assets'][0]['id']
@@ -257,4 +269,6 @@ def test_vision_template_provider_layers_and_saved_outputs(studio, monkeypatch):
     with Image.open(surface) as image:
         assert image.crop((50,330,1030,530)).getchannel('A').getextrema()[1] == 255
     layout['regions'][0]['x']=200
-    assert client.post('/api/studio/archive/design/vision',json={'key':'original/2026/demo.webp'}).status_code==422
+    assert client.post(endpoint,json={**data,'mode':'precision'},headers=headers).status_code==502
+    assert calls[-1][0].endswith('/gemini-3.8-flash:generateContent')
+    assert not any(b'test-gemini-only' in p.read_bytes() for p in (root/'vision-cache').iterdir())

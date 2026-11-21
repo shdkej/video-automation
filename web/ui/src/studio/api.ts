@@ -77,7 +77,11 @@ const projectPath = (id: string) => `/projects/${encodeURIComponent(id)}`;
 
 export const studioApi = {
   archive: (cursor: string) => request<ArchivePage>('/archive/images?cursor='+encodeURIComponent(cursor)),
-  vision: (key:string) => request<Design>('/archive/design/vision',aiJson({key})),
+  vision: (key:string,mode:'fast'|'precision',geminiKey:string) => {
+    const options = json('POST',{key,mode});
+    if(geminiKey) options.headers = {...options.headers,'X-Gemini-API-Key':geminiKey};
+    return request<{design:Design;cached:boolean;model:string}>('/archive/design/vision',options);
+  },
   analyze: (key: string) => request<Design>('/archive/design', json('POST', {key})),
   templates: () => request<Design[]>('/templates'),
   saveTemplate: (design: Design) => request<Design>('/templates', json('POST', design)),
