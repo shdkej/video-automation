@@ -19,7 +19,8 @@ export type KeywordResearch = {
 export type Scene = {id: string; text: string; asset_id: string; duration: number; trim_start: number};
 export type TextRegion = {role:'title'|'body'|'label'|'cta'; text:string; x:number;y:number;width:number;size:number;rotation:number;color:string;outline:string|null;align:'left'|'center'|'right';bold:boolean};
 export type Vision = {name:string;composition:string;palette:string[];wash:string;strength:number;regions:TextRegion[]};
-export type Design = {vision?: Vision|null; key:string; name:string; align:"left"|"center"|"right"; wash:string; ink:string; strength:number; title_y:number; body_y:number};
+export type Mood = 'clean'|'impact'|'friendly'|'handwritten';
+export type Design = {source_size?:[number,number]|null; mood?:Mood|null;vision?: Vision|null; key:string; name:string; align:"left"|"center"|"right"; wash:string; ink:string; strength:number; title_y:number; body_y:number};
 export type ArchivePage = {images:{key:string;url:string}[];cursor:string|null};
 export type Project = {
   design?: Design | null;
@@ -83,6 +84,7 @@ export const studioApi = {
     return request<{design:Design;cached:boolean;model:string}>('/archive/design/vision',options);
   },
   analyze: (key: string) => request<Design>('/archive/design', json('POST', {key})),
+  resolveTemplate: (design: Design) => request<Design>('/templates/resolve',json('POST',design)),
   templates: () => request<Design[]>('/templates'),
   saveTemplate: (design: Design) => request<Design>('/templates', json('POST', design)),
   capabilities: () => request<Capabilities>('/capabilities'),
@@ -109,3 +111,5 @@ export const studioApi = {
 export function referenceAsset(assets: Asset[], reference: Reference) {
   return assets.find((asset) => asset.kind === reference.kind && (asset.reference_id === reference.id || (!!reference.source_url && asset.source_url === reference.source_url)));
 }
+
+export const moodFonts = {clean:'Studio Pretendard', impact:'Studio Black Han', friendly:'Studio Jua', handwritten:'Studio Nanum Pen'};

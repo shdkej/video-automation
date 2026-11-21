@@ -1,6 +1,7 @@
 """Deterministic 9:16 composition using selected local assets and human captions."""
 from __future__ import annotations
 
+import math
 import json
 import subprocess
 from pathlib import Path
@@ -10,6 +11,20 @@ from PIL import Image, ImageDraw, ImageFont
 ROOT = Path(__file__).resolve().parent.parent
 WIDTH, HEIGHT = 1080, 1920
 FONTS = {'pretendard': 'Pretendard-Bold.otf', 'blackhansans': 'BlackHanSans-Regular.ttf', 'dohyeon': 'DoHyeon-Regular.ttf'}
+
+
+MOOD_FONTS = {'clean':'Pretendard-Regular.otf','impact':'BlackHanSans-Regular.ttf',
+              'friendly':'Jua-Regular.ttf','handwritten':'NanumPenScript-Regular.ttf'}
+
+
+def canvas_size(project, *, video=False):
+    source = (project.get('design') or {}).get('source_size')
+    if not source:
+        return WIDTH, HEIGHT
+    w, h = source
+    scale = min(1, 4096 / max(w,h), math.sqrt(8_294_400 / (w*h)))
+    unit = 2 if video else 1
+    return tuple(max(unit, unit * math.floor(value * scale / unit + .5)) for value in (w,h))
 
 
 def run(args: list[str], timeout: int = 240) -> None:
@@ -97,13 +112,13 @@ def draw_text(draw: ImageDraw.ImageDraw, text: str, *, center_y: int, size: int,
         y += font_size * 1.35
 
 
-def overlay(project: dict, scene: dict, index: int, path: Path) -> None:
-    image = Image.new('RGBA', (WIDTH, HEIGHT))
+def overlay(project: dict, scene: dict, index: int, path: Path, *, video=False) -> None:
+    image = Image.new('RGBA', canvas_size(project, video=video))
     draw = ImageDraw.Draw(image)
     design = project.get('design')
     if design:
         from PIL import ImageColor
-        draw.rectangle((0,0,WIDTH,HEIGHT), fill=(*ImageColor.getrgb(design['wash']),round(design['strength']*2.55)))
+        draw.rectangle((0,0,*image.size), fill=(*ImageColor.getrgb(design['wash']),round(design['strength']*2.55)))
     elif project['style'] == 'shade':
         for y in range(int(HEIGHT*.4), HEIGHT):
             alpha = round(210 * (y/HEIGHT - .4) / .6)
@@ -111,7 +126,7 @@ def overlay(project: dict, scene: dict, index: int, path: Path) -> None:
     elif project['style'] == 'editorial':
         draw.rounded_rectangle((58,78,WIDTH-58,HEIGHT-156), radius=12, fill=(27,29,23,180))
         draw.rectangle((86,118,93,238), fill='#f9df55')
-    if design and design.get("vision"):
+    if design:
         draw_regions(image, project, scene, index)
         image.save(path)
         return
@@ -120,12 +135,10 @@ def overlay(project: dict, scene: dict, index: int, path: Path) -> None:
         # A bottom hook and subtitles cannot share the same vertical region.
         if project['position'] == 'bottom' and scene['text'].strip():
             hook_y = 1010
-        if design:
-            hook_y = round(HEIGHT * design['title_y'] / 100)
         draw_text(draw, project['hook'], center_y=hook_y, size=88, max_width=920,
-                  max_height=370, font_name=project['font'], color=design['ink'] if design else '#fffdf2', align=design.get('align','center') if design else 'center')
-    draw_text(draw, scene['text'], center_y=round(HEIGHT*design['body_y']/100) if design else 1420, size=52, max_width=900,
-              max_height=380, font_name=project['font'], background=not design, color=design['ink'] if design else '#fffdf2', align=design.get('align','center') if design else 'center')
+                  max_height=370, font_name=project['font'])
+    draw_text(draw, scene['text'], center_y=1420, size=52, max_width=900,
+              max_height=380, font_name=project['font'], background=True)
     if index == len(project['scenes'])-1:
         draw_text(draw, project['cta'], center_y=1720, size=42, max_width=900,
                   max_height=160, font_name=project['font'], color='#fff1a8')
@@ -142,6 +155,7 @@ def _stamp(seconds: float) -> str:
 
 def render(project: dict, resolve_asset, output: Path, progress) -> None:
     output.mkdir(parents=True, exist_ok=True)
+    width, height = canvas_size(project, video=True)
     segments = []
     subtitles = []
     elapsed = 0.0
@@ -149,7 +163,7 @@ def render(project: dict, resolve_asset, output: Path, progress) -> None:
         progress(f'{index+1}/{len(project["scenes"])} 장면 합성 중', 5+int(75*index/len(project['scenes'])))
         source, asset = resolve_asset(scene['asset_id'])
         layer = output/f'_overlay_{index}.png'
-        overlay(project, scene, index, layer)
+        overlay(project, scene, index, layer, video=True)
         segment = output/f'_scene_{index}.mp4'
         cmd = ['ffmpeg','-y','-v','error','-threads','1']
         if asset['kind'] == 'image':
@@ -157,7 +171,7 @@ def render(project: dict, resolve_asset, output: Path, progress) -> None:
         else:
             cmd += ['-ss',str(scene['trim_start']),'-i',str(source)]
         cmd += ['-i',str(layer),'-filter_complex_threads','1','-filter_complex',
-                f'[0:v]scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=increase,crop={WIDTH}:{HEIGHT},setsar=1,fps=30,tpad=stop_mode=clone:stop_duration=30[bg];[bg][1:v]overlay=0:0:format=auto,format=yuv420p[v]',
+                f'[0:v]scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},setsar=1,fps=30,tpad=stop_mode=clone:stop_duration=30[bg];[bg][1:v]overlay=0:0:format=auto,format=yuv420p[v]',
                 '-map','[v]','-t',str(scene['duration']),'-an','-c:v','libx264','-preset','ultrafast','-crf','22','-threads','1',str(segment)]
         run(cmd)
         segments.append(segment)
@@ -205,7 +219,7 @@ def cards(project: dict, resolve_asset, directory: Path) -> Path:
             elif asset['kind'] != 'image':
                 raise HTTPException(422, '카드에는 사진이나 영상 장면을 선택해 주세요.')
             with Image.open(source) as original:
-                card = ImageOps.fit(original.convert('RGBA'), (WIDTH, HEIGHT))
+                card = ImageOps.fit(ImageOps.exif_transpose(original).convert('RGBA'), canvas_size(project))
             layer = directory/'overlay.png'
             overlay(project, scene, index, layer)
             with Image.open(layer) as surface:
@@ -219,7 +233,7 @@ def cards(project: dict, resolve_asset, directory: Path) -> Path:
 def draw_regions(image, project, scene, index):
     from PIL import ImageColor
     design = project['design']
-    regions = list(design['vision']['regions'])
+    regions = list((design.get('vision') or {}).get('regions', []))
     roles = {r['role'] for r in regions}
     for role, y, size in [('title',design['title_y'],8),('body',design['body_y'],5),('cta',90,4)]:
         if role not in roles:
@@ -236,13 +250,16 @@ def draw_regions(image, project, scene, index):
         if not text:
             continue
         face = FONTS[project['font']] if region['bold'] else 'Pretendard-Regular.otf'
+        mood = design.get('mood')
+        if mood:
+            face = 'Pretendard-Bold.otf' if mood == 'clean' and region['bold'] else MOOD_FONTS[mood]
         font_path = ROOT/'assets'/'fonts'/face
-        size = max(1, round(WIDTH*region['size']/100))
-        width = round(WIDTH*region['width']/100)
+        size = max(1, round(image.width*region['size']/100))
+        width = max(1, round(image.width*region['width']/100))
         for fitted in range(size, 0, -max(1,size//20)):
             font = ImageFont.truetype(str(font_path), fitted)
             lines = _lines(text, font, width)
-            if len(lines)*fitted*1.25 <= HEIGHT:
+            if len(lines)*fitted*1.25 <= image.height:
                 break
         step = round(fitted*1.25)
         pad = max(4, fitted//8)
@@ -250,11 +267,16 @@ def draw_regions(image, project, scene, index):
         draw = ImageDraw.Draw(tile)
         align = region['align']
         x, anchor = {'left':(pad,'lt'), 'center':(tile.width/2,'mt'), 'right':(width+pad,'rt')}[align]
+        # Single-weight display faces use synthetic emphasis, like the browser.
+        emphasis = max(1,round(fitted*.025)) if mood and mood != 'clean' and region['bold'] else 0
         for i,line in enumerate(lines):
             draw.text((x,pad+i*step),line,anchor=anchor,font=font,
-                      fill=ImageColor.getrgb(region['color']),stroke_width=max(1,fitted//24) if region['outline'] else 0,
-                      stroke_fill=region['outline'])
+                      fill=ImageColor.getrgb(region['color']),stroke_width=emphasis+(max(1,fitted//24) if region['outline'] else 0),
+                      stroke_fill=region['outline'] or region['color'])
+            if emphasis and region['outline']:
+                draw.text((x,pad+i*step),line,anchor=anchor,font=font,fill=region['color'],
+                          stroke_width=emphasis,stroke_fill=region['color'])
         if region['rotation']:
             tile = tile.rotate(-region['rotation'],resample=Image.Resampling.BICUBIC,expand=True)
-        image.alpha_composite(tile,(round(WIDTH*region['x']/100-tile.width/2),
-                                    round(HEIGHT*region['y']/100-tile.height/2)))
+        image.alpha_composite(tile,(round(image.width*region['x']/100-tile.width/2),
+                                    round(image.height*region['y']/100-tile.height/2)))

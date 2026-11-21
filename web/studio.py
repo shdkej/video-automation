@@ -231,6 +231,27 @@ def create_router(root: Path, work_limiter: threading.Semaphore) -> APIRouter:
             raise HTTPException(422, 'Gemini API 키의 형식을 확인해 주세요.')
         return studio_templates.analyze_vision(reference, root/'vision-cache', key)
 
+    @router.post('/templates/resolve')
+    def resolve_template(design: studio_templates.DesignTemplate):
+        return studio_templates.resolve_design(design)
+
+    def project_for_output(pid, *, allow_unresolved=False):
+        project = store.read(pid)
+        design = project.get('design')
+        if design and not design.get('source_size'):
+            try:
+                upgraded = studio_templates.resolve_design(studio_templates.DesignTemplate.model_validate(design))
+            except HTTPException:
+                if allow_unresolved:
+                    return project
+                raise
+            with store.lock:
+                project = store.read(pid)
+                if project.get('design') == design:
+                    project['design'] = upgraded.model_dump()
+                    store.save(project)
+        return project
+
     @router.get('/templates')
     def templates():
         return [json.loads(path.read_text()) for path in sorted((root/'templates').glob('*.json'))]
@@ -259,7 +280,7 @@ def create_router(root: Path, work_limiter: threading.Semaphore) -> APIRouter:
 
     @router.get('/projects/{pid}')
     def get_project(pid: str):
-        project = store.public(store.read(pid))
+        project = store.public(project_for_output(pid, allow_unresolved=True))
         if project.get('last_render'):
             project['last_render'] = render_status(pid, project['last_render']['id'])
         return project
@@ -434,7 +455,7 @@ def create_router(root: Path, work_limiter: threading.Semaphore) -> APIRouter:
     def cards(pid: str):
         from tempfile import TemporaryDirectory
         from starlette.background import BackgroundTask
-        project = store.read(pid)
+        project = project_for_output(pid)
         if not project['scenes']:
             raise HTTPException(422, '카드로 만들 장면을 추가해 주세요.')
         if not work_limiter.acquire(blocking=False):
@@ -452,7 +473,7 @@ def create_router(root: Path, work_limiter: threading.Semaphore) -> APIRouter:
 
     @router.post('/projects/{pid}/render')
     def start_render(pid: str):
-        project=store.read(pid)
+        project=project_for_output(pid)
         validate_render(project)
         with render_lock:
             if pid in active: raise HTTPException(409,'이 프로젝트의 영상을 만들고 있습니다.')

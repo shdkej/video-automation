@@ -1,5 +1,6 @@
 import {useEffect,useRef,useState} from 'react';
 import {studioApi, type ArchivePage, type Design, type Project} from './api';
+import {FormatSize,MoodSelect} from './TemplateFormat';
 import {VisionLayers} from './VisionLayers';
 import {Preview} from './Preview';
 
@@ -37,7 +38,10 @@ export function ArchiveTemplates({project,update}:{project:Project;update:(value
       });
     }}>{open?'템플릿 닫기':'아카이브 디자인 템플릿'}</button>
     {open && <fieldset disabled={busy}>
-      {saved.length>0 && <label>저장한 템플릿 <select value="" onChange={e=>{if(e.target.value) update({design:saved[Number(e.target.value)]});}}><option value="">선택</option>{saved.map((s,i)=><option value={i} key={s.key+s.name}>{s.name}</option>)}</select></label>}
+      {saved.length>0 && <label>저장한 템플릿 <select value="" onChange={e=>{const chosen=saved[Number(e.target.value)]; if(e.target.value && chosen) void act(async()=>{
+          const resolved = chosen.source_size ? chosen : await studioApi.resolveTemplate(chosen);
+          if(mounted.current) update({design:resolved});
+        });}}><option value="">선택</option>{saved.map((s,i)=><option value={i} key={s.key+s.name}>{s.name}</option>)}</select></label>}
       <p>레퍼런스를 골라 색감과 글자 위치를 가져오세요.</p>
       <div className="archive-grid">{page.images.map(item=><button type="button" key={item.key} aria-label={item.key+' 디자인 적용'} aria-pressed={design?.key===item.key} onClick={()=>void act(async()=>{const derived=await studioApi.analyze(item.key); if(mounted.current) update({design:derived});})}>
         <img src={item.url} loading="lazy" alt={item.key.split('/').pop()} /></button>)}</div>
@@ -46,7 +50,7 @@ export function ArchiveTemplates({project,update}:{project:Project;update:(value
       {design && <><div className="archive-comparison">
         <figure><img src={'https://img.shdkej.com/'+design.key} alt="선택한 레퍼런스" /><figcaption>레퍼런스</figcaption></figure>
         <figure><Preview project={{...project,hook:design.vision?project.hook:project.hook||'제목 미리보기'}} scene={sample} index={0}/><figcaption>현재 디자인</figcaption></figure>
-      </div><label>템플릿 이름 <input value={design.name} maxLength={100} onChange={e=>edit({name:e.target.value})}/></label>
+      </div><FormatSize design={design}/><MoodSelect design={design} change={mood=>edit({mood})}/><label>템플릿 이름 <input value={design.name} maxLength={100} onChange={e=>edit({name:e.target.value})}/></label>
       <label className="studio-field">Gemini API 키 · 선택<input type="password" autoComplete="off" spellCheck={false} maxLength={512} value={geminiKey} onChange={e=>{tabGeminiKey=e.target.value.trim();setGeminiKey(tabGeminiKey);}} placeholder="서버 키 사용"/></label>
       <div className="studio-row">{(['fast','precision'] as const).map(mode=><button key={mode} type="button" onClick={()=>void act(async()=>{
         const result=await studioApi.vision(design.key,mode,geminiKey);

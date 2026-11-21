@@ -44,7 +44,12 @@ class TextRegion(BaseModel):
     bold: bool = True
 
 
+Mood = Literal['clean','impact','friendly','handwritten']
+Dimension = Annotated[int, Field(ge=1, le=32_000_000)]
+
+
 class VisionLayout(BaseModel):
+    mood: Mood = 'clean'
     name: str = Field(min_length=1, max_length=100)
     composition: str = Field(min_length=1, max_length=700)
     palette: list[Annotated[str, Field(pattern=HEX)]] = Field(min_length=1, max_length=6)
@@ -54,6 +59,8 @@ class VisionLayout(BaseModel):
 
 
 class DesignTemplate(ReferenceKey):
+    source_size: tuple[Dimension,Dimension] | None = None
+    mood: Mood | None = None
     vision: VisionLayout | None = None
     name: str = Field(min_length=1, max_length=100)
     wash: str = Field(pattern=HEX)
@@ -104,10 +111,12 @@ def decode_image(data):
 
 
 def analyze(key):
-    return derive(key, decode_image(reference_bytes(key)).resize((96,120)))
+    return derive(key, decode_image(reference_bytes(key)))
 
 
 def derive(key, image):
+    source_size = image.size
+    image = image.resize((96,120))
     palette = image.quantize(colors=6)
     _, index = max(palette.getcolors())
     rgb = palette.getpalette()[index*3:index*3+3]
@@ -121,16 +130,15 @@ def derive(key, image):
     align = 'center'
     if max(bands) > 1.45 * max(2, sorted(bands)[1]):
         align = ['left','center','right'][bands.index(max(bands))]
-    return DesignTemplate(align=align, key=key, name='아카이브 디자인', wash='#%02x%02x%02x' % tuple(rgb),
+    return DesignTemplate(source_size=source_size,mood='clean',align=align, key=key, name='아카이브 디자인', wash='#%02x%02x%02x' % tuple(rgb),
                           ink='#202020' if lightness >= 145 else '#fffaf2', strength=28,
                           title_y=round(title/1.2), body_y=round(body/1.2))
 
-VISION_VERSION = 'layout-2'
+VISION_VERSION = 'layout-3'
 VISION_MODELS = {'fast':'gemini-3.1-flash-lite', 'precision':'gemini-3.8-flash'}
 
 
-def gemini_layout(data: bytes, model: str, api_key: str) -> VisionLayout:
-    image = decode_image(data)
+def gemini_layout(image: Image.Image, model: str, api_key: str) -> VisionLayout:
     image.thumbnail((1800,1800), Image.Resampling.LANCZOS)
     encoded = io.BytesIO()
     image.save(encoded, 'JPEG', quality=90)
@@ -138,7 +146,8 @@ def gemini_layout(data: bytes, model: str, api_key: str) -> VisionLayout:
         "Analyze this reference as an editable graphic design. Return a JSON object matching this schema: "
         + json.dumps(VisionLayout.model_json_schema(), ensure_ascii=False)
         + ". Give the template name and composition description in Korean. Describe framing, lighting, "
-          "and placement of subjects. Estimate the palette and a subtle reusable color wash. "
+          "and placement of subjects. Choose the mood for the reference lettering: clean for restrained/minimal, "
+          "impact for bold headlines, friendly for rounded playful lettering, handwritten for personal or pen lettering. Estimate the palette and a subtle reusable color wash. "
           "Locate up to 12 distinct visible text blocks in the artwork, ignoring social app chrome. "
           "For each transcribe original text verbatim; use role title for main headline, body for primary caption, "
           "cta for a call to action, label for other text (including secondary translations and text embedded in a device screen). Never turn a device-screen label into a headline. "
@@ -188,9 +197,11 @@ def analyze_vision(reference: VisionRequest, cache: Path, api_key: str | None):
     with (cache / (identity + '.lock')).open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         try:
-            layout = VisionLayout.model_validate_json(target.read_bytes())
+            saved = json.loads(target.read_bytes())
+            layout = VisionLayout.model_validate(saved['layout'])
+            size = saved['source_size']
             cached = True
-        except (FileNotFoundError, ValueError):
+        except (FileNotFoundError, KeyError, ValueError):
             api_key = api_key or os.environ.get('GEMINI_API_KEY','').strip()
             if not api_key:
                 raise HTTPException(422, 'Gemini API 키를 입력하거나 서버에 GEMINI_API_KEY를 설정해 주세요.')
@@ -199,12 +210,19 @@ def analyze_vision(reference: VisionRequest, cache: Path, api_key: str | None):
                     fcntl.flock(provider_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 except BlockingIOError:
                     raise HTTPException(429, '진행 중인 Gemini 분석이 끝난 뒤 다시 시도해 주세요.') from None
-                layout = gemini_layout(data, model, api_key)
+                source = decode_image(data)
+                size = source.size
+                layout = gemini_layout(source, model, api_key)
             with tempfile.NamedTemporaryFile(dir=cache, delete=False, suffix='.tmp') as temp:
-                temp.write(layout.model_dump_json().encode())
+                temp.write(json.dumps({'source_size':size,'layout':layout.model_dump()}).encode())
             Path(temp.name).replace(target)
             cached = False
-    design = DesignTemplate(key=key, name=layout.name, wash=layout.wash, strength=layout.strength,
+    design = DesignTemplate(key=key, source_size=size, mood=layout.mood, name=layout.name, wash=layout.wash, strength=layout.strength,
                           ink=layout.regions[0].color if layout.regions else '#ffffff',
                           title_y=22, body_y=74, vision=layout)
     return {'design':design, 'cached':cached, 'model':model}
+
+def resolve_design(design: DesignTemplate) -> DesignTemplate:
+    if not design.source_size:
+        design.source_size = decode_image(reference_bytes(design.key)).size
+    return design

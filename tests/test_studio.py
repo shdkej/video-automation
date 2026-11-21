@@ -196,7 +196,7 @@ def test_archive_template_preserves_style_independently_of_media(studio):
     from zipfile import ZipFile
     from web.studio_templates import derive
     client, _ = studio
-    design = derive('original/2026/sample.webp', Image.new('RGB', (96,120), '#215b79')).model_dump()
+    design = derive('original/2026/sample.webp', Image.new('RGB', (96,120), '#215b79')).model_dump(mode='json')
     assert design['wash'] == '#215b79'
     assert client.post('/api/studio/archive/design', json={'key':'https://other.example/a.jpg'}).status_code == 422
     design.update(name='바다', title_y=28, body_y=67, ink='#fffefe', wash='#001f45', strength=60, align='right')
@@ -213,7 +213,7 @@ def test_archive_template_preserves_style_independently_of_media(studio):
     with ZipFile(io.BytesIO(response.content)) as cards:
         assert cards.namelist() == ['card-01.jpg','card-02.jpg']
         with Image.open(io.BytesIO(cards.read('card-01.jpg'))) as preview:
-            assert preview.size == (1080,1920)
+            assert preview.size == (96,120)
             assert preview.getpixel((5,5))[0] < 100
 
 
@@ -262,12 +262,12 @@ def test_vision_template_provider_layers_and_saved_outputs(studio, monkeypatch):
     card=client.post(base+'/cards')
     assert card.status_code==200
     with ZipFile(io.BytesIO(card.content)) as archive:
-        assert Image.open(io.BytesIO(archive.read('card-01.jpg'))).size == (1080,1920)
+        assert Image.open(io.BytesIO(archive.read('card-01.jpg'))).size == (320,480)
     # The shared final composition keeps user title even if vision only detects label/body.
     surface=root/'layer.png'
     studio_render.overlay(project,project['scenes'][0],0,surface)
     with Image.open(surface) as image:
-        assert image.crop((50,330,1030,530)).getchannel('A').getextrema()[1] == 255
+        assert image.crop((5,75,290,150)).getchannel('A').getextrema()[1] == 255
     layout['regions'][0]['x']=200
     assert client.post(endpoint,json={**data,'mode':'precision'},headers=headers).status_code==502
     assert calls[-1][0].endswith('/gemini-3.8-flash:generateContent')
@@ -285,7 +285,7 @@ def test_gemini_precision_timeout_is_reported_without_retry(monkeypatch):
     monkeypatch.setattr(httpx,'post',timeout)
     for mode in ('precision','fast'):
         with pytest.raises(HTTPException) as error:
-            gemini_layout(image_bytes(),VISION_MODELS[mode],'fixture')
+            gemini_layout(Image.open(io.BytesIO(image_bytes())),VISION_MODELS[mode],'fixture')
         assert error.value.status_code == 504
     assert len(calls) == 2
     assert calls[0]['timeout'].read == 240
@@ -293,3 +293,58 @@ def test_gemini_precision_timeout_is_reported_without_retry(monkeypatch):
     assert config['thinkingConfig']['thinkingLevel'] == 'MEDIUM'
     assert config['maxOutputTokens'] == 8192
     assert calls[1]['timeout'].read == 75
+
+
+def test_legacy_reference_resolution_and_landscape_render(studio, monkeypatch):
+    import json
+    import subprocess
+    from zipfile import ZipFile
+    from fastapi import HTTPException
+    from web import studio_templates
+    client,root = studio
+    raw = io.BytesIO()
+    Image.new('RGB',(481,319),'orange').save(raw,format='PNG')
+    monkeypatch.setattr(studio_templates,'reference_bytes',lambda key:raw.getvalue())
+    design = dict(key='original/2026/demo.webp',name='legacy',ink='#ffffff',wash='#222222',
+                  align='left',strength=25,title_y=27,body_y=75,mood='handwritten')
+    assert client.post('/api/studio/templates/resolve',json=design).json()['source_size']==[481,319]
+    pid = client.post('/api/studio/projects',json={'design':design}).json()['id']
+    base = '/api/studio/projects/'+pid
+    assert client.get(base).json()['design']['source_size'] == [481,319]
+    aid=client.post(base+'/assets',files={'files':('photo.png',image_bytes(),'image/png')}).json()['assets'][0]['id']
+    client.put(base,json={'script':'본문','hook':'제목','scenes':[dict(id='a',text='본문',asset_id=aid,duration=1)]})
+    with ZipFile(io.BytesIO(client.post(base+'/cards').content)) as archive:
+        assert Image.open(io.BytesIO(archive.read('card-01.jpg'))).size==(481,319)
+    job=client.post(base+'/render').json()
+    for _ in range(100):
+        job=client.get(base+'/renders/'+job['id']).json()
+        if job['status'] in ('error','done'): break
+        time.sleep(.1)
+    assert job['status']=='done',job
+    path=root/pid/'renders'/job['id']/'reel.mp4'
+    dims=subprocess.check_output(['ffprobe','-v','error','-select_streams','v:0','-show_entries','stream=width,height','-of','json',str(path)])
+    assert json.loads(dims)['streams'][0]=={'width':482,'height':320}
+    client.put(base,json={'design':design})
+    def missing(key): raise HTTPException(502,'원본 없음')
+    monkeypatch.setattr(studio_templates,'reference_bytes',missing)
+    assert client.get(base).status_code==200
+    assert client.post(base+'/cards').status_code==502
+
+
+def test_template_mood_family_affects_regular_and_bold_layers(tmp_path):
+    from web import studio_render
+    region = dict(role='label',text='우리의 시간',x=50,y=50,width=90,size=12,
+                  rotation=0,color='#ffffff',outline=None,align='center',bold=False)
+    design = dict(source_size=[480,320],wash='#102030',strength=15,title_y=20,body_y=70,
+                  ink='#ffffff',align='center',vision={'regions':[region]})
+    scene = dict(text='')
+    project = dict(design=design,hook='',cta='',font='pretendard',scenes=[scene])
+    for bold in (False,True):
+        region['bold'] = bold
+        rendered = set()
+        for mood in studio_render.MOOD_FONTS:
+            design['mood'] = mood
+            path=tmp_path/'overlay.png'
+            studio_render.overlay(project,scene,0,path)
+            rendered.add(path.read_bytes())
+        assert len(rendered) == 4
