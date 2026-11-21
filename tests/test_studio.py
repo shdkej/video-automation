@@ -190,3 +190,28 @@ def test_reference_upload_is_one_file_at_a_time(studio):
     response = client.post(base + '/assets?reference_id=ref', files=[('files', ('one.png', image_bytes(), 'image/png')), ('files', ('two.png', image_bytes(), 'image/png'))])
     assert response.status_code == 422
     assert client.get(base).json()['assets'] == []
+
+
+def test_archive_template_preserves_style_independently_of_media(studio):
+    from zipfile import ZipFile
+    from web.studio_templates import derive
+    client, _ = studio
+    design = derive('original/2026/sample.webp', Image.new('RGB', (96,120), '#215b79')).model_dump()
+    assert design['wash'] == '#215b79'
+    assert client.post('/api/studio/archive/design', json={'key':'https://other.example/a.jpg'}).status_code == 422
+    design.update(name='바다', title_y=28, body_y=67, ink='#fffefe', wash='#001f45', strength=60, align='right')
+    assert client.post('/api/studio/templates', json=design).status_code == 200
+    assert client.get('/api/studio/templates').json() == [design]
+    project = client.post('/api/studio/projects', json={}).json()
+    base = '/api/studio/projects/'+project['id']
+    asset = client.post(base+'/assets', files={'files':('replacement.png',image_bytes(),'image/png')}).json()['assets'][0]
+    scenes = [dict(id=str(i),asset_id=asset['id'],text='본문 '+str(i)) for i in range(2)]
+    assert client.put(base,json={'hook':'제목','design':design,'scenes':scenes}).status_code == 200
+    assert client.get(base).json()['design'] == design
+    response = client.post(base+'/cards')
+    assert response.status_code == 200, response.text[:100]
+    with ZipFile(io.BytesIO(response.content)) as cards:
+        assert cards.namelist() == ['card-01.jpg','card-02.jpg']
+        with Image.open(io.BytesIO(cards.read('card-01.jpg'))) as preview:
+            assert preview.size == (1080,1920)
+            assert preview.getpixel((5,5))[0] < 100

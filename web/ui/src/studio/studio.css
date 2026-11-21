@@ -457,3 +457,14 @@
   .studio-reference-material > .studio-button { width: 100%; }
   .studio-reference-material-thumb { width: 72px; height: 56px; }
 }
+
+.archive-picker fieldset { border:0; padding:12px 0; min-width:0 }
+.archive-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(75px,1fr)); gap:6px; max-height:280px; overflow:auto }
+.archive-grid button { padding:2px; background:transparent; border:1px solid transparent; cursor:pointer }
+.archive-grid button[aria-pressed=true] { border-color:currentColor }
+.archive-grid img { width:100%; height:84px; object-fit:cover }
+.archive-comparison,.archive-controls { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin:12px 0 }
+.archive-comparison figure { margin:0; min-width:0 }
+.archive-comparison figure>img { width:100%; height:auto; max-height:360px; object-fit:contain }
+.archive-controls label { display:grid; gap:4px }
+.archive-controls input { max-width:100% }

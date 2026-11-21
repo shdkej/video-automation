@@ -17,7 +17,10 @@ export type KeywordResearch = {
   items: {keyword: string; is_seed: boolean; pc: string; mobile: string; monthly_total: number | null; monthly_label: string; competition: string}[];
 };
 export type Scene = {id: string; text: string; asset_id: string; duration: number; trim_start: number};
+export type Design = {key:string; name:string; align:"left"|"center"|"right"; wash:string; ink:string; strength:number; title_y:number; body_y:number};
+export type ArchivePage = {images:{key:string;url:string}[];cursor:string|null};
 export type Project = {
+  design?: Design | null;
   id: string; title: string; script: string; topic: string; audience: string; goal: string; language: string;
   keywords: string[]; hook: string; caption: string; cta: string;
   style: 'photo' | 'shade' | 'editorial'; font: 'pretendard' | 'blackhansans' | 'dohyeon';
@@ -39,8 +42,8 @@ export function emptyProject(): Project {
 
 export function editableProject(project: Project) {
   // Assets and timestamps belong to the server. A draft can never replace an upload.
-  const {title, script, topic, audience, goal, language, keywords, hook, caption, cta, style, font, position, scenes, audio_asset_id, references} = project;
-  return {title, script, topic, audience, goal, language, keywords, hook, caption, cta, style, font, position, scenes, audio_asset_id, references};
+  const {title, script, topic, audience, goal, language, keywords, hook, caption, cta, design, style, font, position, scenes, audio_asset_id, references} = project;
+  return {title, script, topic, audience, goal, language, keywords, hook, caption, cta, design, style, font, position, scenes, audio_asset_id, references};
 }
 
 let browserApiKey = '';
@@ -71,6 +74,10 @@ function json(method: string, body: unknown): RequestInit {
 const projectPath = (id: string) => `/projects/${encodeURIComponent(id)}`;
 
 export const studioApi = {
+  archive: (cursor: string) => request<ArchivePage>('/archive/images?cursor='+encodeURIComponent(cursor)),
+  analyze: (key: string) => request<Design>('/archive/design', json('POST', {key})),
+  templates: () => request<Design[]>('/templates'),
+  saveTemplate: (design: Design) => request<Design>('/templates', json('POST', design)),
   capabilities: () => request<Capabilities>('/capabilities'),
   list: () => request<{projects: Project[]}>('/projects'),
   create: (title: string) => request<Project>('/projects', json('POST', {title})),

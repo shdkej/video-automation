@@ -72,7 +72,7 @@ def _lines(text: str, font: ImageFont.FreeTypeFont, max_width: int) -> list[str]
 
 def draw_text(draw: ImageDraw.ImageDraw, text: str, *, center_y: int, size: int,
               max_width: int, max_height: int, font_name: str, color: str = '#fffdf2',
-              background: bool = False) -> None:
+              background: bool = False, align: str = 'center') -> None:
     if not text.strip():
         return
     for font_size in range(size, 23, -2):
@@ -89,8 +89,10 @@ def draw_text(draw: ImageDraw.ImageDraw, text: str, *, center_y: int, size: int,
                                 WIDTH/2+half_width, center_y+height/2+24),
                                radius=18, fill=(28,28,23,150))
     y = center_y - height / 2
+    anchor, x = {'left':('lt',(WIDTH-max_width)/2),'center':('mt',WIDTH/2),
+                 'right':('rt',(WIDTH+max_width)/2)}[align]
     for line in lines:
-        draw.text((WIDTH / 2, y), line, font=font, anchor='mt', fill=color,
+        draw.text((x, y), line, font=font, anchor=anchor, fill=color,
                   stroke_width=max(1, font_size//22), stroke_fill=(30, 28, 24, 230))
         y += font_size * 1.35
 
@@ -98,7 +100,11 @@ def draw_text(draw: ImageDraw.ImageDraw, text: str, *, center_y: int, size: int,
 def overlay(project: dict, scene: dict, index: int, path: Path) -> None:
     image = Image.new('RGBA', (WIDTH, HEIGHT))
     draw = ImageDraw.Draw(image)
-    if project['style'] == 'shade':
+    design = project.get('design')
+    if design:
+        from PIL import ImageColor
+        draw.rectangle((0,0,WIDTH,HEIGHT), fill=(*ImageColor.getrgb(design['wash']),round(design['strength']*2.55)))
+    elif project['style'] == 'shade':
         for y in range(int(HEIGHT*.4), HEIGHT):
             alpha = round(210 * (y/HEIGHT - .4) / .6)
             draw.line((0,y,WIDTH,y), fill=(24,26,22,alpha))
@@ -110,10 +116,12 @@ def overlay(project: dict, scene: dict, index: int, path: Path) -> None:
         # A bottom hook and subtitles cannot share the same vertical region.
         if project['position'] == 'bottom' and scene['text'].strip():
             hook_y = 1010
+        if design:
+            hook_y = round(HEIGHT * design['title_y'] / 100)
         draw_text(draw, project['hook'], center_y=hook_y, size=88, max_width=920,
-                  max_height=370, font_name=project['font'])
-    draw_text(draw, scene['text'], center_y=1420, size=52, max_width=900,
-              max_height=380, font_name=project['font'], background=True)
+                  max_height=370, font_name=project['font'], color=design['ink'] if design else '#fffdf2', align=design.get('align','center') if design else 'center')
+    draw_text(draw, scene['text'], center_y=round(HEIGHT*design['body_y']/100) if design else 1420, size=52, max_width=900,
+              max_height=380, font_name=project['font'], background=not design, color=design['ink'] if design else '#fffdf2', align=design.get('align','center') if design else 'center')
     if index == len(project['scenes'])-1:
         draw_text(draw, project['cta'], center_y=1720, size=42, max_width=900,
                   max_height=160, font_name=project['font'], color='#fff1a8')
@@ -174,3 +182,31 @@ def render(project: dict, resolve_asset, output: Path, progress) -> None:
     # Remove large intermediates only after all public outputs exist.
     for path in output.glob('_*'):
         if path.is_file(): path.unlink()
+
+def cards(project: dict, resolve_asset, directory: Path) -> Path:
+    from zipfile import ZipFile
+    from PIL import ImageOps
+    from fastapi import HTTPException
+    target = directory/'cards.zip'
+    with ZipFile(target, 'w') as archive:
+        for index, scene in enumerate(project['scenes']):
+            source, asset = resolve_asset(scene['asset_id'])
+            if asset['kind'] == 'video':
+                frame = directory/f'frame-{index}.jpg'
+                run(['ffmpeg','-y','-v','error','-ss',str(scene['trim_start']),'-i',str(source),
+                     '-frames:v','1',str(frame)])
+                if not frame.is_file():
+                    raise HTTPException(422, '카드의 영상 시작점을 확인해 주세요.')
+                source = frame
+            elif asset['kind'] != 'image':
+                raise HTTPException(422, '카드에는 사진이나 영상 장면을 선택해 주세요.')
+            with Image.open(source) as original:
+                card = ImageOps.fit(original.convert('RGBA'), (WIDTH, HEIGHT))
+            layer = directory/'overlay.png'
+            overlay(project, scene, index, layer)
+            with Image.open(layer) as surface:
+                card.alpha_composite(surface)
+            path = directory/'card.jpg'
+            card.convert('RGB').save(path, quality=94)
+            archive.write(path, f'card-{index+1:02d}.jpg')
+    return target

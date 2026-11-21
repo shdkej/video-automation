@@ -18,7 +18,7 @@ from fastapi.routing import APIRoute
 from PIL import Image, ImageOps, UnidentifiedImageError
 from pydantic import BaseModel, Field
 
-from web import studio_render, studio_keywords
+from web import studio_render, studio_keywords, studio_templates
 
 
 class StudioRoute(APIRoute):
@@ -67,6 +67,7 @@ class ProjectPatch(BaseModel):
     style: Literal['photo','shade','editorial'] = 'shade'
     font: Literal['pretendard','blackhansans','dohyeon'] = 'pretendard'
     position: Literal['top','center','bottom'] = 'top'
+    design: studio_templates.DesignTemplate | None = None
     scenes: list[Scene] = Field(default_factory=list,max_length=30)
     audio_asset_id: str | None = Field(default=None,max_length=64)
     references: list[dict] = Field(default_factory=list,max_length=50)
@@ -214,6 +215,25 @@ def create_router(root: Path, work_limiter: threading.Semaphore) -> APIRouter:
     def capabilities():
         from web import studio_ai
         return {**studio_ai.capabilities(), 'keyword_search': studio_keywords.available(), 'youtube_search': studio_ai.youtube_available()}
+
+    @router.get('/archive/images')
+    def archive_images(cursor: str = Query('', max_length=2048)):
+        return studio_templates.list_images(cursor)
+
+    @router.post('/archive/design')
+    def archive_design(reference: studio_templates.ReferenceKey):
+        return studio_templates.analyze(reference.key)
+
+    @router.get('/templates')
+    def templates():
+        return [json.loads(path.read_text()) for path in sorted((root/'templates').glob('*.json'))]
+
+    @router.post('/templates')
+    def save_template(design: studio_templates.DesignTemplate):
+        from hashlib import sha256
+        identity = sha256((design.key+'\n'+design.name).encode()).hexdigest()
+        store.write_json(root/'templates'/(identity+'.json'), design.model_dump())
+        return design
 
     @router.get('/projects')
     def projects():
@@ -402,6 +422,26 @@ def create_router(root: Path, work_limiter: threading.Semaphore) -> APIRouter:
             _, asset=store.resolve(project,project['audio_asset_id'])
             if asset['kind']!='audio': raise HTTPException(422,'내레이션에는 음성 파일을 선택해 주세요.')
             if asset['duration']>total+.1: raise HTTPException(422,'음성이 장면보다 깁니다. 음성 길이에 맞춰 장면 길이를 늘려 주세요.')
+
+    @router.post('/projects/{pid}/cards')
+    def cards(pid: str):
+        from tempfile import TemporaryDirectory
+        from starlette.background import BackgroundTask
+        project = store.read(pid)
+        if not project['scenes']:
+            raise HTTPException(422, '카드로 만들 장면을 추가해 주세요.')
+        if not work_limiter.acquire(blocking=False):
+            raise HTTPException(429, '다른 출력이 끝나면 다시 시도해 주세요.')
+        temp = TemporaryDirectory(dir=store.directory(pid))
+        try:
+            path = studio_render.cards(project, lambda aid: store.resolve(project, aid), Path(temp.name))
+            return FileResponse(path, filename='cards.zip', media_type='application/zip',
+                                background=BackgroundTask(temp.cleanup))
+        except Exception:
+            temp.cleanup()
+            raise
+        finally:
+            work_limiter.release()
 
     @router.post('/projects/{pid}/render')
     def start_render(pid: str):

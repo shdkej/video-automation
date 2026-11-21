@@ -2,6 +2,7 @@ import {useRef, useState} from 'react';
 import {ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Check, Download, Film, ImagePlus, LoaderCircle, Music2, Plus, Save, Sparkles, Trash2, Upload, X} from 'lucide-react';
 import type {Asset, Project, Reference, Scene} from './api';
 import {referenceAsset, studioApi} from './api';
+import {ArchiveTemplates} from './ArchiveTemplates';
 import {Preview} from './Preview';
 import {KeywordResearch} from './KeywordResearch';
 import {AiKeySettings} from './AiKeySettings';
@@ -227,6 +228,7 @@ export function Studio() {
             <p className="studio-eyebrow">나의 문장으로 시작하기</p>
             <h1><span>어떤 이야기를</span><span>들려줄까요?</span></h1>
             <p className="studio-lead">직접 쓴 대본을 넣어 주세요.<br />키워드와 후킹을 고르고, 어울리는 장면을 붙여요.</p>
+            <ArchiveTemplates key={project.id} project={project} update={update} />
             <label className="studio-field studio-title-field"><span>프로젝트 이름</span><input value={project.title} maxLength={120} placeholder="예: 퇴근 후 처음 만든 나의 작업실" onChange={(event) => update({title: event.target.value})} /></label>
             <label className="studio-field studio-script-field"><span>내 대본 <small>추천을 받아도 원문은 그대로 남아요.</small></span><textarea rows={10} value={project.script} maxLength={12000} placeholder={'영상에서 하고 싶은 말을 써 주세요.\n\n이미 작성한 대본을 그대로 붙여 넣어도 좋아요.\n줄을 나누면 장면을 구성하기 편해요.'} onChange={(event) => update({script: event.target.value})} /></label>
             <div className="studio-field-footer"><span>문단마다 하나의 장면으로 나눌 수 있어요.</span><span>{project.script.length.toLocaleString()} / 12,000</span></div>
@@ -301,7 +303,14 @@ export function Studio() {
           </div><aside className="studio-preview-panel"><div className="studio-preview-sticky"><div className="studio-subheading"><h2>{state.render?.status === 'done' && !state.staleOutput ? '출력한 영상' : '장면 미리보기'}</h2><span>{state.render?.status === 'done' && !state.staleOutput ? `전체 ${seconds(totalDuration)}` : activeScene ? `${activeIndex + 1} / ${project.scenes.length}` : '9 : 16'}</span></div>{state.render?.status === 'done' && state.render.outputs && !state.staleOutput ? <video className="studio-output-video" src={state.render.outputs.video} poster={state.render.outputs.cover} controls playsInline /> : <Preview project={project} scene={activeScene} index={activeIndex} />}
             {!(state.render?.status === 'done' && !state.staleOutput) && <p className="studio-preview-note">배치 확인용 미리보기예요. 최종 줄바꿈과 재생은 출력한 영상에서 확인해 주세요.</p>}
             {project.scenes.length > 1 && !(state.render?.status === 'done' && !state.staleOutput) && <div className="studio-preview-nav"><button className="studio-icon-button" disabled={activeIndex === 0} aria-label="이전 장면" onClick={() => setActiveSceneId(project.scenes[activeIndex - 1].id)}><ArrowLeft size={17} /></button><span>장면 {activeIndex + 1}{activeScene ? ` · ${seconds(activeScene.duration)}` : ''}</span><button className="studio-icon-button" disabled={activeIndex === project.scenes.length - 1} aria-label="다음 장면" onClick={() => setActiveSceneId(project.scenes[activeIndex + 1].id)}><ArrowRight size={17} /></button></div>}
-            <div className="studio-output-actions">{renderIssue && <p className="studio-inline-help">{renderIssue}</p>}<button className="studio-button studio-button-primary studio-button-full" disabled={!!renderIssue || outputRunning} onClick={() => void state.renderVideo()}>{outputRunning ? <><LoaderCircle className="studio-spin" size={17} />영상 만드는 중</> : <><Film size={17} />{state.render?.status === 'done' ? '수정한 영상 출력' : '영상 출력하기'}</>}</button><p className="studio-metadata">MP4 영상 · JPG 커버 · SRT 자막</p></div>
+            <div className="studio-output-actions">{renderIssue && <p className="studio-inline-help">{renderIssue}</p>}<button className="studio-button studio-button-primary studio-button-full" disabled={!!renderIssue || outputRunning} onClick={() => void state.renderVideo()}>{outputRunning ? <><LoaderCircle className="studio-spin" size={17} />영상 만드는 중</> : <><Film size={17} />{state.render?.status === 'done' ? '수정한 영상 출력' : '영상 출력하기'}</>}</button><button className="studio-button studio-button-full" disabled={!project.scenes.length || !!incompleteScenes} onClick={() => void run('카드뉴스 출력 중', async () => {
+              const saved = await saveCurrent();
+              const response = await fetch('/api/studio/projects/'+encodeURIComponent(saved.id)+'/cards', {method:'POST'});
+              if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || '카드뉴스를 출력하지 못했어요.');
+              const url = URL.createObjectURL(await response.blob());
+              const link = document.createElement('a'); link.href = url; link.download = 'cards.zip'; link.click();
+              setTimeout(() => URL.revokeObjectURL(url), 60000);
+            })}>카드뉴스 다운로드 · JPG 묶음</button></div>
             {outputRunning && <div className="studio-render-progress" role="status"><div><span>{state.render?.stage || '출력 준비 중'}</span><span>{Math.round(state.render?.progress || 0)}%</span></div><progress max={100} value={state.render?.progress || 0} /></div>}
             {state.pollError && <div className="studio-inline-error" role="alert"><p>{state.pollError}</p><button className="studio-text-button" onClick={state.retryPoll}>출력 상태 다시 확인</button></div>}
             {state.render?.status === 'error' && <p className="studio-inline-error" role="alert">{state.render.error || '영상을 만들지 못했어요. 장면 설정을 확인한 뒤 다시 출력해 주세요.'}</p>}
