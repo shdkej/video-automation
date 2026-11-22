@@ -4,7 +4,8 @@ import type { Project, Scene, TextRegion } from './api';
 
 export function Preview({project, scene, index}: {project: Project; scene?: Scene; index: number}) {
   const video = useRef<HTMLVideoElement>(null);
-  const asset = project.assets.find((item) => item.id === scene?.asset_id);
+  const solid = project.design?.background?.kind==='solid' ? project.design.background.color : undefined;
+  const asset = solid ? undefined : project.assets.find((item) => item.id === scene?.asset_id);
   useEffect(() => {
     if (video.current) video.current.currentTime = scene?.trim_start || 0;
   }, [asset?.url, scene?.trim_start]);
@@ -16,7 +17,7 @@ export function Preview({project, scene, index}: {project: Project; scene?: Scen
       if(!regions.some(r=>r.role===role)) regions.push({role,text:'',x:50,y,width:84,size,rotation:0,color:design.ink,outline:'#242424',align:design.align,bold:true});
     }
   }
-  return <div style={design?.source_size ? {aspectRatio:design.source_size.join('/')} : undefined} className={`studio-frame studio-frame--${design ? 'photo' : project.style} studio-frame--${project.font}`}>
+  return <div style={{aspectRatio:design?.source_size?.join('/'),backgroundColor:solid}} className={`studio-frame studio-frame--${design ? 'photo' : project.style} studio-frame--${project.font}`}>
     {asset?.kind === 'image' && <img className="studio-frame-media" src={asset.url} alt={asset.name} />}
     {asset?.kind === 'video' && <video ref={video} className="studio-frame-media" src={asset.url} muted playsInline controls
       onLoadedMetadata={seekToStart} onTimeUpdate={() => {
@@ -25,13 +26,14 @@ export function Preview({project, scene, index}: {project: Project; scene?: Scen
         }
       }} />}
     {!asset && !design && <div className="studio-frame-empty"><span>9 : 16</span><p>장면에 쓸 소재를<br />선택해 주세요.</p></div>}
-    <div className="studio-frame-shade" style={design ? {background:design.wash,opacity:design.strength/100} : undefined} />
+    <div className="studio-frame-shade" style={solid ? {background:"transparent"} : design ? {background:design.wash,opacity:design.strength/100} : undefined} />
     {regions.map((region,i)=>{
       if(region.role==='title' && index!==0 || region.role==='cta' && index!==project.scenes.length-1) return null;
+      const mood=region.mood||design?.mood;
       const bound={title:project.hook,body:scene?.text,cta:project.cta,label:''}[region.role];
       return <div key={i} style={{position:'absolute',left:region.x+'%',top:region.y+'%',width:region.width+'%',fontSize:region.size+'cqw',
         transform:'translate(-50%,-50%) rotate('+region.rotation+'deg)',textAlign:region.align,lineHeight:1.25,color:region.color,
-        fontWeight:region.bold?700:400,fontFamily:design?.mood?moodFonts[design.mood]:region.bold?undefined:'Studio Pretendard',whiteSpace:'pre-wrap',overflowWrap:'anywhere',WebkitTextStroke:region.outline?'0.05em '+region.outline:undefined,
+        fontWeight:region.bold?700:400,fontFamily:mood?moodFonts[mood]:region.bold?undefined:'Studio Pretendard',whiteSpace:'pre-wrap',overflowWrap:'anywhere',WebkitTextStroke:region.outline?'0.05em '+region.outline:undefined,
         paintOrder:'stroke fill',pointerEvents:'none'}}>{bound || region.text}</div>;
     })}
     {!design && index === 0 && project.hook && <div className={`studio-frame-hook studio-frame-hook--${project.position}`}>{project.hook}</div>}

@@ -30,7 +30,17 @@ class VisionRequest(ReferenceKey):
     mode: Literal['fast','precision'] = 'fast'
 
 
+Mood = Literal['clean','impact','friendly','handwritten']
+
+
+class Background(BaseModel):
+    kind: Literal['photo','solid','illustration']
+    color: str = Field(pattern=HEX)
+    description: str = Field(max_length=900)
+
+
 class TextRegion(BaseModel):
+    mood: Mood | None = None
     role: Literal['title', 'body', 'cta', 'label']
     text: str = Field(max_length=500)
     x: float = Field(ge=0, le=100)
@@ -44,11 +54,12 @@ class TextRegion(BaseModel):
     bold: bool = True
 
 
-Mood = Literal['clean','impact','friendly','handwritten']
 Dimension = Annotated[int, Field(ge=1, le=32_000_000)]
 
 
 class VisionLayout(BaseModel):
+    source: Literal['gemini','manual'] = 'gemini'
+    background: Background | None = None
     mood: Mood = 'clean'
     name: str = Field(min_length=1, max_length=100)
     composition: str = Field(min_length=1, max_length=700)
@@ -59,6 +70,7 @@ class VisionLayout(BaseModel):
 
 
 class DesignTemplate(ReferenceKey):
+    background: Background | None = None
     source_size: tuple[Dimension,Dimension] | None = None
     mood: Mood | None = None
     vision: VisionLayout | None = None
@@ -134,7 +146,7 @@ def derive(key, image):
                           ink='#202020' if lightness >= 145 else '#fffaf2', strength=28,
                           title_y=round(title/1.2), body_y=round(body/1.2))
 
-VISION_VERSION = 'layout-3'
+VISION_VERSION = 'layout-4'
 VISION_MODELS = {'fast':'gemini-3.1-flash-lite', 'precision':'gemini-3.8-flash'}
 
 
@@ -146,7 +158,11 @@ def gemini_layout(image: Image.Image, model: str, api_key: str) -> VisionLayout:
         "Analyze this reference as an editable graphic design. Return a JSON object matching this schema: "
         + json.dumps(VisionLayout.model_json_schema(), ensure_ascii=False)
         + ". Give the template name and composition description in Korean. Describe framing, lighting, "
-          "and placement of subjects. Choose the mood for the reference lettering: clean for restrained/minimal, "
+          "and placement of subjects. Always include background.kind (photo, solid, or illustration), "
+          "background.color as the base hex color, and a reusable Korean background-only description with medium, "
+          "subject, framing, lighting, palette and illustration technique when present. Classify uniform flat "
+          "artwork backgrounds as solid. Assign EACH text region its own mood based on visible typography, using "
+          "null only when its typeface matches the template mood. Choose the mood for the reference lettering: clean for restrained/minimal, "
           "impact for bold headlines, friendly for rounded playful lettering, handwritten for personal or pen lettering. Estimate the palette and a subtle reusable color wash. "
           "Locate up to 12 distinct visible text blocks in the artwork, ignoring social app chrome. "
           "For each transcribe original text verbatim; use role title for main headline, body for primary caption, "
@@ -170,7 +186,11 @@ def gemini_layout(image: Image.Image, model: str, api_key: str) -> VisionLayout:
                                     'generationConfig':generation})
         response.raise_for_status()
         parts = response.json()['candidates'][0]['content']['parts']
-        return VisionLayout.model_validate_json(''.join(p.get('text','') for p in parts if not p.get('thought')))
+        layout = VisionLayout.model_validate_json(''.join(p.get('text','') for p in parts if not p.get('thought')))
+        layout.source = 'gemini'
+        if layout.background is None:
+            raise ValueError('missing background')
+        return layout
     except httpx.HTTPStatusError as exc:
         status = exc.response.status_code
         if status in (401,403):
@@ -217,7 +237,7 @@ def analyze_vision(reference: VisionRequest, cache: Path, api_key: str | None):
                 temp.write(json.dumps({'source_size':size,'layout':layout.model_dump()}).encode())
             Path(temp.name).replace(target)
             cached = False
-    design = DesignTemplate(key=key, source_size=size, mood=layout.mood, name=layout.name, wash=layout.wash, strength=layout.strength,
+    design = DesignTemplate(key=key, source_size=size, mood=layout.mood, background=layout.background, name=layout.name, wash=layout.wash, strength=layout.strength,
                           ink=layout.regions[0].color if layout.regions else '#ffffff',
                           title_y=22, body_y=74, vision=layout)
     return {'design':design, 'cached':cached, 'model':model}

@@ -250,6 +250,8 @@ def create_router(root: Path, work_limiter: threading.Semaphore) -> APIRouter:
                 if project.get('design') == design:
                     project['design'] = upgraded.model_dump()
                     store.save(project)
+        if project.get('design'):
+            project['design'] = studio_templates.DesignTemplate.model_validate(project['design']).model_dump(mode='json')
         return project
 
     @router.get('/templates')
@@ -290,6 +292,8 @@ def create_router(root: Path, work_limiter: threading.Semaphore) -> APIRouter:
         with store.lock:
             project = store.read(pid)
             changes = payload.model_dump(exclude_unset=True)
+            if payload.design is not None:
+                changes['design'] = payload.design.model_dump(mode='json')
             if any(len(k)>100 for k in changes.get('keywords',[])):
                 raise HTTPException(422,'키워드는 각각 100자 이내로 입력해 주세요.')
             if 'references' in changes and len(json.dumps(changes['references']))>50000:
@@ -442,6 +446,8 @@ def create_router(root: Path, work_limiter: threading.Semaphore) -> APIRouter:
         total=sum(s['duration'] for s in project['scenes'])
         if total>180: raise HTTPException(422,'릴스 전체 길이는 180초 이내로 맞춰 주세요.')
         for scene in project['scenes']:
+            if studio_render.solid_color(project):
+                continue
             _, asset=store.resolve(project,scene['asset_id'])
             if asset['kind'] not in ('image','video'): raise HTTPException(422,'장면에는 이미지 또는 영상을 선택해 주세요.')
             if asset['kind']=='video' and scene['trim_start']+scene['duration']>asset['duration']+.1:

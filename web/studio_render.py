@@ -27,6 +27,21 @@ def canvas_size(project, *, video=False):
     return tuple(max(unit, unit * math.floor(value * scale / unit + .5)) for value in (w,h))
 
 
+def solid_color(project):
+    background = (project.get('design') or {}).get('background') or {}
+    return background.get('color') if background.get('kind') == 'solid' else None
+
+
+def scene_source(project, scene, resolve_asset, directory, video=False):
+    color = solid_color(project)
+    if color is None:
+        return resolve_asset(scene['asset_id'])
+    path = directory/'_solid.png'
+    if not path.exists():
+        Image.new('RGB',canvas_size(project,video=video),color).save(path)
+    return path, {'kind':'image'}
+
+
 def run(args: list[str], timeout: int = 240) -> None:
     result = subprocess.run(args, capture_output=True, timeout=timeout)
     if result.returncode:
@@ -116,14 +131,14 @@ def overlay(project: dict, scene: dict, index: int, path: Path, *, video=False) 
     image = Image.new('RGBA', canvas_size(project, video=video))
     draw = ImageDraw.Draw(image)
     design = project.get('design')
-    if design:
+    if design and not solid_color(project):
         from PIL import ImageColor
         draw.rectangle((0,0,*image.size), fill=(*ImageColor.getrgb(design['wash']),round(design['strength']*2.55)))
-    elif project['style'] == 'shade':
+    elif not design and project['style'] == 'shade':
         for y in range(int(HEIGHT*.4), HEIGHT):
             alpha = round(210 * (y/HEIGHT - .4) / .6)
             draw.line((0,y,WIDTH,y), fill=(24,26,22,alpha))
-    elif project['style'] == 'editorial':
+    elif not design and project['style'] == 'editorial':
         draw.rounded_rectangle((58,78,WIDTH-58,HEIGHT-156), radius=12, fill=(27,29,23,180))
         draw.rectangle((86,118,93,238), fill='#f9df55')
     if design:
@@ -161,7 +176,7 @@ def render(project: dict, resolve_asset, output: Path, progress) -> None:
     elapsed = 0.0
     for index, scene in enumerate(project['scenes']):
         progress(f'{index+1}/{len(project["scenes"])} 장면 합성 중', 5+int(75*index/len(project['scenes'])))
-        source, asset = resolve_asset(scene['asset_id'])
+        source, asset = scene_source(project, scene, resolve_asset, output, video=True)
         layer = output/f'_overlay_{index}.png'
         overlay(project, scene, index, layer, video=True)
         segment = output/f'_scene_{index}.mp4'
@@ -208,7 +223,7 @@ def cards(project: dict, resolve_asset, directory: Path) -> Path:
     target = directory/'cards.zip'
     with ZipFile(target, 'w') as archive:
         for index, scene in enumerate(project['scenes']):
-            source, asset = resolve_asset(scene['asset_id'])
+            source, asset = scene_source(project, scene, resolve_asset, directory)
             if asset['kind'] == 'video':
                 frame = directory/f'frame-{index}.jpg'
                 run(['ffmpeg','-y','-v','error','-ss',str(scene['trim_start']),'-i',str(source),
@@ -250,7 +265,7 @@ def draw_regions(image, project, scene, index):
         if not text:
             continue
         face = FONTS[project['font']] if region['bold'] else 'Pretendard-Regular.otf'
-        mood = design.get('mood')
+        mood = region.get('mood') or design.get('mood')
         if mood:
             face = 'Pretendard-Bold.otf' if mood == 'clean' and region['bold'] else MOOD_FONTS[mood]
         font_path = ROOT/'assets'/'fonts'/face

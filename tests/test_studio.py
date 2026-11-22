@@ -227,7 +227,7 @@ def test_vision_template_provider_layers_and_saved_outputs(studio, monkeypatch):
     client, root = studio
     sample = dict(role='label', text='IN PHONE', x=30,y=32,width=50,size=6,rotation=18,
                   color='#ffee22', outline='#202020', align='left', bold=False)
-    layout = dict(name='주방',composition='대각선 휴대폰과 하단 자막',palette=['#693824'],
+    layout = dict(background=dict(kind='photo',color='#513726',description='주방 조리대'),name='주방',composition='대각선 휴대폰과 하단 자막',palette=['#693824'],
                   wash='#513726', strength=20, regions=[sample,dict(sample,role='body',text='본문',y=78)])
     calls = []
     endpoint = '/api/studio/archive/design/vision'
@@ -348,3 +348,49 @@ def test_template_mood_family_affects_regular_and_bold_layers(tmp_path):
             studio_render.overlay(project,scene,0,path)
             rendered.add(path.read_bytes())
         assert len(rendered) == 4
+
+
+def test_solid_background_and_region_fonts_without_assets(studio):
+    import subprocess
+    from zipfile import ZipFile
+    from web import studio_render
+    client,root=studio
+    region=dict(role='label',text='각자의 문구',x=50,y=45,width=85,size=10,color='#102030',
+                rotation=0,outline=None,align='center',bold=False,mood='handwritten')
+    design=dict(key='original/ref.webp',name='편지',source_size=[320,240],mood='impact',ink='#121212',
+                wash='#ff0000',strength=90,align='center',title_y=25,body_y=70,
+                background=dict(kind='solid',color='#368950',description=''),
+                vision=dict(name='편지',composition='색지',palette=['#368950'],wash='#ff0000',strength=90,
+                            regions=[region,dict(region,text='강조 문구',y=75,mood='friendly')]))
+    project=client.post('/api/studio/projects',json={'design':design,'hook':'제목','script':'대본',
+                    'scenes':[dict(id='one',text='',duration=1)]}).json()
+    assert [r['mood'] for r in project['design']['vision']['regions']]==['handwritten','friendly']
+    base='/api/studio/projects/'+project['id']
+    partial = dict(design)
+    partial.pop('align')
+    assert client.put(base,json={'design':partial}).json()['design']['align']=='center'
+    card=client.post(base+'/cards')
+    assert card.status_code==200,card.text[:100]
+    with ZipFile(io.BytesIO(card.content)) as archive:
+        im=Image.open(io.BytesIO(archive.read('card-01.jpg')))
+        assert all(abs(a-b)<4 for a,b in zip(im.getpixel((2,2)),(54,137,80)))
+    job=client.post(base+'/render').json()
+    for _ in range(100):
+        job=client.get(base+'/renders/'+job['id']).json()
+        if job['status'] in ('error','done'): break
+        time.sleep(.1)
+    assert job['status']=='done',job
+    path=root/project['id']/'renders'/job['id']/'reel.mp4'
+    pixels=subprocess.check_output(['ffmpeg','-v','error','-i',str(path),'-vf','crop=2:2:0:0',
+                                    '-frames:v','1','-f','rawvideo','-pix_fmt','rgb24','-'])
+    assert all(abs(a-b)<6 for a,b in zip(pixels[:3],(54,137,80)))
+    surface=root/'overlay.png'
+    studio_render.overlay(project,project['scenes'][0],0,surface)
+    before=surface.read_bytes()
+    project['design']['vision']['regions'][0]['mood']=None
+    studio_render.overlay(project,project['scenes'][0],0,surface)
+    assert before != surface.read_bytes()
+    for kind in ('photo','illustration'):
+        project['design']['background']['kind']=kind
+        assert client.put(base,json={'design':project['design']}).status_code==200
+        assert client.post(base+'/cards').status_code==422

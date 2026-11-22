@@ -17,10 +17,11 @@ export type KeywordResearch = {
   items: {keyword: string; is_seed: boolean; pc: string; mobile: string; monthly_total: number | null; monthly_label: string; competition: string}[];
 };
 export type Scene = {id: string; text: string; asset_id: string; duration: number; trim_start: number};
-export type TextRegion = {role:'title'|'body'|'label'|'cta'; text:string; x:number;y:number;width:number;size:number;rotation:number;color:string;outline:string|null;align:'left'|'center'|'right';bold:boolean};
-export type Vision = {name:string;composition:string;palette:string[];wash:string;strength:number;regions:TextRegion[]};
+export type TemplateBackground = {kind:"solid"|"photo"|"illustration";color:string;description:string};
+export type TextRegion = {mood?:Mood|null;role:'title'|'body'|'label'|'cta'; text:string; x:number;y:number;width:number;size:number;rotation:number;color:string;outline:string|null;align:'left'|'center'|'right';bold:boolean};
+export type Vision = {source?:'gemini'|'manual';name:string;composition:string;palette:string[];wash:string;strength:number;regions:TextRegion[]};
 export type Mood = 'clean'|'impact'|'friendly'|'handwritten';
-export type Design = {source_size?:[number,number]|null; mood?:Mood|null;vision?: Vision|null; key:string; name:string; align:"left"|"center"|"right"; wash:string; ink:string; strength:number; title_y:number; body_y:number};
+export type Design = {background?:TemplateBackground|null;source_size?:[number,number]|null; mood?:Mood|null;vision?: Vision|null; key:string; name:string; align:"left"|"center"|"right"; wash:string; ink:string; strength:number; title_y:number; body_y:number};
 export type ArchivePage = {images:{key:string;url:string}[];cursor:string|null};
 export type Project = {
   design?: Design | null;
@@ -113,3 +114,5 @@ export function referenceAsset(assets: Asset[], reference: Reference) {
 }
 
 export const moodFonts = {clean:'Studio Pretendard', impact:'Studio Black Han', friendly:'Studio Jua', handwritten:'Studio Nanum Pen'};
+
+export const moodLabels = {clean:'담백한 · 프리텐다드',impact:'강렬한 · 검은고딕',friendly:'친근한 · 주아',handwritten:'손글씨 · 나눔손글씨펜'};
